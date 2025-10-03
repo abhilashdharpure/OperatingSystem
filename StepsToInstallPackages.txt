@@ -1,0 +1,70 @@
+
+# Install MICRO
+sudo apt install micro
+
+#Insall NASM
+sudo apt install nasm
+
+#Install Vuirtual Machine
+sudo apt install qemu
+sudo apt install qemu-system-x86
+sudo apt install qemu qemu-system qemu-utils
+
+Install MCopy
+sudo apt install mtools
+
+Install bochs
+sudo apt install bochs bochs-sdl bochsbios vgabios
+
+To Run The OS
+qemu-system-i386 -fda build/main_floppy.img 
+
+
+# When ./run.sh fails
+unset GTK_PATH
+
+
+# Install Watcom
+sudo apt install snapd
+sudo snap install open-watcom --beta
+
+export PATH="/snap/open-watcom/2/binl:$PATH"
+echo 'export PATH="/snap/open-watcom/2/binl:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+sudo mkdir -p /usr/bin/watcom/binl
+sudo ln -s /snap/open-watcom/2/binl/wcc /usr/bin/watcom/binl/wcc
+sudo ln -s /snap/open-watcom/2/binl/wlink /usr/bin/watcom/binl/wlink
+
+
+
+
+sudo apt install dosbox
+export DOSBOX=dosbox
+git clone https://github.com/open-watcom/open-watcom-v2.git
+cd open-watcom-v2
+create file: Project/OperatingSystem/open-watcom-v2/build/mif/dosbox.conf
+Add below code to dosbox.conf file
+        [sdl]
+        fullscreen=false
+
+        [dosbox]
+        memsize=16
+
+        [autoexec]
+        mount c /home/abhilash/Project/OperatingSystem/open-watcom-v2
+        c:
+
+RUn below commands
+export DOSBOX=dosbox
+export DOSBOXCONF=~/Project/OperatingSystem/open-watcom-v2/build/mif/dosbox.conf
+export OWNOWGML=1
+export OWGUINOBUILD=1
+./build.sh
+
+
+sudo mkdir -p /usr/bin/watcom/binl
+sudo ln -s ~/Project/OperatingSystem/open-watcom-v2/binl/wcc /usr/bin/watcom/binl/wcc
+sudo ln -s ~/Project/OperatingSystem/open-watcom-v2/binl/wlink /usr/bin/watcom/binl/wlink
+sudo ln -s ~/Project/OperatingSystem/open-watcom-v2/binl/wpp /usr/bin/watcom/binl/wpp
+
+export WATCOM=/home/abhilash/Project/OperatingSystem/open-watcom-v2
