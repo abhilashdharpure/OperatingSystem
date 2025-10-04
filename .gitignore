@@ -1,6 +1,5 @@
 # Ignore build folders
 build/
 
-# Ignore files
-
-
+*.err
+bx_enh_dbg.ini
