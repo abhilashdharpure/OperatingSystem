@@ -36,35 +36,38 @@ sudo ln -s /snap/open-watcom/2/binl/wcc /usr/bin/watcom/binl/wcc
 sudo ln -s /snap/open-watcom/2/binl/wlink /usr/bin/watcom/binl/wlink
 
 
+# Install Binutils and GCC
+Download latest tar,gz file in Project/Toolchain folder
+        https://ftp.gnu.org/gnu/gcc/gcc-11.1.0/
+        https://ftp.gnu.org/gnu/binutils/?C=M%3BO%3DA
+extract both the files
+And if you wan to crosscompile for x86 the use below commands   
+        export PREFIX="$HOME/Project/Toolchain/i686-elf"
+        export TARGET=i686-elf
+        export PATH="$PREFIX/bin:$PATH"
+Go to Project/Toolchain folder and run below commands:
+        cd Project/Toolchain
+        mkdir binutils-build
+        cd binutils-build
+        ../binutils-2.45/configure --target=$TARGET --prefix="$PREFIX" --with-sysroot --disable-nls --disable-werror 
+        make -j4
+        make install
+        cd ../gcc-build
+        ../gcc-11.1.0/configure --target=$TARGET --prefix="$PREFIX" --disable-nls --enable-languages=c,c++ --without-headers
+        make -j8 all-gcc
+        make -j8 all-target-libgcc
+        make install-gcc
+        make install-target-libgcc
+
+Test GCC is working
+        cd /home/abhilash/Project/nanobyte_experiments/GccTest/
+        export TOOLCHAIN="$HOME/Project/Toolchain/i686-elf"
+        make
+        make Run
 
 
-sudo apt install dosbox
-export DOSBOX=dosbox
-git clone https://github.com/open-watcom/open-watcom-v2.git
-cd open-watcom-v2
-create file: Project/OperatingSystem/open-watcom-v2/build/mif/dosbox.conf
-Add below code to dosbox.conf file
-        [sdl]
-        fullscreen=false
-
-        [dosbox]
-        memsize=16
-
-        [autoexec]
-        mount c /home/abhilash/Project/OperatingSystem/open-watcom-v2
-        c:
-
-RUn below commands
-export DOSBOX=dosbox
-export DOSBOXCONF=~/Project/OperatingSystem/open-watcom-v2/build/mif/dosbox.conf
-export OWNOWGML=1
-export OWGUINOBUILD=1
-./build.sh
+        
 
 
-sudo mkdir -p /usr/bin/watcom/binl
-sudo ln -s ~/Project/OperatingSystem/open-watcom-v2/binl/wcc /usr/bin/watcom/binl/wcc
-sudo ln -s ~/Project/OperatingSystem/open-watcom-v2/binl/wlink /usr/bin/watcom/binl/wlink
-sudo ln -s ~/Project/OperatingSystem/open-watcom-v2/binl/wpp /usr/bin/watcom/binl/wpp
 
-export WATCOM=/home/abhilash/Project/OperatingSystem/open-watcom-v2
+

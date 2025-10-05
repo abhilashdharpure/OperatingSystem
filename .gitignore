@@ -1,5 +1,4 @@
-# Ignore build folders
 build/
-
+toolchain/
 *.err
 bx_enh_dbg.ini
