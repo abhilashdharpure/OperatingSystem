@@ -41,3 +41,7 @@ enum E820MemoryBlockType
 };
 
 int ASMCALL x86_E820GetNextBlock(E820MemoryBlock* block, uint32_t* continuationId);
+
+int __attribute__((cdecl)) x86_Video_GetVbeInfo(void* infoOut);
+int __attribute__((cdecl)) x86_Video_GetModeInfo(uint16_t mode, void* infoOut);
+int __attribute__((cdecl)) x86_Video_SetMode(uint16_t mode);

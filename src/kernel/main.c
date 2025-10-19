@@ -1,8 +1,10 @@
 #include <stdint.h>
 #include "stdio.h"
 #include "memory.h"
+#include "drivers/fb/fb.h"
 #include <hal/hal.h>
 #include <arch/i686/irq.h>
+#include <arch/i686/ps2.h>
 #include <debug.h>
 #include <boot/bootparams.h>
 
@@ -15,7 +17,7 @@ void timer(Registers* regs)
     printf(".");
 }
 
-void start(BootParams* bootParams)
+void start(BootParams* bootParams, VbeModeInfo* fb_info)
 {   
     // call global constructors
     _init();
@@ -39,9 +41,20 @@ void start(BootParams* bootParams)
     log_crit("Main", "This is a critical msg!");
     printf("Welcome to One OS v0.1\n");
     printf("This operating system is under construction.\n");
-    //i686_IRQ_RegisterHandler(0, timer);
 
     //crash_me();
+
+
+    // initialize framebuffer
+    fb_init(fb_info);           
+
+    // init keyboard
+    ps2_init();                 
+
+    // init timer
+    // pit_init();                
+
+    log_info("Main", "After PS 2 Init!");
 
 end:
     for (;;);

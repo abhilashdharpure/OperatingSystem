@@ -11,13 +11,15 @@
 #include "elf.h"
 #include "memdetect.h"
 #include <boot/bootparams.h>
+#include "vbe/vbe.h"
+
 
 uint8_t* KernelLoadBuffer = (uint8_t*)MEMORY_LOAD_KERNEL;
 uint8_t* Kernel = (uint8_t*)MEMORY_KERNEL_ADDR;
 
 BootParams g_BootParams;
 
-typedef void (*KernelStart)(BootParams* bootParams);
+typedef void (*KernelStart)(BootParams* bootParams, VbeModeInfo* fbInfo);
 
 void __attribute__((cdecl)) start(uint16_t bootDrive, void* partition)
 {
@@ -51,8 +53,41 @@ void __attribute__((cdecl)) start(uint16_t bootDrive, void* partition)
         goto end;
     }
 
+    // TODO: Check the value.
+    const int desiredWidth = 1024;
+    const int desiredHeight = 768;
+    const int desiredBpp = 32;
+    uint16_t pickedMode = 0xffff;
+
+    // Initialize graphics 
+    VbeInfoBlock* info = (VbeInfoBlock*)MEMORY_VESA_INFO;
+    VbeModeInfo* modeInfo = (VbeModeInfo*)MEMORY_MODE_INFO;
+    if (VBE_GetControllerInfo(info)) {
+        uint16_t* mode = (uint16_t*)(info->VideoModePtr);
+        for (int i = 0; mode[i] != 0xFFFF; i++) {
+            if (!VBE_GetModeInfo(mode[i], modeInfo)) {
+                printf("Can't get mode info %x :(\n", mode[i]);
+                continue;
+            }
+            bool hasFB = (modeInfo->attributes & 0x90) == 0x90;
+
+            if (hasFB && modeInfo->width == desiredWidth && modeInfo->height == desiredHeight && modeInfo->bpp == desiredBpp) {
+                pickedMode = mode[i];
+                break;
+            }
+        }
+
+        // Set the VBE
+        if (pickedMode != 0xFFFF && VBE_SetMode(pickedMode)) {
+            printf("VBE mode set..(\n");
+        }
+    }
+    else {
+        printf("No VBE extensions :(\n");
+    }
+
     // execute kernel
-    kernelEntry(&g_BootParams);
+    kernelEntry(&g_BootParams, modeInfo);
 
 end:
     for (;;);

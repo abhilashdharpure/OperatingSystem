@@ -6,6 +6,7 @@
 #include <util/arrays.h>
 #include "stdio.h"
 #include <debug.h>
+#include "arch/i686/events/input_event.h"
 
 #define PIC_REMAP_OFFSET        0x20
 #define MODULE                  "PIC"
@@ -16,14 +17,12 @@ static const PICDriver* g_Driver = NULL;
 void i686_IRQ_Handler(Registers* regs)
 {
     int irq = regs->interrupt - PIC_REMAP_OFFSET;
-    
-    if (g_IRQHandlers[irq] != NULL)
+
+    if (irq >= 0 && irq < 16 && g_IRQHandlers[irq] != NULL)
     {
-        // handle IRQ
         g_IRQHandlers[irq](regs);
-    }
-    else
-    {
+    } 
+    else {
         log_warn(MODULE, "Unhandled IRQ %d...", irq);
     }
 
@@ -55,14 +54,23 @@ void i686_IRQ_Initialize()
     for (int i = 0; i < 16; i++)
         i686_ISR_RegisterHandler(PIC_REMAP_OFFSET + i, i686_IRQ_Handler);
 
+    // g_Driver->Unmask(0);
+    g_Driver->Unmask(HardwareIRQNo_Keyboard);
+    g_Driver->Unmask(HardwareIRQNo_Cascade);
+    g_Driver->Unmask(HardwareIRQNo_Mouse);
+
     // enable interrupts
     i686_EnableInterrupts();
 
-    // g_Driver->Unmask(0);
-    // g_Driver->Unmask(1);
 }
 
 void i686_IRQ_RegisterHandler(int irq, IRQHandler handler)
 {
     g_IRQHandlers[irq] = handler;
+}
+
+void i686_IRQ_SendEndOfInterupt(int irq)
+{
+    // send EOI
+    g_Driver->SendEndOfInterrupt(irq);
 }

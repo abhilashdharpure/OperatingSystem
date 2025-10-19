@@ -101,7 +101,51 @@ EnableA20:
     mov al, KbdControllerEnableKeyboard
     out KbdControllerCommandPort, al
 
+    ; Enable second PS/2 port (mouse)
     call A20WaitInput
+    mov al, KbdControllerEnableSecondPort
+    out KbdControllerCommandPort, al
+
+    ; Read controller command byte
+    call A20WaitInput
+    mov al, 0x20
+    out 0x64, al
+
+    call A20WaitOutput
+    in al, 0x60
+    ;push eax
+    mov bl, al
+
+    ; Modify command byte: set bit 1 (IRQ12), clear bit 5 (enable mouse clock)
+    ;pop eax
+    or bl, 0x03       ; Enable IRQ12
+    and bl, 0xDF      ; Clear bit 5
+
+    ; Write modified command byte
+    call A20WaitInput
+    mov al, 0x60
+    out 0x64, al         ; Tell controller to expect command byte
+
+    call A20WaitInput
+    ;pop eax              ; Get modified command byte
+    mov al, bl
+    out 0x60, al         ; Write it to data port
+
+    ; Tell controller next byte is for mouse
+    call A20WaitInput
+    mov al, KbdControllerNextByteForMouse
+    out KbdControllerCommandPort, al
+
+    ; enable Mouse
+    call A20WaitInput
+    mov al, KbdControllerEnableMouse
+    out KbdControllerDataPort, al
+
+    call A20WaitOutput
+    in al, KbdControllerDataPort
+    cmp al, 0xFA
+    ;jne MouseNotAcked ; Optional: handle error or just ignore
+
     ret
 
 
@@ -136,6 +180,9 @@ KbdControllerDisableKeyboard        equ 0xAD
 KbdControllerEnableKeyboard         equ 0xAE
 KbdControllerReadCtrlOutputPort     equ 0xD0
 KbdControllerWriteCtrlOutputPort    equ 0xD1
+KbdControllerEnableSecondPort       equ 0xA8
+KbdControllerNextByteForMouse       equ 0xD4
+KbdControllerEnableMouse            equ 0xF4
 
 ScreenBuffer                        equ 0xB8000
 
