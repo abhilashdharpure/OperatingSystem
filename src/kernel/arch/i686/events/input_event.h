@@ -3,12 +3,12 @@
 #include <stdint.h>
 #include "arch/i686/sys/time.h"
 
-typedef struct  {
-    struct timeval time;  // when the event happened
-    uint16_t type;        // EV_KEY, EV_REL, etc.
-    uint16_t code;        // KEY_A, REL_X, BTN_LEFT, etc.
-    int32_t  value;       // meaning depends on type+code
-} InputEvent;
+// typedef struct  {
+//     uint64_t time;        // when the event happened // microseconds since boot (optional)
+//     uint16_t type;        // EV_KEY, EV_REL, etc.
+//     uint16_t code;        // KEY_A, REL_X, BTN_LEFT, etc.
+//     int32_t  value;       // meaning depends on type+code
+// } InputEvent;
 
 
 enum InputEventType{
@@ -39,9 +39,8 @@ enum MouseEventValue{
 // 2	    Cascade from PIC1 to PIC2
 enum HardwareIRQNumber
 {
+    HardwareIRQNo_PIT_Timer     = 0,
     HardwareIRQNo_Keyboard      = 1,
     HardwareIRQNo_Cascade       = 2,
     HardwareIRQNo_Mouse         = 12
 };
-
-void input_device_push_event(InputEvent* inputEvent);

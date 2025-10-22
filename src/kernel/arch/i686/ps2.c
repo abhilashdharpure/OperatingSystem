@@ -3,8 +3,11 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <debug.h>
+#include "time/time.h"
 
 #include "arch/i686/events/input_event.h"
+#include "drivers/input/input.h"
+#include "drivers/input/register_input.h"
 
 #define DATA_PORT 0x60
 #define STATUS_PORT 0x64
@@ -22,6 +25,11 @@ static volatile int key_tail = 0;
 
 static uint8_t mouse_cycle = 0;
 static int8_t mouse_packet[3];
+
+
+struct input_device keyboard_dev;
+struct input_device mouse_dev;
+
 
 
 // Basic US QWERTY Scan Code Set 1 mapping for keys 0x01-0x3A (partial)
@@ -61,12 +69,19 @@ static void ps2_keyboard_handler()
         return; // Unknown key
 
     InputEvent keyEvent;
-    //keyEvent.time =  //TODO
+    keyEvent.time = get_system_time();
     keyEvent.type = EV_KEY;
     keyEvent.code = linux_keycode;
     keyEvent.value = released ? KEY_RELEASED : KEY_PRESSED;
 
-    input_device_push_event(&keyEvent); // Your ring buffer writer
+
+    log_info("PS2", "[Input] type=%u, code=%u, value=%d, time=%llu\n",
+                keyEvent.type, keyEvent.code, keyEvent.value, keyEvent.time);
+    input_push_event(&keyboard_dev, &keyEvent); // Your ring buffer writer
+
+
+    // // Only for testing
+    // debug_poll_input(&keyboard_dev);
 
     if(keyEvent.value == KEY_PRESSED)
     {
@@ -79,12 +94,12 @@ static void ps2_keyboard_handler()
 
     // Always follow up with EV_SYN
     InputEvent synEvent;
-    //synEvent.time =  //TODO
+    synEvent.time =  get_system_time();
     synEvent.type = EV_SYN;
     synEvent.code = SYN_REPORT;
     synEvent.value = 0;
 
-    input_device_push_event(&synEvent);
+    input_push_event(&keyboard_dev, &synEvent);
     
     i686_IRQ_SendEndOfInterupt(HardwareIRQNo_Keyboard);
 }
@@ -119,47 +134,55 @@ static void ps2_mouse_handler(Registers* regs)
         InputEvent event;
 
         // Left button
+        event.time =  get_system_time();
         event.type = EV_KEY;
         event.code = BTN_LEFT;
         event.value = left_pressed ? KEY_PRESSED : KEY_RELEASED;
-        input_device_push_event(&event);
+        input_push_event(&mouse_dev, &event);
 
         // Right button
+        event.time =  get_system_time();
         event.type = EV_KEY;
         event.code = BTN_RIGHT;
         event.value = right_pressed ? KEY_PRESSED : KEY_RELEASED;
-        input_device_push_event(&event);
+        input_push_event(&mouse_dev, &event);
 
         // Middle button
+        event.time =  get_system_time();
         event.type = EV_KEY;
         event.code = BTN_MIDDLE;
         event.value = middle_pressed ? KEY_PRESSED : KEY_RELEASED;
-        input_device_push_event(&event);
+        input_push_event(&mouse_dev, &event);
 
         // Movement events
         if (x_move != 0) {
+            event.time =  get_system_time();
             event.type = EV_REL;
             event.code = REL_X;
             event.value = x_move;
-            input_device_push_event(&event);
+            input_push_event(&mouse_dev, &event);
         }
         if (y_move != 0) {
+            event.time =  get_system_time();
             event.type = EV_REL;
             event.code = REL_Y;
             event.value = y_move;
-            input_device_push_event(&event);
+            input_push_event(&mouse_dev, &event);
         }
 
         // Always send sync event at end
         InputEvent synEvent;
+        event.time =  get_system_time();
         synEvent.type = EV_SYN;
         synEvent.code = SYN_REPORT;
         synEvent.value = 0;
-        input_device_push_event(&synEvent);
+        input_push_event(&mouse_dev, &synEvent);
 
         // Optional logging
         log_info("Mouse", "Move X=%d Y=%d L=%d R=%d M=%d", x_move, y_move, left_pressed, right_pressed, middle_pressed);
 
+        // // Only for testing
+        // debug_poll_input(&mouse_dev);
     }
 
     i686_IRQ_SendEndOfInterupt(HardwareIRQNo_Mouse); // Or the proper IRQ number for mouse IRQ12
@@ -236,6 +259,24 @@ void ps2_enable_mouse()
     }
 }
 
+// void keyboard_isr(uint8_t scancode, int pressed)
+// {
+//     uint16_t keycode = translate_scancode(scancode); // implement simple map
+//     input_push_event(&keyboard_dev, EV_KEY, keycode, pressed ? 1 : 0);
+// }
+
+// void mouse_move(int dx, int dy)
+// {
+//     input_push_event(&mouse_dev, EV_REL, REL_X, dx);
+//     input_push_event(&mouse_dev, EV_REL, REL_Y, dy);
+// }
+
+void init_input_system(void)
+{
+    register_input_device(&keyboard_dev, "event0");
+    register_input_device(&mouse_dev, "event1");
+}
+
 void ps2_init() 
 {
     i686_IRQ_RegisterHandler(HardwareIRQNo_Keyboard, ps2_keyboard_handler);
@@ -246,8 +287,9 @@ void ps2_init()
     ps2_enable_mouse(); // 👈 Important: enable the mouse
     ps2_test_mouse_polling();
 
+    init_input_system();
+
     // 4. Enable interrupts
     __asm__ __volatile__("sti");
     log_info("PS/2", "Keyboard & Mouse initialization complete");
 }
-

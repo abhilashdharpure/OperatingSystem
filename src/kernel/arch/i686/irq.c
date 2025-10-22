@@ -54,7 +54,7 @@ void i686_IRQ_Initialize()
     for (int i = 0; i < 16; i++)
         i686_ISR_RegisterHandler(PIC_REMAP_OFFSET + i, i686_IRQ_Handler);
 
-    // g_Driver->Unmask(0);
+    g_Driver->Unmask(HardwareIRQNo_PIT_Timer);
     g_Driver->Unmask(HardwareIRQNo_Keyboard);
     g_Driver->Unmask(HardwareIRQNo_Cascade);
     g_Driver->Unmask(HardwareIRQNo_Mouse);

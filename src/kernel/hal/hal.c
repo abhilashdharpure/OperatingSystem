@@ -4,6 +4,8 @@
 #include <arch/i686/isr.h>
 #include <arch/i686/irq.h>
 #include <arch/i686/vga_text.h>
+#include <arch/i686/ps2.h>
+#include <arch/i686/pit.h>
 
 void HAL_Initialize()
 {
@@ -12,4 +14,11 @@ void HAL_Initialize()
     i686_IDT_Initialize();
     i686_ISR_Initialize();
     i686_IRQ_Initialize();
+    InitializeDevNull();
+
+    // init keyboard
+    ps2_init();  
+
+    // init timer
+    pit_init(10);
 }

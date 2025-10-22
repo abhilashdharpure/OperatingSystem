@@ -6,6 +6,8 @@
 
 #include <hal/vfs.h>
 
+#define STDOUT_FD 1  // or whatever your console output fd is
+
 void fputc(char c, fd_t file)
 {
     VFS_Write(file, &c, sizeof(c));
@@ -262,4 +264,53 @@ void debugf(const char* fmt, ...)
 void debug_buffer(const char* msg, const void* buffer, uint32_t count)
 {
     fprint_buffer(VFS_FD_DEBUG, msg, buffer, count);
+}
+
+// void kprintf(const char *fmt, ...)
+// {
+//     va_list args;
+//     va_start(args, fmt);
+//     vfprintf(STDOUT_FD, fmt, args);
+//     va_end(args);
+// }
+
+int ksnprintf(char *buf, size_t size, const char *fmt, ...)
+{
+    va_list args;
+    va_start(args, fmt);
+
+    size_t i = 0;
+    for (const char *p = fmt; *p && i < size - 1; p++) {
+        if (*p == '%') {
+            p++;
+            if (*p == 's') {
+                const char *s = va_arg(args, const char *);
+                while (*s && i < size - 1) buf[i++] = *s++;
+            } else if (*p == 'd') {
+                int num = va_arg(args, int);
+                char tmp[16];
+                int j = 0;
+                if (num == 0) tmp[j++] = '0';
+                else {
+                    int neg = (num < 0);
+                    if (neg) num = -num;
+                    while (num > 0 && j < 15) {
+                        tmp[j++] = '0' + (num % 10);
+                        num /= 10;
+                    }
+                    if (neg) tmp[j++] = '-';
+                }
+                while (j-- > 0 && i < size - 1) buf[i++] = tmp[j];
+            } else {
+                buf[i++] = '%'; // unsupported specifier, keep it
+                buf[i++] = *p;
+            }
+        } else {
+            buf[i++] = *p;
+        }
+    }
+
+    buf[i] = '\0';
+    va_end(args);
+    return (int)i;
 }

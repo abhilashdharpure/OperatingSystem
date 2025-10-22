@@ -4,7 +4,6 @@
 #include "drivers/fb/fb.h"
 #include <hal/hal.h>
 #include <arch/i686/irq.h>
-#include <arch/i686/ps2.h>
 #include <debug.h>
 #include <boot/bootparams.h>
 
@@ -48,8 +47,8 @@ void start(BootParams* bootParams, VbeModeInfo* fb_info)
     // initialize framebuffer
     fb_init(fb_info);           
 
-    // init keyboard
-    ps2_init();                 
+    // // init keyboard
+    // ps2_init();                 
 
     // init timer
     // pit_init();                
