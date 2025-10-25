@@ -2,6 +2,7 @@
 #include "stdio.h"
 #include "memory.h"
 #include "drivers/fb/fb.h"
+#include "drivers/fb/fb_graphics.h"
 #include <hal/hal.h>
 #include <arch/i686/irq.h>
 #include <debug.h>
@@ -45,9 +46,17 @@ void start(BootParams* bootParams, VbeModeInfo* fb_info)
 
 
     // initialize framebuffer
-    fb_init(fb_info);           
-    test_fb();            
+    fb_init(fb_info);
+    gfx_init();            // initialize graphics layer
+    //test_fb();
 
+
+    gfx_clear(COLOR_BLACK);              // clear screen
+    gfx_fill_rect(50, 50, 400, 200, COLOR_GREEN);  // draw green rectangle
+    gfx_put_pixel(10, 10, COLOR_RED);   // draw red pixel
+
+    gfx_draw_hline(20, 200, 500, COLOR_BLUE );
+    gfx_draw_vline(200, 20, 500, COLOR_RED );
     log_info("Main", "After PS 2 Init!");
 
 end:

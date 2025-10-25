@@ -3,9 +3,9 @@
 #include "hal/vfs.h"
 #include "debug.h"
 
-static VbeModeInfo fb;
 
-#define COLOR(r,g,b) ((b) | (g << 8) | (r << 16))
+
+VbeModeInfo fb;
 
 static int fb_open(struct file *f)
 {
@@ -63,7 +63,7 @@ void fb_init(VbeModeInfo* info)
     //         // fb_put_pixel(x, y, COLOR(x, y, x+y));
     //     }
     // }
-
+    fb = *info;
 
     fb_dev.width  = info->width;
     fb_dev.height = info->height;
@@ -74,16 +74,26 @@ void fb_init(VbeModeInfo* info)
     log_info("FB", "Framebuffer initialized: %ux%u, pitch=%u, bpp=%u, addr=0x%lx",
              fb_dev.width, fb_dev.height, fb_dev.pitch, fb_dev.bpp, fb_dev.framebuffer);
 
+
+    // // Optional: Fill framebuffer with a test pattern
+    // uint32_t* fb_mem = (uint32_t*)fb_dev.framebuffer;
+    // for (int y = 0; y < fb_dev.height; y++) {
+    //     for (int x = 0; x < fb_dev.width; x++) {
+    //         fb_mem[y * (fb_dev.pitch / 4) + x] = (x ^ y) | ((x & y) << 8); // simple pattern
+    //     }
+    // }
+    
     // Register /dev/fb0 in VFS
     VFS_RegisterDevice("/dev/fb0", &fb_fops, &fb_dev);
 }
 
 void fb_put_pixel(int x, int y, uint32_t color)
 {
-    //printf("fb_put_pixel, x = %d, y = %d, color = %lu .\n", x, y, color);
+    if (x < 0 || x >= fb_dev.width || y < 0 || y >= fb_dev.height)
+        return;
 
-    uint32_t* fb_mem = (uint32_t*)fb.framebuffer;
-    fb_mem[y * (fb.pitch / 4) + x] = color;
+    uint32_t* fb_mem = (uint32_t*)fb_dev.framebuffer;
+    fb_mem[y * (fb_dev.pitch / 4) + x] = color;
 }
 
 void fb_clear(uint32_t color)
@@ -91,6 +101,13 @@ void fb_clear(uint32_t color)
     for (int y = 0; y < fb.height; y++)
         for (int x = 0; x < fb.width; x++)
             fb_put_pixel(x, y, color);
+}
+
+void fb_draw_rect(int x, int y, int width, int height, uint32_t color)
+{
+    for (int j = 0; j < height; j++)
+        for (int i = 0; i < width; i++)
+            fb_put_pixel(x + i, y + j, color);
 }
 
 void test_fb(void)
