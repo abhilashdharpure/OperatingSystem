@@ -46,7 +46,7 @@ void start(BootParams* bootParams, VbeModeInfo* fb_info)
 
     // initialize framebuffer
     fb_init(fb_info);           
-            
+    test_fb();            
 
     log_info("Main", "After PS 2 Init!");
 

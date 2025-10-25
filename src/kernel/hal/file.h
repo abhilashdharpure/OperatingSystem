@@ -17,4 +17,5 @@ struct file_operations {
     int  (*close)(struct file *file);
     int  (*read)(struct file *file, void *buf, size_t size);
     int  (*write)(struct file *file, const void *buf, size_t size);
+    int (*ioctl)(struct file* f, unsigned long request, void* arg);    
 };
