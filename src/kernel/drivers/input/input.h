@@ -5,12 +5,19 @@
 #include <util/string.h>
 
 
-typedef struct  {
+typedef struct __attribute__((packed)) {
     uint64_t time;        // when the event happened // microseconds since boot (optional)
     uint16_t type;        // EV_KEY, EV_REL, etc.
     uint16_t code;        // KEY_A, REL_X, BTN_LEFT, etc.
     int32_t  value;       // meaning depends on type+code
 } InputEvent;
+
+// typedef struct  {
+//     uint64_t time;        // when the event happened // microseconds since boot (optional)
+//     uint16_t type;        // EV_KEY, EV_REL, etc.
+//     uint16_t code;        // KEY_A, REL_X, BTN_LEFT, etc.
+//     int32_t  value;       // meaning depends on type+code
+// } InputEvent;
 
 #define INPUT_BUFFER_SIZE 64
 

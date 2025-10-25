@@ -1,6 +1,7 @@
 #include "string.h"
 #include <stdint.h>
 #include <stddef.h>
+#include "kmalloc.h"
 
 const char* strchr(const char* str, char chr)
 {
@@ -135,4 +136,18 @@ char* codepoint_to_utf8(int codepoint, char* stringOutput)
         *stringOutput++ = 0x80 | (codepoint & 0x3F);
     }
     return stringOutput;
+}
+
+char* kstrdup(const char* src)
+{
+    if (!src)
+        return NULL;
+
+    size_t len = strlen(src) + 1;
+    char* dst = kmalloc(len);
+    if (!dst)
+        return NULL;
+
+    memcpy(dst, src, len);
+    return dst;
 }

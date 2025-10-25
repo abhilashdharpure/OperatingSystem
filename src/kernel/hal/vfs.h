@@ -13,8 +13,6 @@ typedef int fd_t;
 
 int VFS_Write(fd_t file, uint8_t* data, size_t size);
 
-
-
 #define MAX_VFS_ENTRIES 64
 #define MAX_OPEN_FILES 32
 

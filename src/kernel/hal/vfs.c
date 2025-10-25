@@ -1,6 +1,7 @@
 #include "vfs.h"
 #include <arch/i686/vga_text.h>
 #include <arch/i686/e9.h>
+#include <debug.h>
 
 int VFS_Write(fd_t file, uint8_t* data, size_t size)
 {
@@ -27,23 +28,32 @@ int VFS_Write(fd_t file, uint8_t* data, size_t size)
 static int vfs_count = 0;
 static struct file open_files[MAX_OPEN_FILES];
 
-int VFS_RegisterDevice(const char *path, struct file_operations *fops, void *private_data) {
+int VFS_RegisterDevice(const char *path, struct file_operations *fops, void *private_data)
+{
     if (vfs_count >= MAX_VFS_ENTRIES)
+    {
+        log_error("VFS", "Max device entries reached!");
         return -1;
+    }
 
-    vfs_table[vfs_count].path = path;
+    vfs_table[vfs_count].path = kstrdup(path); // path;
     vfs_table[vfs_count].fops = fops;
     vfs_table[vfs_count].private_data = private_data;
+
+    log_info("VFS", "Registered device: %s (index=%d)", vfs_table[vfs_count].path, vfs_count);
+
     vfs_count++;
+
 
     return 0;
 }
 
+int VFS_Open(const char *path, int flags)
+{
+    log_info("VFS", "Trying to open: %s", path);
 
-
-
-int VFS_Open(const char *path, int flags) {
     for (int i = 0; i < vfs_count; i++) {
+        log_info("VFS", "Checking %s (index=%d)", vfs_table[i].path, i);
         if (strcmp(vfs_table[i].path, path) == 0) {
             for (int fd = 0; fd < MAX_OPEN_FILES; fd++) {
                 if (open_files[fd].path == NULL) {
@@ -63,7 +73,8 @@ int VFS_Open(const char *path, int flags) {
     return -1; // not found
 }
 
-int VFS_Read(fd_t fd, void *buf, size_t size) {
+int VFS_Read(fd_t fd, void *buf, size_t size)
+{
     if (fd < 0 || fd >= MAX_OPEN_FILES || open_files[fd].path == NULL)
         return -1;
 

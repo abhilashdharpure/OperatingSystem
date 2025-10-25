@@ -62,21 +62,21 @@ void __attribute__((cdecl)) i686_ISR_Handler(Registers* regs)
         g_ISRHandlers[regs->interrupt](regs);
 
     else if (regs->interrupt >= 32)
-        log_err(MODULE, "Unhandled interrupt %d!", regs->interrupt);
+        log_error(MODULE, "Unhandled interrupt %d!", regs->interrupt);
     
     else 
     {
-        log_crit(MODULE, "Unhandled exception %d %s", regs->interrupt, g_Exceptions[regs->interrupt]);
+        log_critical(MODULE, "Unhandled exception %d %s", regs->interrupt, g_Exceptions[regs->interrupt]);
         
-        log_crit(MODULE, "  eax=%x  ebx=%x  ecx=%x  edx=%x  esi=%x  edi=%x",
+        log_critical(MODULE, "  eax=%x  ebx=%x  ecx=%x  edx=%x  esi=%x  edi=%x",
                regs->eax, regs->ebx, regs->ecx, regs->edx, regs->esi, regs->edi);
 
-        log_crit(MODULE, "  esp=%x  ebp=%x  eip=%x  eflags=%x  cs=%x  ds=%x  ss=%x",
+        log_critical(MODULE, "  esp=%x  ebp=%x  eip=%x  eflags=%x  cs=%x  ds=%x  ss=%x",
                regs->esp, regs->ebp, regs->eip, regs->eflags, regs->cs, regs->ds, regs->ss);
 
-        log_crit(MODULE, "  interrupt=%x  errorcode=%x", regs->interrupt, regs->error);
+        log_critical(MODULE, "  interrupt=%x  errorcode=%x", regs->interrupt, regs->error);
 
-        log_crit(MODULE, "KERNEL PANIC!");
+        log_critical(MODULE, "KERNEL PANIC!");
         printf("KERNEL PANIC!");
 
         i686_Panic();

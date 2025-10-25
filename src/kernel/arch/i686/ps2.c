@@ -9,6 +9,9 @@
 #include "drivers/input/input.h"
 #include "drivers/input/register_input.h"
 
+#include "hal/vfs.h"
+#include "io.h"
+
 #define DATA_PORT 0x60
 #define STATUS_PORT 0x64
 
@@ -25,12 +28,10 @@ static volatile int key_tail = 0;
 
 static uint8_t mouse_cycle = 0;
 static int8_t mouse_packet[3];
-
+static uint8_t prev_buttons = 0;
 
 struct input_device keyboard_dev;
 struct input_device mouse_dev;
-
-
 
 // Basic US QWERTY Scan Code Set 1 mapping for keys 0x01-0x3A (partial)
 static const char scancode_to_ascii[128] = {
@@ -45,20 +46,10 @@ static const char scancode_to_ascii[128] = {
     // rest zero
 };
 
-static inline uint8_t inb(uint16_t port) {
-    uint8_t ret;
-    __asm__ volatile ("inb %1, %0" : "=a"(ret) : "Nd"(port));
-    return ret;
-}
-
-static inline void outb(uint16_t port, uint8_t data) {
-    __asm__ volatile ("outb %0, %1" : : "a"(data), "Nd"(port));
-}
-
 // IRQ1 handler
 static void ps2_keyboard_handler()
 {
-    uint8_t scancode = inb(DATA_PORT);
+    uint8_t scancode = i686_inb(DATA_PORT);
     bool released = (scancode & 0x80);
     uint8_t keycode = scancode & 0x7F;
 
@@ -75,7 +66,7 @@ static void ps2_keyboard_handler()
     keyEvent.value = released ? KEY_RELEASED : KEY_PRESSED;
 
 
-    log_info("PS2", "[Input] type=%u, code=%u, value=%d, time=%llu\n",
+    log_info("PS2", "[Input] type=%u, code=%u, value=%d, time=%llu",
                 keyEvent.type, keyEvent.code, keyEvent.value, keyEvent.time);
     input_push_event(&keyboard_dev, &keyEvent); // Your ring buffer writer
 
@@ -107,83 +98,98 @@ static void ps2_keyboard_handler()
 // IRQ12 handler
 static void ps2_mouse_handler(Registers* regs)
 {
-    log_info("Mouse Event", "Move Event ");
+    uint8_t data = i686_inb(DATA_PORT);
 
-    uint8_t data = inb(DATA_PORT);
-
+    // --- Sync to the start of a packet ---
+    if (mouse_cycle == 0 && !(data & 0x08)) {
+        // Bit3 not set → not a valid first byte, skip
+        return;
+    }
 
     mouse_packet[mouse_cycle] = data;
     mouse_cycle++;
 
-    if (mouse_cycle == 3)
+    // Wait until we have a full 3-byte packet
+    if (mouse_cycle < 3)
     {
-        mouse_cycle = 0;
+        return;
+    }
 
-        bool left_pressed = mouse_packet[0] & 0x01;
-        bool right_pressed = mouse_packet[0] & 0x02;
-        bool middle_pressed = mouse_packet[0] & 0x04;
+    int8_t x_move = (int8_t)mouse_packet[1];
+    int8_t y_move = (int8_t)mouse_packet[2];
 
-        int8_t x_move = mouse_packet[1];
-        int8_t y_move = mouse_packet[2];
+    // Convert y_move: mouse Y is typically negative for "up"
+    y_move = -y_move;
 
-        // Convert y_move: mouse Y is typically negative for "up"
-        y_move = -y_move;
+    bool left_pressed   = mouse_packet[0] & 0x01;   // (0000 0001)
+    bool right_pressed  = mouse_packet[0] & 0x02;   // (0000 0010)
+    bool middle_pressed = mouse_packet[0] & 0x04;   // (0000 0100)
+    uint8_t buttons = mouse_packet[0] & 0x07;       // (0000 0111) bits 0–2 = L/M/R 
 
-        // Example: push button events if state changed
-        // (You might want to store previous button state to detect edges)
-        InputEvent event;
 
-        // Left button
+    mouse_cycle = 0; // reset for next packet
+
+    // Log or push events
+    log_info("MOUSE", "X=%d Y=%d L=%d R=%d M=%d", x_move, y_move, left_pressed, right_pressed, middle_pressed);
+
+    // (You might want to store previous button state to detect edges)
+    InputEvent event;
+
+    // Left button
+    if ((prev_buttons & 0x01) != (buttons & 0x01))
+    {
         event.time =  get_system_time();
         event.type = EV_KEY;
         event.code = BTN_LEFT;
         event.value = left_pressed ? KEY_PRESSED : KEY_RELEASED;
         input_push_event(&mouse_dev, &event);
+    }
 
-        // Right button
+    // Right button
+    if ((prev_buttons & 0x02) != (buttons & 0x02))
+    {
         event.time =  get_system_time();
         event.type = EV_KEY;
         event.code = BTN_RIGHT;
         event.value = right_pressed ? KEY_PRESSED : KEY_RELEASED;
         input_push_event(&mouse_dev, &event);
+    }
 
-        // Middle button
+    // Middle button
+    if ((prev_buttons & 0x04) != (buttons & 0x04))
+    {
         event.time =  get_system_time();
         event.type = EV_KEY;
         event.code = BTN_MIDDLE;
         event.value = middle_pressed ? KEY_PRESSED : KEY_RELEASED;
         input_push_event(&mouse_dev, &event);
-
-        // Movement events
-        if (x_move != 0) {
-            event.time =  get_system_time();
-            event.type = EV_REL;
-            event.code = REL_X;
-            event.value = x_move;
-            input_push_event(&mouse_dev, &event);
-        }
-        if (y_move != 0) {
-            event.time =  get_system_time();
-            event.type = EV_REL;
-            event.code = REL_Y;
-            event.value = y_move;
-            input_push_event(&mouse_dev, &event);
-        }
-
-        // Always send sync event at end
-        InputEvent synEvent;
-        event.time =  get_system_time();
-        synEvent.type = EV_SYN;
-        synEvent.code = SYN_REPORT;
-        synEvent.value = 0;
-        input_push_event(&mouse_dev, &synEvent);
-
-        // Optional logging
-        log_info("Mouse", "Move X=%d Y=%d L=%d R=%d M=%d", x_move, y_move, left_pressed, right_pressed, middle_pressed);
-
-        // // Only for testing
-        // debug_poll_input(&mouse_dev);
     }
+
+    // Movement events
+    if (x_move != 0) {
+        event.time =  get_system_time();
+        event.type = EV_REL;
+        event.code = REL_X;
+        event.value = x_move;
+        input_push_event(&mouse_dev, &event);
+    }
+    if (y_move != 0) {
+        event.time =  get_system_time();
+        event.type = EV_REL;
+        event.code = REL_Y;
+        event.value = y_move;
+        input_push_event(&mouse_dev, &event);
+    }
+
+    prev_buttons = buttons;
+
+    // Always send sync event at end
+    InputEvent synEvent;
+    synEvent.time =  get_system_time();
+    synEvent.type = EV_SYN;
+    synEvent.code = SYN_REPORT;
+    synEvent.value = 0;
+    input_push_event(&mouse_dev, &synEvent);
 
     i686_IRQ_SendEndOfInterupt(HardwareIRQNo_Mouse); // Or the proper IRQ number for mouse IRQ12
 }
@@ -192,38 +198,38 @@ void ps2_test_mouse_polling()
 {
     log_info("Mouse", "Polling mouse data for 5 seconds...");
 
-    uint8_t status = inb(STATUS_PORT);
+    uint8_t status = i686_inb(STATUS_PORT);
     if ((status & 0x01) && (status & 0x20)) {
-        uint8_t byte = inb(DATA_PORT);
+        uint8_t byte = i686_inb(DATA_PORT);
         log_info("Mouse", "Byte from mouse: 0x%02x", byte);
     }
 }
 
 void ps2_configure_controller_command_byte() {
     // Request controller to send us the current command byte
-    outb(0x64, 0x20);         // Command: Read Controller Command Byte
-    uint8_t cmd = inb(0x60);  // Read current command byte
+    i686_outb(0x64, 0x20);         // Command: Read Controller Command Byte
+    uint8_t cmd = i686_inb(0x60);  // Read current command byte
 
     // Modify it:
     cmd |= (1 << 1);          // Enable IRQ12 (mouse interrupt)
     cmd &= ~(1 << 5);         // Enable mouse clock (clear disable bit)
 
     // Write modified command byte back
-    outb(0x64, 0x60);         // Command: Write Controller Command Byte
-    outb(0x60, cmd);          // Send the new command byte
+    i686_outb(0x64, 0x60);         // Command: Write Controller Command Byte
+    i686_outb(0x60, cmd);          // Send the new command byte
 }
 
 bool ps2_mouse_enable_data_reporting() {
     // Step 1: Tell the controller the next byte is for the mouse
-    outb(0x64, 0xD4);
+    i686_outb(0x64, 0xD4);
 
     // Step 2: Send 0xF4 to enable data reporting
-    outb(0x60, 0xF4);
+    i686_outb(0x60, 0xF4);
 
     // Step 3: Wait for ACK (0xFA)
     for (int i = 0; i < 10000; i++) {
-        if (inb(0x64) & 0x01) { // Output buffer full
-            uint8_t response = inb(0x60);
+        if (i686_inb(0x64) & 0x01) { // Output buffer full
+            uint8_t response = i686_inb(0x60);
             return response == 0xFA; // ACK
         }
     }
@@ -235,7 +241,7 @@ bool ps2_mouse_enable_data_reporting() {
 void ps2_enable_mouse()
 {
     // 1. Enable the second PS/2 port (mouse)
-    outb(0x64, 0xA8);
+    i686_outb(0x64, 0xA8);
 
     // 2. Enable IRQ12 and mouse clock in controller command byte
     ps2_configure_controller_command_byte();
@@ -252,24 +258,12 @@ void ps2_enable_mouse()
 
     for (int i = 0; i < 1000; ++i)
     {
-        if (inb(0x64) & 0x01) {
-            uint8_t dummy = inb(0x60);
+        if (i686_inb(0x64) & 0x01) {
+            uint8_t dummy = i686_inb(0x60);
             log_info("Mouse", "Unsticking with dummy read: 0x%02x", dummy);
         }
     }
 }
-
-// void keyboard_isr(uint8_t scancode, int pressed)
-// {
-//     uint16_t keycode = translate_scancode(scancode); // implement simple map
-//     input_push_event(&keyboard_dev, EV_KEY, keycode, pressed ? 1 : 0);
-// }
-
-// void mouse_move(int dx, int dy)
-// {
-//     input_push_event(&mouse_dev, EV_REL, REL_X, dx);
-//     input_push_event(&mouse_dev, EV_REL, REL_Y, dy);
-// }
 
 void init_input_system(void)
 {
@@ -284,7 +278,8 @@ void ps2_init()
 
     log_info("PS/2", "Registered IRQ handlers");
 
-    ps2_enable_mouse(); // 👈 Important: enable the mouse
+    ps2_enable_mouse();
+    // enable the mouse
     ps2_test_mouse_polling();
 
     init_input_system();
@@ -292,4 +287,47 @@ void ps2_init()
     // 4. Enable interrupts
     __asm__ __volatile__("sti");
     log_info("PS/2", "Keyboard & Mouse initialization complete");
+}
+
+void test_mouse_keyboard_read(void)
+{
+    InputEvent events_keyboard[8];
+    int fd_keyboard = VFS_Open("/dev/input/event0", VFS_FD_STDIN);
+
+    if (fd_keyboard < 0) {
+        log_error("USR", "Cannot open /dev/input/event0");
+    }
+
+    InputEvent events_mouse[8];
+    int fd_mouse = VFS_Open("/dev/input/event1", VFS_FD_STDIN);
+    if (fd_mouse < 0) {
+        log_error("USR", "Cannot open /dev/input/event1");
+    }
+
+    while (1)
+    {
+        // Read Mouse Events
+        int bytes_mouse = VFS_Read(fd_mouse, events_mouse, sizeof(events_mouse));
+        if (bytes_mouse > 0)
+        {
+            int noOfMouseEvents = bytes_mouse / sizeof(InputEvent);
+            for (int i = 0; i < noOfMouseEvents; i++)
+            {
+                log_info("Mouse Event", "Reading from file /dev/input/event1: type=%u code=%u value=%d time=%llu",
+                        events_mouse[i].type, events_mouse[i].code, events_mouse[i].value, events_mouse[i].time);
+            }
+        }
+
+        // Read Keyboard Events
+        int bytes_keyboard = VFS_Read(fd_keyboard, events_keyboard, sizeof(events_keyboard));
+        if(bytes_keyboard > 0)
+        {
+            int noOfKeyboardEvents = bytes_keyboard / sizeof(InputEvent);
+            for (int i = 0; i < noOfKeyboardEvents; i++)
+            {
+                log_info("Keyboard Event", "Reading from file /dev/input/event0: type=%u code=%u value=%d time=%llu",
+                        events_keyboard[i].type, events_keyboard[i].code, events_keyboard[i].value, events_keyboard[i].time);
+            }
+        }
+    }
 }

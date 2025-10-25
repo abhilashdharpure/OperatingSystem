@@ -23,7 +23,7 @@ void i686_IRQ_Handler(Registers* regs)
         g_IRQHandlers[irq](regs);
     } 
     else {
-        log_warn(MODULE, "Unhandled IRQ %d...", irq);
+        log_warning(MODULE, "Unhandled IRQ %d...", irq);
     }
 
     // send EOI
@@ -43,7 +43,7 @@ void i686_IRQ_Initialize()
     }
 
     if (g_Driver == NULL) {
-        log_warn(MODULE, "No PIC found!");
+        log_warning(MODULE, "No PIC found!");
         return;
     }
 

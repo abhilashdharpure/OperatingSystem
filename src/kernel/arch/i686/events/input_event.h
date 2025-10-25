@@ -3,14 +3,6 @@
 #include <stdint.h>
 #include "arch/i686/sys/time.h"
 
-// typedef struct  {
-//     uint64_t time;        // when the event happened // microseconds since boot (optional)
-//     uint16_t type;        // EV_KEY, EV_REL, etc.
-//     uint16_t code;        // KEY_A, REL_X, BTN_LEFT, etc.
-//     int32_t  value;       // meaning depends on type+code
-// } InputEvent;
-
-
 enum InputEventType{
     EV_SYN = 0,	    //Sync event (frame separator)
 	EV_KEY = 1,	    //Key or button press/release

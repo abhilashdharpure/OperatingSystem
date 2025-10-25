@@ -35,9 +35,9 @@ void start(BootParams* bootParams, VbeModeInfo* fb_info)
 
 
     log_info("Main", "This is an info msg!");
-    log_warn("Main", "This is a warning msg!");
-    log_err("Main", "This is an error msg!");
-    log_crit("Main", "This is a critical msg!");
+    log_warning("Main", "This is a warning msg!");
+    log_error("Main", "This is an error msg!");
+    log_critical("Main", "This is a critical msg!");
     printf("Welcome to One OS v0.1\n");
     printf("This operating system is under construction.\n");
 
@@ -46,15 +46,13 @@ void start(BootParams* bootParams, VbeModeInfo* fb_info)
 
     // initialize framebuffer
     fb_init(fb_info);           
-
-    // // init keyboard
-    // ps2_init();                 
-
-    // init timer
-    // pit_init();                
+            
 
     log_info("Main", "After PS 2 Init!");
 
 end:
     for (;;);
+
+    // // Read mouse and keyboard events from /dev/input/eventX file.
+    //test_mouse_keyboard_read();
 }

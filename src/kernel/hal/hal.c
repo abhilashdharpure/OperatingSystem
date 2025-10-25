@@ -20,5 +20,6 @@ void HAL_Initialize()
     ps2_init();  
 
     // init timer
-    pit_init(10);
+    uint32_t frequency = 10;
+    pit_init(frequency);
 }

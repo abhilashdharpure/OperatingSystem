@@ -6,39 +6,78 @@
 #include "hal/file.h"
 #include <stdio.h>
 #include "stddef.h"
+#include <arch/i686/irq.h>
+
+static inline unsigned long irq_save_flags_cli(void)
+{
+    unsigned long flags;
+    __asm__ volatile("pushf; pop %0; cli" : "=g"(flags) : : "memory");
+    return flags;
+}
+
+static inline void irq_restore_flags(unsigned long flags)
+{
+    __asm__ volatile("push %0; popf" : : "g"(flags) : "memory");
+}
 
 void input_push_event(struct input_device *dev, InputEvent* inputEvent)
 {
-    if (dev->count >= INPUT_BUFFER_SIZE)
-        return; // buffer full, drop event
+    if (!dev || !inputEvent)
+    {
+        return;
+    }
 
-    InputEvent *ev = &dev->buffer[dev->head];
-    ev->time = inputEvent->time;
-    ev->type = inputEvent->type;
-    ev->code = inputEvent->code;
-    ev->value = inputEvent->value;
+    // Lock
+    unsigned long flags = irq_save_flags_cli();
 
-    dev->head = (dev->head + 1) % INPUT_BUFFER_SIZE;
-    dev->count++;
+    if (dev->count < INPUT_BUFFER_SIZE) {
+        InputEvent *ev = &dev->buffer[dev->head];
+        ev->time = inputEvent->time;
+        ev->type = inputEvent->type;
+        ev->code = inputEvent->code;
+        ev->value = inputEvent->value;
+
+        dev->head = (dev->head + 1) % INPUT_BUFFER_SIZE;
+        dev->count++;
+    }
+
+    //Unlock
+    irq_restore_flags(flags);
 }
 
 int input_pop_event(struct input_device *dev, InputEvent *out)
 {
-    if (dev->count == 0)
-        return 0; // no event available
+    if (!dev || !out)
+    {
+        return 0;
+    }
 
+    // Lock
+    unsigned long flags = irq_save_flags_cli();
+
+    if (dev->count == 0)
+    {
+        irq_restore_flags(flags);
+        return 0; // no event available
+    }
+        
     *out = dev->buffer[dev->tail];
     dev->tail = (dev->tail + 1) % INPUT_BUFFER_SIZE;
     dev->count--;
+
+    //Unlock
+    irq_restore_flags(flags);
     return 1;
 }
 
-static int input_open(struct file *file) {
+static int input_open(struct file *file) 
+{
     // Called when /dev/input/event0 is opened
     return 0;
 }
 
-static int input_read(struct file *file, void *buf, size_t size) {
+static int input_read(struct file *file, void *buf, size_t size)
+{
     struct input_device *dev = (struct input_device *)file->private_data;
 
     if (dev->count == 0)
@@ -47,16 +86,31 @@ static int input_read(struct file *file, void *buf, size_t size) {
     if (size < sizeof(InputEvent))
         return -1;
 
-    InputEvent *src = &dev->buffer[dev->tail];
-    memcpy(buf, src, sizeof(InputEvent));
+    // InputEvent *src = &dev->buffer[dev->tail];
+    // memcpy(buf, src, sizeof(InputEvent));
 
-    dev->tail = (dev->tail + 1) % INPUT_BUFFER_SIZE;
-    dev->count--;
+    // dev->tail = (dev->tail + 1) % INPUT_BUFFER_SIZE;
+    // dev->count--;
 
-    return sizeof(InputEvent);
+    // return sizeof(InputEvent);
+
+    InputEvent *out = (InputEvent *)buf;
+    int events_read = 0;
+
+    while (events_read * sizeof(InputEvent) < size)
+    {
+        InputEvent ev;
+        if (!input_pop_event(dev, &ev))
+            break; // no more events available
+
+        out[events_read++] = ev;
+    }
+
+    return events_read * sizeof(InputEvent);
 }
 
-static int input_write(struct file *file, const void *buf, size_t size) {
+static int input_write(struct file *file, const void *buf, size_t size)
+{
     // Optional: handle force feedback, LED indicators, etc.
     return size;
 }
@@ -98,7 +152,8 @@ static struct file_operations null_fops = {
     .write = null_write,
 };
 
-void dev_null_init() {
+void dev_null_init()
+{
     VFS_RegisterDevice("/dev/null", &null_fops, NULL);
 }
 
