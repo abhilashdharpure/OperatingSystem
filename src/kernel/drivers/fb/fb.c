@@ -6,6 +6,7 @@
 
 
 VbeModeInfo fb;
+fb_device_t fb_dev;
 
 static int fb_open(struct file *f)
 {

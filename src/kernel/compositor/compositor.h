@@ -8,8 +8,10 @@
 // ------------------------------------------
 // Basic compositor configuration
 // ------------------------------------------
+#define MAX_SURFACES 16
 #define COMPOSITOR_FPS 60      // target frames per second
 #define COMPOSITOR_BG_COLOR RGB(0, 0, 0)  // black background
+#define CURSOR_SIZE 10
 
 // ------------------------------------------
 // Simple struct for a graphical surface/window
@@ -51,3 +53,6 @@ void compositor_handle_input(InputEvent *event);
  * Creates a simple colored rectangle surface.
  */
 Surface* compositor_create_surface(int x, int y, int w, int h, uint32_t color);
+
+void compositor_add_surface(int x, int y, int w, int h, uint32_t color);
+void compositor_redraw(void);

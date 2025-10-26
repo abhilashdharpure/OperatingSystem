@@ -13,7 +13,7 @@ typedef struct {
     uintptr_t framebuffer;
 } fb_device_t;
 
-static fb_device_t fb_dev;
+extern fb_device_t fb_dev;
 extern VbeModeInfo fb;
 
 void fb_init(VbeModeInfo* info);

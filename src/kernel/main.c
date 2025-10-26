@@ -52,6 +52,7 @@ void start(BootParams* bootParams, VbeModeInfo* fb_info)
     fb_init(fb_info);
     gfx_init();            // initialize graphics layer
     //test_fb();
+    log_info("MAIN", "Framebuffer ready: %ux%u", fb_dev.width, fb_dev.height);
 
 
     gfx_clear(COLOR_BLACK);              // clear screen
