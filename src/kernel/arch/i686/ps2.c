@@ -7,7 +7,6 @@
 
 #include "arch/i686/events/input_event.h"
 #include "drivers/input/input.h"
-#include "drivers/input/register_input.h"
 
 #include "hal/vfs.h"
 #include "io.h"
@@ -130,7 +129,7 @@ static void ps2_mouse_handler(Registers* regs)
     mouse_cycle = 0; // reset for next packet
 
     // Log or push events
-    log_info("MOUSE", "X=%d Y=%d L=%d R=%d M=%d", x_move, y_move, left_pressed, right_pressed, middle_pressed);
+    // log_info("MOUSE", "X=%d Y=%d L=%d R=%d M=%d", x_move, y_move, left_pressed, right_pressed, middle_pressed);
 
     // (You might want to store previous button state to detect edges)
     InputEvent event;
@@ -291,14 +290,13 @@ void ps2_init()
 
 void test_mouse_keyboard_read(void)
 {
-    InputEvent events_keyboard[8];
+    InputEvent events[8];
     int fd_keyboard = VFS_Open("/dev/input/event0", VFS_FD_STDIN);
 
     if (fd_keyboard < 0) {
         log_error("USR", "Cannot open /dev/input/event0");
     }
 
-    InputEvent events_mouse[8];
     int fd_mouse = VFS_Open("/dev/input/event1", VFS_FD_STDIN);
     if (fd_mouse < 0) {
         log_error("USR", "Cannot open /dev/input/event1");
@@ -307,26 +305,30 @@ void test_mouse_keyboard_read(void)
     while (1)
     {
         // Read Mouse Events
-        int bytes_mouse = VFS_Read(fd_mouse, events_mouse, sizeof(events_mouse));
+        int bytes_mouse = VFS_Read(fd_mouse, events, sizeof(events));
         if (bytes_mouse > 0)
         {
             int noOfMouseEvents = bytes_mouse / sizeof(InputEvent);
             for (int i = 0; i < noOfMouseEvents; i++)
             {
                 log_info("Mouse Event", "Reading from file /dev/input/event1: type=%u code=%u value=%d time=%llu",
-                        events_mouse[i].type, events_mouse[i].code, events_mouse[i].value, events_mouse[i].time);
+                        events[i].type, events[i].code, events[i].value, events[i].time);
+
+                // input_manager_handle_event(events[i].type, events[i].code, events[i].value);
             }
         }
 
         // Read Keyboard Events
-        int bytes_keyboard = VFS_Read(fd_keyboard, events_keyboard, sizeof(events_keyboard));
+        int bytes_keyboard = VFS_Read(fd_keyboard, events, sizeof(events));
         if(bytes_keyboard > 0)
         {
             int noOfKeyboardEvents = bytes_keyboard / sizeof(InputEvent);
             for (int i = 0; i < noOfKeyboardEvents; i++)
             {
                 log_info("Keyboard Event", "Reading from file /dev/input/event0: type=%u code=%u value=%d time=%llu",
-                        events_keyboard[i].type, events_keyboard[i].code, events_keyboard[i].value, events_keyboard[i].time);
+                        events[i].type, events[i].code, events[i].value, events[i].time);
+
+                // input_manager_handle_event(events[i].type, events[i].code, events[i].value);
             }
         }
     }
