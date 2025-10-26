@@ -22,8 +22,12 @@ typedef struct {
     int width, height;           // dimensions
     uint32_t color;              // fill color
     bool visible;
+    bool moving;
 } Surface;
 
+
+extern Surface surfaces[MAX_SURFACES];
+extern int surface_count;
 // ------------------------------------------
 // Compositor lifecycle functions
 // ------------------------------------------

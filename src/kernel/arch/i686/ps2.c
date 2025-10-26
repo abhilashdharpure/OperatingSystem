@@ -14,9 +14,7 @@
 #define DATA_PORT 0x60
 #define STATUS_PORT 0x64
 
-#define BTN_LEFT    0x110
-#define BTN_RIGHT   0x111
-#define BTN_MIDDLE  0x112
+
 
 // Simple key buffer
 #define KEY_BUFFER_SIZE 32
@@ -142,6 +140,7 @@ static void ps2_mouse_handler(Registers* regs)
         event.code = BTN_LEFT;
         event.value = left_pressed ? KEY_PRESSED : KEY_RELEASED;
         input_push_event(&mouse_dev, &event);
+        // log_info("Mouse", "LEFT button....");
     }
 
     // Right button

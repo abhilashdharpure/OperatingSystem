@@ -1,0 +1,233 @@
+#include "compositor/compositor.h"
+#include "drivers/fb/fb.h"
+#include "drivers/input/input_manager.h"
+#include <util/string.h> 
+#include "debug.h"
+
+
+#define CURSOR_SIZE 10
+#define COMPOSITOR_BG_COLOR RGB(0,0,0)
+#define MAX_SURFACES 16
+
+Surface surfaces[MAX_SURFACES];
+int surface_count = 0;
+
+// Double-buffer
+static uint32_t* backbuffer = NULL;
+//     // compositor_draw_test_window();
+    static Surface* grabbed_surface = NULL;
+    static int grab_offset_x = 0, grab_offset_y = 0;
+
+
+// Mouse
+static int mouse_x, mouse_y;
+static int last_mouse_x = -1, last_mouse_y = -1;
+static uint32_t cursor_backup[CURSOR_SIZE*CURSOR_SIZE];
+
+#define MAX_FB_WIDTH 1920
+#define MAX_FB_HEIGHT 1080
+
+static uint32_t backbuffer_storage[MAX_FB_WIDTH * MAX_FB_HEIGHT];
+
+// Create a surface
+Surface* compositor_create_surface(int x, int y, int w, int h, uint32_t color)
+{
+    if (surface_count >= MAX_SURFACES) return NULL;
+    Surface* s = &surfaces[surface_count++];
+    s->x = x; s->y = y;
+    s->width = w; s->height = h;
+    s->color = color;
+    s->visible = 1;
+    return s;
+}
+
+// Draw a rectangle into any buffer
+static void fb_draw_rect_to_buffer(uint32_t* buffer, int buffer_width,
+                                   int x, int y, int w, int h, uint32_t color)
+{
+    for (int j=0;j<h;j++)
+    {
+        int yy = y + j;
+        if (yy<0 || yy>=fb_dev.height) continue;
+        for (int i=0;i<w;i++)
+        {
+            int xx = x + i;
+            if (xx<0 || xx>=fb_dev.width) continue;
+            buffer[yy*buffer_width + xx] = color;
+        }
+    }
+}
+
+void draw_cursor(void) {
+    // Copy backbuffer to framebuffer
+    memcpy(fb_dev.framebuffer, backbuffer, fb_dev.width*fb_dev.height*sizeof(uint32_t));
+
+    // Draw blue cursor
+    for (int y = 0; y < CURSOR_SIZE; y++) {
+        int yy = mouse_y + y;
+        if (yy >= fb_dev.height) break;
+        for (int x = 0; x < CURSOR_SIZE; x++) {
+            int xx = mouse_x + x;
+            if (xx >= fb_dev.width) break;
+            ((uint32_t*)fb_dev.framebuffer)[yy * fb_dev.width + xx] = RGB(0,0,255);
+        }
+    }
+}
+
+void draw_scene_to_backbuffer(void) {
+    // Clear backbuffer
+    for (int i = 0; i < fb_dev.width * fb_dev.height; i++)
+        backbuffer[i] = COMPOSITOR_BG_COLOR;
+
+    // Draw all surfaces
+    for (int i = 0; i < surface_count; i++) {
+        Surface* s = &surfaces[i];
+        if (!s->visible) continue;
+
+        fb_draw_rect_to_buffer(backbuffer, fb_dev.width,
+                               s->x, s->y, s->width, s->height, s->color);
+    }
+}
+
+void compositor_update_backbuffer(void)
+{
+    // Clear backbuffer
+    for(int i=0;i<fb_dev.width*fb_dev.height;i++)
+        backbuffer[i] = COMPOSITOR_BG_COLOR;
+
+    // Draw all visible surfaces
+    for(int i=0;i<surface_count;i++)
+    {
+        Surface* s = &surfaces[i];
+        if(!s->visible) continue;
+
+        fb_draw_rect_to_buffer(backbuffer, fb_dev.width,
+                               s->x,s->y,s->width,s->height,s->color);
+    }
+}
+
+void compositor_draw_cursor_on_fb(void)
+{
+    // Copy backbuffer -> framebuffer
+    memcpy(fb_dev.framebuffer, backbuffer, fb_dev.width*fb_dev.height*sizeof(uint32_t));
+
+    // Draw cursor on top
+    for(int y=0;y<CURSOR_SIZE;y++)
+    {
+        int yy = mouse_y + y;
+        if(yy >= fb_dev.height) break;
+        for(int x=0;x<CURSOR_SIZE;x++)
+        {
+            int xx = mouse_x + x;
+            if(xx >= fb_dev.width) break;
+            ((uint32_t*)fb_dev.framebuffer)[yy*fb_dev.width + xx] = RGB(0,0,255);
+        }
+    }
+}
+
+// Initialize compositor
+void compositor_init(void)
+{
+    surface_count = 0;
+    mouse_x = fb_dev.width / 2;
+    mouse_y = fb_dev.height / 2;
+
+    // Allocate backbuffer dynamically
+    // backbuffer = kmalloc(fb_dev.width * fb_dev.height * sizeof(uint32_t));
+    backbuffer = backbuffer_storage;
+    if(!backbuffer) 
+        log_error("Error", "Cannot allocate backbuffer");
+
+    // Create one green rectangle
+    compositor_create_surface(200,150,300,200, RGB(0,255,0));
+
+    // Draw initial backbuffer
+    compositor_update_backbuffer();
+
+    // Copy to framebuffer
+    memcpy(fb_dev.framebuffer, backbuffer, fb_dev.width*fb_dev.height*sizeof(uint32_t));
+}
+
+void compositor_draw_cursor(void)
+{
+    int mx = mouse_x;
+    int my = mouse_y;
+
+    // Copy backbuffer → framebuffer
+    memcpy((void*)fb_dev.framebuffer, backbuffer,
+           fb_dev.width * fb_dev.height * sizeof(uint32_t));
+
+    // Draw cursor on top
+    for (int y = 0; y < CURSOR_SIZE; y++)
+    {
+        int yy = my + y;
+        if (yy >= fb_dev.height) break;
+        for (int x = 0; x < CURSOR_SIZE; x++)
+        {
+            int xx = mx + x;
+            if (xx >= fb_dev.width) break;
+            ((uint32_t*)fb_dev.framebuffer)[yy * fb_dev.width + xx] = RGB(0,0,255);
+        }
+    }
+}
+// Main compositor loop
+void compositor_main(void)
+{
+    InputEvent events[8];
+    int fd_kb = VFS_Open("/dev/input/event0", VFS_FD_STDIN);
+    int fd_mouse = VFS_Open("/dev/input/event1", VFS_FD_STDIN);
+
+    Surface* grabbed_surface = NULL;
+    int grab_offset_x=0, grab_offset_y=0;
+
+    while(1)
+    {
+        // Read keyboard
+        int n_kb = VFS_Read(fd_kb, events, sizeof(events));
+        if(n_kb>0)
+            for(int i=0;i<n_kb/sizeof(InputEvent);i++)
+                input_manager_handle_event(events[i].type, events[i].code, events[i].value);
+
+        // Read mouse
+        int n_mouse = VFS_Read(fd_mouse, events, sizeof(events));
+        if(n_mouse>0)
+            for(int i=0;i<n_mouse/sizeof(InputEvent);i++)
+                input_manager_handle_event(events[i].type, events[i].code, events[i].value);
+
+        // Update mouse position
+        const MouseState* ms = input_get_mouse();
+        mouse_x = ms->x;
+        mouse_y = ms->y;
+
+        // Grab surface if left click
+        if(ms->left_button && !grabbed_surface) {
+            for(int i = surface_count-1; i >= 0; i--) {
+                Surface* s = &surfaces[i];
+                if(mouse_x >= s->x && mouse_x < s->x+s->width &&
+                   mouse_y >= s->y && mouse_y < s->y+s->height) {
+                    grabbed_surface = s;
+                    grab_offset_x = mouse_x - s->x;
+                    grab_offset_y = mouse_y - s->y;
+                    break;
+                }
+            }
+        }
+
+        // Move grabbed surface
+        if(ms->left_button && grabbed_surface) {
+            grabbed_surface->x = mouse_x - grab_offset_x;
+            grabbed_surface->y = mouse_y - grab_offset_y;
+        }
+
+        // Release grabbed surface
+        if(!ms->left_button && grabbed_surface) {
+            grabbed_surface = NULL;
+        }
+
+        // Redraw scene into backbuffer
+        draw_scene_to_backbuffer();
+
+        // Draw cursor on framebuffer
+        draw_cursor();
+    }
+}
