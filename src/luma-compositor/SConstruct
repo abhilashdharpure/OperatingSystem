@@ -1,0 +1,138 @@
+# # SConstruct
+# import os
+
+# project_name = 'luma-compositor'
+# build_dir = 'build'
+# generated_dir = os.path.join(build_dir, 'generated')
+
+# env = Environment(
+#     CXX='g++',
+#     CC='gcc',
+#     CPPPATH=['.', generated_dir, 'src'],
+#     LIBS=['wayland-server']
+# )
+
+# # Directories
+# env.Execute(Mkdir(build_dir))
+# env.Execute(Mkdir(generated_dir))
+
+# # Generate protocol source
+# protocol_xml = 'protocols/wl_compositor.xml'
+# generated_c = os.path.join(generated_dir, 'wl_compositor-protocol.c')
+# generated_h = os.path.join(generated_dir, 'wl_compositor-protocol.h')
+
+# env.Command(
+#     [generated_c, generated_h],
+#     protocol_xml,
+#     f'wayland-scanner private-code $SOURCE {generated_c} && '
+#     f'wayland-scanner server-header $SOURCE {generated_h}'
+# )
+
+# # Source files
+# sources = [
+#     'src/main.cpp',
+#     'src/compositor.cpp',
+#     'src/wayland_protocols.cpp',
+#     generated_c
+# ]
+
+# # Build the program
+# program = env.Program(
+#     target=os.path.join(build_dir, project_name),
+#     source=sources
+# )
+
+# Default(program)
+
+# # ---------- Run target ----------
+# def run_compositor(target, source, env):
+#     # Find a free Wayland display (wayland-1, wayland-2, ...)
+#     for i in range(1, 32):
+#         display_name = f"wayland-{i}"
+#         lockfile = f"/run/user/{os.getuid()}/{display_name}.lock"
+#         if not os.path.exists(lockfile):
+#             break
+#     else:
+#         print("[Run] No free WAYLAND_DISPLAY found! Exiting.")
+#         return
+
+#     os.environ['WAYLAND_DISPLAY'] = display_name
+#     print(f"[Run] Using WAYLAND_DISPLAY={display_name}")
+
+#     # Run the compositor
+#     program_path = str(source[0])
+#     os.system(program_path)
+
+# # Create pseudo-target "run"
+# Run = env.Command('run', program, run_compositor)
+# AlwaysBuild(Run)
+
+
+
+
+
+import os
+
+# --- Project setup ---
+project_name = 'luma-compositor'
+build_dir = 'build'
+generated_dir = os.path.join(build_dir, 'generated')
+
+env = Environment(
+    CXX='g++',
+    CC='gcc',
+    CPPPATH=['.', 'src', generated_dir],
+    LIBS=['wayland-server'],
+    CXXFLAGS=['-std=c++17', '-Wall', '-Wextra']
+)
+
+# Ensure directories exist
+env.Execute(Mkdir(build_dir))
+env.Execute(Mkdir(generated_dir))
+
+# --- Wayland protocol generation ---
+# This generates a single combined C/H file per XML (all interfaces included)
+protocols = [
+    'protocols/xdg-shell.xml'
+]
+
+generated_sources = []
+generated_headers = []
+
+for xml in protocols:
+    base = os.path.splitext(os.path.basename(xml))[0]  # "xdg-shell"
+    c = os.path.join(generated_dir, f"{base}-protocol.c")
+    h = os.path.join(generated_dir, f"{base}-protocol.h")
+    
+    env.Command(
+        [c, h],
+        xml,
+        f'wayland-scanner private-code $SOURCE {c} && '
+        f'wayland-scanner server-header $SOURCE {h}'
+    )
+    
+    generated_sources.append(c)
+    generated_headers.append(h)
+
+# --- Source files ---
+sources = [
+    'src/main.cpp',
+    'src/compositor.cpp',
+    'src/wayland_protocols.cpp'
+] + generated_sources
+
+# --- Build target ---
+program = env.Program(
+    target=os.path.join(build_dir, project_name),
+    source=sources
+)
+
+# --- Run target ---
+def run_compositor(target, source, env):
+    display = os.environ.get('WAYLAND_DISPLAY', 'wayland-1')
+    print(f"[Run] Using WAYLAND_DISPLAY={display}")
+    os.environ['WAYLAND_DISPLAY'] = display
+    os.system(str(source[0]))
+
+Run = env.Command('run', program, run_compositor)
+AlwaysBuild(Run)
