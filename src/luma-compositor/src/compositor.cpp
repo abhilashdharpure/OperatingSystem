@@ -280,20 +280,6 @@ static void surface_resource_destroy(struct wl_resource *resource)
 }
 
 // --------------------------- xdg_surface ---------------------------
-
-static void destroy_xdg_surface_resource(struct wl_resource* resource)
-{
-    std::cout << "[LumaCompositor] destroy_xdg_surface_resource\n";
-
-    my_surface* surf = static_cast<my_surface*>(wl_resource_get_user_data(resource));
-    if (!surf)
-    {
-        return;
-    }
-    surf->xdg_surface_res = nullptr;
-    // do not delete surf here — surface_resource_destroy owns lifecycle
-}
-
 static void destroy_xdg_toplevel_resource(struct wl_resource* resource)
 {
     std::cout << "[LumaCompositor] destroy_xdg_toplevel_resource\n";
@@ -307,9 +293,10 @@ static void destroy_xdg_toplevel_resource(struct wl_resource* resource)
 }
 
 // ------------------ xdg_toplevel ------------------
-static void xdg_toplevel_destroy(struct wl_client*, struct wl_resource*)
+static void xdg_toplevel_destroy(struct wl_client*, struct wl_resource* resource)
 {
     std::cout << "[LumaCompositor] xdg_toplevel_destroy\n";
+    wl_resource_destroy(resource);
 }
 
 static void xdg_toplevel_set_parent(struct wl_client*, struct wl_resource*, struct wl_resource*)
@@ -317,9 +304,9 @@ static void xdg_toplevel_set_parent(struct wl_client*, struct wl_resource*, stru
     std::cout << "[LumaCompositor] xdg_toplevel_set_parent\n";
 }
 
-static void xdg_toplevel_set_title(struct wl_client*, struct wl_resource*, const char*)
+static void xdg_toplevel_set_title(struct wl_client*, struct wl_resource*, const char* title)
 {
-    std::cout << "[LumaCompositor] xdg_toplevel_set_title\n";
+    std::cout << "[LumaCompositor] xdg_toplevel_set_title, title = "<<title<<std::endl;
 }
 
 static void xdg_toplevel_set_app_id(struct wl_client*, struct wl_resource*, const char*) 
@@ -336,18 +323,54 @@ static void xdg_toplevel_show_window_menu(struct wl_client *client,
 				 int32_t x,
 				 int32_t y) 
 {
-    std::cout << "[LumaCompositor] Created xdg_toplevel_show_window_menu window\n";
+    std::cout << "[LumaCompositor] xdg_toplevel_show_window_menu window\n";
 }
 
-static void xdg_toplevel_move(struct wl_client*, struct wl_resource*, struct wl_resource*, uint32_t) {}
-static void xdg_toplevel_resize(struct wl_client*, struct wl_resource*, struct wl_resource*, uint32_t, uint32_t) {}
-static void xdg_toplevel_set_max_size(struct wl_client*, struct wl_resource*, int32_t, int32_t) {}
-static void xdg_toplevel_set_min_size(struct wl_client*, struct wl_resource*, int32_t, int32_t) {}
-static void xdg_toplevel_set_maximized(struct wl_client*, struct wl_resource*) {}
-static void xdg_toplevel_unset_maximized(struct wl_client*, struct wl_resource*) {}
-static void xdg_toplevel_set_fullscreen(struct wl_client*, struct wl_resource*, struct wl_resource*) {}
-static void xdg_toplevel_unset_fullscreen(struct wl_client*, struct wl_resource*) {}
-static void xdg_toplevel_set_minimized(struct wl_client*, struct wl_resource*) {}
+static void xdg_toplevel_move(struct wl_client*, struct wl_resource*, struct wl_resource*, uint32_t)
+{
+    std::cout << "[LumaCompositor] xdg_toplevel_move\n";
+}
+
+static void xdg_toplevel_resize(struct wl_client*, struct wl_resource*, struct wl_resource*, uint32_t, uint32_t)
+{
+    std::cout << "[LumaCompositor] xdg_toplevel_resize\n";
+}
+
+static void xdg_toplevel_set_max_size(struct wl_client*, struct wl_resource*, int32_t, int32_t)
+{
+    std::cout << "[LumaCompositor] xdg_toplevel_set_max_size\n";
+}
+
+static void xdg_toplevel_set_min_size(struct wl_client*, struct wl_resource*, int32_t, int32_t) 
+{
+    std::cout << "[LumaCompositor] xdg_toplevel_set_min_size\n";
+}
+
+static void xdg_toplevel_set_maximized(struct wl_client*, struct wl_resource*)
+{
+    std::cout << "[LumaCompositor] xdg_toplevel_set_maximized\n";
+}
+
+static void xdg_toplevel_unset_maximized(struct wl_client*, struct wl_resource*)
+{
+    std::cout << "[LumaCompositor] xdg_toplevel_unset_maximized\n";
+}
+
+static void xdg_toplevel_set_fullscreen(struct wl_client*, struct wl_resource*, struct wl_resource*) 
+{
+    std::cout << "[LumaCompositor] xdg_toplevel_set_fullscreen\n";
+}
+
+static void xdg_toplevel_unset_fullscreen(struct wl_client*, struct wl_resource*) 
+{
+    std::cout << "[LumaCompositor] xdg_toplevel_unset_fullscreen\n";
+}
+
+static void xdg_toplevel_set_minimized(struct wl_client*, struct wl_resource*) 
+{
+    std::cout << "[LumaCompositor] xdg_toplevel_set_minimized\n";
+}
+
 
 static const struct xdg_toplevel_interface xdg_toplevel_impl = {
     .destroy = xdg_toplevel_destroy,
@@ -369,24 +392,11 @@ static const struct xdg_toplevel_interface xdg_toplevel_impl = {
 
 
 // ------------------ xdg_surface ------------------
-static void xdg_surface_destroy(struct wl_client*, struct wl_resource*)
+static void xdg_surface_destroy(struct wl_client*, struct wl_resource* resource)
 {
     std::cout << "[LumaCompositor] xdg_surface_destroy...\n";
-
+    wl_resource_destroy(resource);
 }
-
-// static void destroy_xdg_toplevel_resource(wl_resource* resource)
-// {
-//     std::cout << "[LumaCompositor] destroy_xdg_toplevel_resource...\n";
-
-//     my_surface* surf = static_cast<my_surface*>(wl_resource_get_user_data(resource));
-//     if (!surf) return;
-
-//     surf->toplevel_res = nullptr;
-//     if (!surf->xdg_surface_res) {
-//         delete surf;
-//     }
-// }
 
 static void xdg_surface_get_toplevel(struct wl_client* client, struct wl_resource* resource, uint32_t id)
 {
@@ -440,9 +450,9 @@ static void xdg_surface_set_window_geometry(struct wl_client*, struct wl_resourc
     std::cout << "[LumaCompositor] xdg_surface_set_window_geometry...\n";
 }
 
-static void xdg_surface_ack_configure(struct wl_client*, struct wl_resource*, uint32_t)
+static void xdg_surface_ack_configure(struct wl_client*, struct wl_resource*, uint32_t serial)
 {
-    std::cout << "[LumaCompositor] xdg_surface_ack_configure...\n";
+    std::cout << "[LumaCompositor] xdg_surface_ack_configure serial= "<<serial<<std::endl;
 }
 
 static const struct xdg_surface_interface xdg_surface_impl = {
@@ -627,10 +637,63 @@ static void compositor_create_surface(struct wl_client* client, struct wl_resour
     std::cout << "[LumaCompositor] Client created surface (resource=" << surface_res << ")\n";
 }
 
+
+
+// ------------------ safe wl_region implementation ------------------
+// Put this near other interface implementations.
+
+static void region_destroy_impl_cb(struct wl_resource *resource)
+{
+    // nothing to free right now; libwayland will free resource
+    (void)resource;
+    std::cout << "[LumaCompositor] region_destroy_impl_cb\n";
+}
+
+static void region_destroy_impl(struct wl_client*, struct wl_resource*)
+{
+    std::cout << "[LumaCompositor] region_destroy_impl...\n";
+
+}
+
+
+static void region_add_impl(struct wl_client *client, struct wl_resource *resource,
+                            int32_t x, int32_t y, int32_t width, int32_t height)
+{
+    (void)client; (void)resource;
+    std::cout << "[LumaCompositor] region_add_impl: " << x << "," << y << " " << width << "x" << height << "\n";
+}
+
+static void region_subtract_impl(struct wl_client *client, struct wl_resource *resource,
+                                 int32_t x, int32_t y, int32_t width, int32_t height)
+{
+    (void)client; (void)resource;
+    std::cout << "[LumaCompositor] region_subtract_impl\n";
+}
+
+
+
+static const struct wl_region_interface region_impl = {
+    .destroy  = region_destroy_impl,
+    .add      = region_add_impl,
+    .subtract = region_subtract_impl
+};
+
 static void compositor_create_region(struct wl_client* client, struct wl_resource* resource, uint32_t id)
 {
     std::cout << "[LumaCompositor] compositor_create_region\n";
-    wl_resource_create(client, &wl_region_interface, 1, id);
+    // wl_resource_create(client, &wl_region_interface, 1, id);
+
+
+        // negotiate version safely
+    uint32_t ver = std::min<uint32_t>(wl_resource_get_version(resource), wl_region_interface.version);
+    wl_resource *region_res = wl_resource_create(client, &wl_region_interface, ver, id);
+    if (!region_res) {
+        wl_client_post_no_memory(client);
+        return;
+    }
+    // set implementation (destroy signature must be void (*)(wl_resource*))
+    wl_resource_set_implementation(region_res, &region_impl, nullptr, region_destroy_impl_cb);
+
     std::cout << "[LumaCompositor] End compositor_create_region\n";
 }
 
@@ -912,3 +975,4 @@ void luma_run(LumaCompositor* comp)
     std::cout << "[LumaCompositor] Running Wayland event loop...\n";
     wl_display_run(comp->display);
 }
+
