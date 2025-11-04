@@ -44,6 +44,8 @@ struct my_surface {
     wl_resource* xdg_surface_res = nullptr;
     wl_resource* toplevel_res = nullptr;
     wl_resource* buffer_res = nullptr;
+    wl_resource* pending_callback = nullptr;
+     
 };
 
 struct my_output {
@@ -63,11 +65,13 @@ struct shm_pool_data {
 };
 
 struct shm_buffer {
-    wl_resource* resource;
-    int width;
-    int height;
-    int stride;
-    uint32_t format;
+    wl_resource* resource = nullptr;
+    void* data = nullptr;
+    size_t size = 0;
+    int width = 0,
+    height = 0,
+    stride = 0;
+    uint32_t format = 0;
 };
 
 void luma_init(LumaCompositor* comp);

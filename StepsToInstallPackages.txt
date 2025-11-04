@@ -120,3 +120,6 @@ rm -rf /run/user/1000/luma-0*
 
 wayland-scanner private-code protocols/wayland.xml build/generated/wayland-protocol.c
 wayland-scanner server-header protocols/wayland.xml build/generated/wayland-protocol.h
+
+
+sudo apt install libsdl2-dev

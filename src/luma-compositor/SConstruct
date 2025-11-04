@@ -13,7 +13,7 @@ env = Environment(
     CXX='g++',
     CC='gcc',
     CPPPATH=['.', 'src', generated_dir],
-    LIBS=['wayland-server'],
+    LIBS=['wayland-server', 'SDL2'],
     CXXFLAGS=base_cxxflags,
     CCFLAGS=base_ccflags
 )
@@ -25,7 +25,7 @@ env.Execute(Mkdir(generated_dir))
 # Preserve your previous appends if any
 env.Append(CCFLAGS=["-Wunused-variable", "-Wno-unused-parameter", "-Wmissing-field-initializers"])
 env.Append(CXXFLAGS=["-Wunused-variable", "-Wno-unused-parameter", "-Wmissing-field-initializers"])
-
+env.Append(LINKFLAGS=['-pthread'])
 
 # --- Wayland protocol generation ---
 # This generates a single combined C/H file per XML (all interfaces included)

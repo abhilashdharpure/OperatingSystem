@@ -9,6 +9,23 @@
 #include <unistd.h>   // for close()
 #include <sys/mman.h>
 #include <wayland-server-core.h>
+#include <cstring>
+
+#include <SDL2/SDL.h>
+#include <thread>
+#include <mutex>
+#include <atomic>
+#include <vector>
+
+static int comp_width = 1920;
+static int comp_height = 1080;
+// static uint32_t *comp_framebuffer = nullptr;
+
+static std::vector<uint32_t> comp_framebuffer; // stored as ARGB8888 (32-bit words)
+static std::mutex comp_fb_mutex;
+static std::atomic<bool> sdl_thread_running{false};
+static std::thread sdl_thread;
+
 
 // --- Simple linked list utilities using std::list ---
 static void add_to_list(std::list<my_output*>& lst, my_output* item)
@@ -21,33 +38,37 @@ static void remove_from_list(std::list<my_output*>& lst, my_output* item)
     lst.remove(item);
 }
 
-static void buffer_destroy_cb(struct wl_client*, struct wl_resource* resource)
+static void buffer_resource_destroy(struct wl_resource* resource)
 {
-    std::cout << "[LumaCompositor] buffer_destroy\n";
+    std::cout << "[LumaCompositor] buffer_resource_destroy\n";
 
-    auto* buf = static_cast<shm_buffer*>(wl_resource_get_user_data(resource));
-    if (!buf)
-    {
-        return;
-    }
+    shm_buffer* buf = static_cast<shm_buffer*>(wl_resource_get_user_data(resource));
+    if (!buf) return;
+    if (buf->data && buf->size) munmap(buf->data, buf->size); // only if you mmap'ed
     delete buf;
+    wl_resource_set_user_data(resource, nullptr);
+}
+
+static void buffer_destroy_request(struct wl_client* client, struct wl_resource* resource)
+{
+    std::cout << "[LumaCompositor] buffer_destroy_request\n";
+
+    (void)client;
+    // client requested to destroy buffer resource - server can ignore or destroy
+    wl_resource_destroy(resource);
+}
+
+// call when you're done with buffer:
+static void release_buffer_to_client(wl_resource* buffer_res)
+{
+    if (!buffer_res) return;
+    // send release event to client
+    wl_buffer_send_release(buffer_res);
 }
 
 static const struct wl_buffer_interface buffer_impl = {
-    .destroy = buffer_destroy_cb
+    .destroy = buffer_destroy_request
 };
-
-static void buffer_destroy(struct wl_resource *resource)
-{
-    std::cout << "[LumaCompositor] buffer_destroy\n";
-
-    auto* buf = static_cast<shm_buffer*>(wl_resource_get_user_data(resource));
-    if (!buf)
-    {
-        return;
-    }
-    delete buf;
-}
 
 static void shm_pool_resize(struct wl_client* client, struct wl_resource* resource, int32_t size)
 {
@@ -72,22 +93,43 @@ static void shm_pool_create_buffer(struct wl_client *client, struct wl_resource 
     std::cout << "[LumaCompositor] shm_pool_create_buffer\n";
 
     // Create wl_buffer resource
-    wl_resource *buf_res = wl_resource_create(client, &wl_buffer_interface,
-                                              wl_resource_get_version(pool_res), id);
+    uint32_t ver = std::min<uint32_t>(wl_resource_get_version(pool_res), wl_buffer_interface.version);
+    wl_resource *buf_res = wl_resource_create(client, &wl_buffer_interface, ver, id);
     if (!buf_res)
     {
         wl_client_post_no_memory(client);
         return;
     }
 
+    // retrieve pool pointer
+    auto *pool = static_cast<shm_pool_data*>(wl_resource_get_user_data(pool_res));
+    if (!pool || !pool->data)
+    {
+        wl_client_post_no_memory(client);
+        wl_resource_destroy(buf_res);
+        return;
+    }
+
+    // basic bounds check
+    size_t needed = (size_t)stride * (size_t)height;
+    if ((size_t)offset + needed > pool->size)
+    {
+        std::cerr << "[LumaCompositor] shm_pool_create_buffer: out-of-bounds\n";
+        wl_client_post_no_memory(client);
+        wl_resource_destroy(buf_res);
+        return;
+    }
+
     shm_buffer* buf = new shm_buffer;
     buf->resource = buf_res;
+    buf->data = static_cast<uint8_t*>(pool->data) + offset;
+    buf->size = needed;
     buf->width = width;
     buf->height = height;
     buf->stride = stride;
     buf->format = format;
 
-    wl_resource_set_implementation(buf_res, &buffer_impl, buf, buffer_destroy);
+    wl_resource_set_implementation(buf_res, &buffer_impl, buf, buffer_resource_destroy);
 
     std::cout << "[LumaCompositor] End shm_pool_create_buffer\n";
 
@@ -150,6 +192,8 @@ static const struct wl_shm_interface shm_impl = {
 // ------------------ wl_surface ------------------
 static void surface_attach(wl_client* /*client*/, wl_resource* surface_res, wl_resource* buffer, int32_t /*x*/, int32_t /*y*/)
 {
+    std::cout << "[LumaCompositor] surface_attach\n";
+
     my_surface* surf = static_cast<my_surface*>(wl_resource_get_user_data(surface_res));
 
     if (!surf)
@@ -169,24 +213,63 @@ static void surface_commit(wl_client*, wl_resource* surface_res)
         return;
     }
 
-    // Send initial xdg configure if exists
-    if (surf->xdg_surface_res)
-    {
-        // wl_display *d = wl_resource_get_display(surf->xdg_surface_res);
+        // if no buffer attached → nothing to show, but still respond to callbacks
+    wl_resource* buf_res = surf->buffer_res;
+    if (buf_res) {
+        auto *buf = static_cast<shm_buffer*>(wl_resource_get_user_data(buf_res));
+        if (buf && buf->data) {
+            // Minimal compositor: copy to an internal framebuffer at offset (0,0)
+            // assume comp_framebuffer is a global uint32_t* sized to output width*height
+            // and that format is ARGB8888 matching client.
+            int copy_w = std::min(buf->width, comp_width);
+            int copy_h = std::min(buf->height, comp_height);
+            // uint32_t *dst = comp_framebuffer; // your compositor framebuffer
+            // uint32_t *src = static_cast<uint32_t*>(buf->data);
+            // for (int y = 0; y < copy_h; ++y) {
+            //     memcpy(&dst[y * comp_width], &src[y * (buf->stride / 4)], copy_w * 4);
+            // }
 
-        wl_client *client = wl_resource_get_client(surf->xdg_surface_res);
-        wl_display *d = wl_client_get_display(client);
+            uint8_t* src8 = reinterpret_cast<uint8_t*>(buf->data);
+            uint8_t* dst8 = reinterpret_cast<uint8_t*>(comp_framebuffer.data());
 
+            for (int y = 0; y < copy_h; ++y) {
+                uint8_t* srow = src8 + y * buf->stride;
+                uint8_t* drow = dst8 + y * comp_width * 4;
+                memcpy(drow, srow, copy_w * 4);
+            }
 
-        uint32_t serial = wl_display_next_serial(d);
-        xdg_surface_send_configure(surf->xdg_surface_res, serial);
+            // mark output as needing repaint — if you have an actual output loop, schedule it
+            // For now, we won't display on host but at least we processed pixels.
+        }
+        // done with buffer: return it to client
+        // release_buffer_to_client(buf_res);
+        // clear current buffer pointer if you want
+        // wl_resource_destroy? no — client owns resource; you just release.
+
+        // Notify client that buffer is released (so it can reuse it)
+        wl_buffer_send_release(surf->buffer_res);
+        // Optionally nullify buffer_res so you don't reuse it
+        surf->buffer_res = nullptr;
     }
+
+    // Fire frame callback if requested
+    if (surf->pending_callback) {
+        wl_client *c = wl_resource_get_client(surf->pending_callback);
+        wl_display *d = wl_client_get_display(c);
+        uint32_t serial = wl_display_next_serial(d);
+        wl_callback_send_done(surf->pending_callback, serial);
+        wl_resource_destroy(surf->pending_callback);
+        surf->pending_callback = nullptr;
+    }
+
 }
 
 static void surface_destroy(wl_client* /*client*/, wl_resource* resource)
 {
-    my_surface* surf = static_cast<my_surface*>(wl_resource_get_user_data(resource));
-    delete surf;
+    // my_surface* surf = static_cast<my_surface*>(wl_resource_get_user_data(resource));
+    // delete surf;
+
+    wl_resource_destroy(resource);
 }
 
 static void surface_damage(wl_client*, wl_resource*, int32_t, int32_t, int32_t, int32_t)
@@ -277,6 +360,23 @@ static void surface_resource_destroy(struct wl_resource *resource)
 
     // clear surface user_data (defensive)
     wl_resource_set_user_data(resource, nullptr);
+}
+
+
+static void surface_frame_impl(struct wl_client* client, struct wl_resource* surface_res, uint32_t callback_id)
+{
+    std::cout << "[LumaCompositor] surface_frame_impl\n";
+
+    my_surface* surf = static_cast<my_surface*>(wl_resource_get_user_data(surface_res));
+    if (!surf) return;
+
+    uint32_t ver = std::min<uint32_t>(wl_resource_get_version(surface_res), wl_callback_interface.version);
+    wl_resource* cb = wl_resource_create(client, &wl_callback_interface, ver, callback_id);
+    if (!cb) return;
+
+    // store once — we may only have one outstanding callback per surface typically
+    surf->pending_callback = cb;
+    std::cout << "[LumaCompositor] surface_frame (callback=" << callback_id << ")\n";
 }
 
 // --------------------------- xdg_surface ---------------------------
@@ -909,10 +1009,110 @@ void setup_wayland_display(wl_display* display)
 }
 
 
+
+static void sdl_renderer_thread(int win_w, int win_h) {
+    if (SDL_Init(SDL_INIT_VIDEO) != 0) {
+        std::cerr << "SDL_Init error: " << SDL_GetError() << std::endl;
+        return;
+    }
+
+    SDL_Window* window = SDL_CreateWindow("LumaCompositor (Preview)",
+                                          SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+                                          win_w, win_h,
+                                          SDL_WINDOW_RESIZABLE);
+    if (!window) {
+        std::cerr << "SDL_CreateWindow error: " << SDL_GetError() << std::endl;
+        SDL_Quit();
+        return;
+    }
+
+    SDL_Renderer* ren = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+    if (!ren) {
+        std::cerr << "SDL_CreateRenderer error: " << SDL_GetError() << std::endl;
+        SDL_DestroyWindow(window);
+        SDL_Quit();
+        return;
+    }
+
+    SDL_Texture* tex = SDL_CreateTexture(ren,
+                                         SDL_PIXELFORMAT_ARGB8888,
+                                         SDL_TEXTUREACCESS_STREAMING,
+                                         comp_width, comp_height);
+    if (!tex) {
+        std::cerr << "SDL_CreateTexture error: " << SDL_GetError() << std::endl;
+        SDL_DestroyRenderer(ren);
+        SDL_DestroyWindow(window);
+        SDL_Quit();
+        return;
+    }
+
+    sdl_thread_running.store(true);
+
+    while (sdl_thread_running.load()) {
+        SDL_Event ev;
+        while (SDL_PollEvent(&ev)) {
+            if (ev.type == SDL_QUIT) {
+                sdl_thread_running.store(false);
+            } else if (ev.type == SDL_WINDOWEVENT && ev.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
+                // optionally respond to resize
+            }
+        }
+
+        // Copy compositor framebuffer into texture
+        {
+            std::lock_guard<std::mutex> lk(comp_fb_mutex);
+            // note: comp_framebuffer.size == comp_width*comp_height
+            void* pixels = nullptr;
+            int pitch = 0;
+            if (SDL_LockTexture(tex, nullptr, &pixels, &pitch) == 0) {
+                // pitch is bytes per row; our comp_width*4 equals expected pitch if sizes match
+                uint8_t* dst = (uint8_t*)pixels;
+                uint8_t* src = (uint8_t*)comp_framebuffer.data();
+                // if comp_width equals texture width and pitch == comp_width*4, we can memcpy whole buffer
+                if (pitch == comp_width * 4) {
+                    memcpy(dst, src, comp_width * comp_height * 4);
+                } else {
+                    // copy row by row
+                    for (int y = 0; y < comp_height; ++y) {
+                        memcpy(dst + y * pitch, src + y * comp_width * 4, comp_width * 4);
+                    }
+                }
+                SDL_UnlockTexture(tex);
+            }
+        }
+
+        SDL_RenderClear(ren);
+        // Fit texture to window
+        SDL_Rect dest;
+        int ww, wh;
+        SDL_GetWindowSize(window, &ww, &wh);
+        dest.x = 0; dest.y = 0; dest.w = ww; dest.h = wh;
+        SDL_RenderCopy(ren, tex, nullptr, &dest);
+        SDL_RenderPresent(ren);
+
+        SDL_Delay(16); // ~60 FPS
+    }
+
+    SDL_DestroyTexture(tex);
+    SDL_DestroyRenderer(ren);
+    SDL_DestroyWindow(window);
+    SDL_Quit();
+}
+
+
 // ------------------ Init & Run ------------------
 
 void luma_init(LumaCompositor* comp)
 {
+
+    // comp_framebuffer = (uint32_t*)malloc(comp_width * comp_height * 4);
+    // memset(comp_framebuffer, 0x00, comp_width * comp_height * 4);
+
+    comp_framebuffer.assign(comp_width * comp_height, 0xff000000); // opaque black
+
+    // Start SDL preview window at e.g. 1280x720
+    sdl_thread = std::thread(sdl_renderer_thread, 1280, 720);
+
     comp->display = wl_display_create();
     if (!comp->display) {
         std::cerr << "[LumaCompositor] Failed to create display\n";
