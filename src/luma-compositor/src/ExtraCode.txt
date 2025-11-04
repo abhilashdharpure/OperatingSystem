@@ -1,0 +1,860 @@
+// // src/compositor_minimal.cpp
+// #include <iostream>
+// #include <cstdlib>
+// #include <wayland-server.h>
+
+// // Simple LumaCompositor struct (match yours if needed)
+// struct LumaCompositor {
+//     wl_display* display = nullptr;
+//     wl_event_loop* loop = nullptr;
+//     wl_global* compositor_global = nullptr;
+//     wl_global* shm_global = nullptr;
+// };
+
+// // ---- wl_compositor stubs ----
+// static void compositor_create_surface(struct wl_client* client, struct wl_resource* resource, uint32_t id) {
+//     (void)client; (void)resource;
+//     // create a basic surface resource (no implementation)
+//     wl_resource* surf = wl_resource_create(client, &wl_surface_interface, 1, id);
+//     if (!surf) wl_client_post_no_memory(client);
+//     else wl_resource_set_implementation(surf, nullptr, nullptr, nullptr);
+//     std::cout << "[MIN] create_surface id=" << id << "\n";
+// }
+
+// static void compositor_create_region(struct wl_client* client, struct wl_resource* resource, uint32_t id) {
+//     (void)client; (void)resource;
+//     wl_resource* r = wl_resource_create(client, &wl_region_interface, 1, id);
+//     if (!r) wl_client_post_no_memory(client);
+//     else wl_resource_set_implementation(r, nullptr, nullptr, nullptr);
+//     std::cout << "[MIN] create_region id=" << id << "\n";
+// }
+
+// static const struct wl_compositor_interface compositor_impl = {
+//     .create_surface = compositor_create_surface,
+//     .create_region = compositor_create_region
+// };
+
+// static void bind_compositor(struct wl_client* client, void* data, uint32_t version, uint32_t id) {
+//     (void)data;
+//     wl_resource* res = wl_resource_create(client, &wl_compositor_interface, version, id);
+//     if (!res) { wl_client_post_no_memory(client); return; }
+//     wl_resource_set_implementation(res, &compositor_impl, nullptr, nullptr);
+//     std::cout << "[MIN] bind_compositor (ver=" << version << ", id=" << id << ")\n";
+// }
+
+// // ---- wl_shm stub ----
+// static void shm_create_pool(struct wl_client* client, struct wl_resource* resource,
+//                             uint32_t id, int32_t fd, int32_t size) {
+//     (void)client; (void)resource; (void)fd; (void)size;
+//     // create a pool resource with no implementation
+//     wl_resource* pool = wl_resource_create(client, &wl_shm_pool_interface, 1, id);
+//     if (!pool) wl_client_post_no_memory(client);
+//     else wl_resource_set_implementation(pool, nullptr, nullptr, nullptr);
+//     std::cout << "[MIN] shm_create_pool id=" << id << "\n";
+// }
+
+// static const struct wl_shm_interface shm_impl = {
+//     .create_pool = shm_create_pool
+// };
+
+// static void bind_shm(struct wl_client* client, void* data, uint32_t version, uint32_t id) {
+//     (void)data;
+//     wl_resource* res = wl_resource_create(client, &wl_shm_interface, version, id);
+//     if (!res) { wl_client_post_no_memory(client); return; }
+//     wl_resource_set_implementation(res, &shm_impl, nullptr, nullptr);
+//     std::cout << "[MIN] bind_shm (ver=" << version << ", id=" << id << ")\n";
+// }
+
+// // ---- Init & run ----
+
+// void luma_init(LumaCompositor* comp) {
+//     comp->display = wl_display_create();
+//     if (!comp->display) {
+//         std::cerr << "[LumaCompositor] Failed to create display\n";
+//         exit(1);
+//     }
+
+//     std::string displayName = "luma-0";
+
+//     if (wl_display_add_socket(comp->display, displayName.c_str()))
+//     {
+//         std::cerr << "[LumaCompositor] Socket luma-0 in use, trying luma-1...\n";
+
+//         displayName = "luma-1";
+
+//         if (wl_display_add_socket(comp->display, displayName.c_str())) {
+//             std::cerr << "[LumaCompositor] Failed to add any Wayland socket.\n";
+//             return;
+//         }
+//     }
+
+//     setenv("WAYLAND_DISPLAY", displayName.c_str(), 1);
+//     std::cout << "[LumaCompositor] Using Wayland socket: "<<displayName<<std::endl;
+
+//     // const char* socket = wl_display_add_socket_auto(comp->display);
+//     // if (!socket) {
+//     //     std::cerr << "[LumaCompositor] Failed to add Wayland socket\n";
+//     //     exit(1);
+//     // }
+
+//     // std::cout << "[LumaCompositor] Using Wayland socket: " << socket << "\n";
+
+//     // comp->loop = wl_display_get_event_loop(comp->display);
+
+//     // comp->compositor_global = wl_global_create(comp->display,
+//     //                                            &wl_compositor_interface,
+//     //                                            4, nullptr, bind_compositor);
+//     // comp->shm_global = wl_global_create(comp->display,
+//     //                                     &wl_shm_interface,
+//     //                                     1, nullptr, bind_shm);
+//     // comp->xdg_wm_base_global = wl_global_create(comp->display,
+//     //                                             &xdg_wm_base_interface,
+//     //                                             1, nullptr, bind_xdg_wm_base);
+
+//     comp->compositor_global = wl_global_create(comp->display, &wl_compositor_interface, 4, nullptr, bind_compositor);
+//     comp->shm_global = wl_global_create(comp->display, &wl_shm_interface, 1, nullptr, bind_shm);
+
+
+//     // comp->compositor_global = wl_global_create(comp->display, &wl_compositor_interface, 4, nullptr, bind_compositor);
+//     // comp->shm_global = wl_global_create(comp->display, &wl_shm_interface, 1, nullptr, bind_shm);
+//     // comp->xdg_wm_base_global = wl_global_create(comp->display, &xdg_wm_base_interface, 7, nullptr, bind_xdg_wm_base);
+
+
+//     std::cout << "[LumaCompositor] Wayland display initialized\n";
+// }
+// // void luma_init(LumaCompositor* comp) {
+// //     comp->display = wl_display_create();
+// //     if (!comp->display) {
+// //         std::cerr << "[MIN] wl_display_create() failed\n";
+// //         std::exit(1);
+// //     }
+
+// //     const char* sock = wl_display_add_socket_auto(comp->display);
+// //     if (!sock) {
+// //         std::cerr << "[MIN] wl_display_add_socket_auto() failed\n";
+// //         wl_display_destroy(comp->display);
+// //         std::exit(1);
+// //     }
+// //     std::cout << "[MIN] Wayland socket: " << sock << "\n";
+
+// //     comp->compositor_global = wl_global_create(comp->display, &wl_compositor_interface, 4, nullptr, bind_compositor);
+// //     comp->shm_global = wl_global_create(comp->display, &wl_shm_interface, 1, nullptr, bind_shm);
+
+// //     std::cout << "[MIN] Wayland globals created\n";
+// // }
+
+// void luma_run(LumaCompositor* comp) {
+//     std::cout << "[MIN] Running event loop\n";
+//     wl_display_run(comp->display);
+// }
+
+
+
+
+#include <iostream>
+#include <wayland-server.h>
+#include "build/generated/xdg-shell-protocol.h"
+
+// ------------------ Struct ------------------
+struct LumaCompositor {
+    wl_display* display = nullptr;
+    wl_event_loop* loop = nullptr;
+    wl_global* compositor_global = nullptr;
+    wl_global* shm_global = nullptr;
+    wl_global* xdg_wm_base_global = nullptr;
+};
+
+// ------------------ wl_compositor ------------------
+static void compositor_create_surface(struct wl_client* client, struct wl_resource* resource, uint32_t id) {
+    wl_resource* surface = wl_resource_create(client, &wl_surface_interface, 4, id);
+    if (!surface) {
+        wl_client_post_no_memory(client);
+        return;
+    }
+    std::cout << "[LumaCompositor] Client created surface\n";
+}
+
+static void compositor_create_region(struct wl_client* client, struct wl_resource* resource, uint32_t id) {
+    wl_resource_create(client, &wl_region_interface, 1, id);
+}
+
+static const struct wl_compositor_interface compositor_impl = {
+    .create_surface = compositor_create_surface,
+    .create_region = compositor_create_region
+};
+
+static void bind_compositor(struct wl_client* client, void* data, uint32_t version, uint32_t id) {
+    wl_resource* res = wl_resource_create(client, &wl_compositor_interface, version, id);
+    wl_resource_set_implementation(res, &compositor_impl, nullptr, nullptr);
+}
+
+// ------------------ wl_shm ------------------
+static void shm_create_pool(struct wl_client* client, struct wl_resource* resource,
+                            uint32_t id, int32_t fd, int32_t size) {
+    wl_resource* pool = wl_resource_create(client, &wl_shm_pool_interface, 1, id);
+    (void)fd; (void)size;
+    wl_resource_set_implementation(pool, nullptr, nullptr, nullptr);
+}
+
+static const struct wl_shm_interface shm_impl = {
+    .create_pool = shm_create_pool
+};
+
+static void bind_shm(struct wl_client* client, void* data, uint32_t version, uint32_t id) {
+    wl_resource* res = wl_resource_create(client, &wl_shm_interface, version, id);
+    wl_resource_set_implementation(res, &shm_impl, nullptr, nullptr);
+}
+
+// ------------------ xdg_positioner ------------------
+static void xdg_positioner_destroy(struct wl_client*, struct wl_resource*) {}
+static void xdg_positioner_set_size(struct wl_client*, struct wl_resource*, int32_t, int32_t) {}
+static void xdg_positioner_set_anchor_rect(struct wl_client*, struct wl_resource*, int32_t, int32_t, int32_t, int32_t) {}
+static void xdg_positioner_set_anchor(struct wl_client*, struct wl_resource*, uint32_t) {}
+static void xdg_positioner_set_gravity(struct wl_client*, struct wl_resource*, uint32_t) {}
+static void xdg_positioner_set_constraint_adjustment(struct wl_client*, struct wl_resource*, uint32_t) {}
+static void xdg_positioner_set_offset(struct wl_client*, struct wl_resource*, int32_t, int32_t) {}
+static void xdg_positioner_set_reactive(struct wl_client*, struct wl_resource*) {}
+static void xdg_positioner_set_parent_size(struct wl_client*, struct wl_resource*, int32_t, int32_t) {}
+static void xdg_positioner_set_parent_configure(struct wl_client*, struct wl_resource*, uint32_t) {}
+
+static const struct xdg_positioner_interface xdg_positioner_impl = {
+    .destroy = xdg_positioner_destroy,
+    .set_size = xdg_positioner_set_size,
+    .set_anchor_rect = xdg_positioner_set_anchor_rect,
+    .set_anchor = xdg_positioner_set_anchor,
+    .set_gravity = xdg_positioner_set_gravity,
+    .set_constraint_adjustment = xdg_positioner_set_constraint_adjustment,
+    .set_offset = xdg_positioner_set_offset,
+    .set_reactive = xdg_positioner_set_reactive,
+    .set_parent_size = xdg_positioner_set_parent_size,
+    .set_parent_configure = xdg_positioner_set_parent_configure
+};
+
+// ------------------ xdg_toplevel ------------------
+static void xdg_toplevel_destroy(struct wl_client*, struct wl_resource*) {}
+static void xdg_toplevel_set_parent(struct wl_client*, struct wl_resource*, struct wl_resource*) {}
+static void xdg_toplevel_set_title(struct wl_client*, struct wl_resource*, const char*) {}
+static void xdg_toplevel_set_app_id(struct wl_client*, struct wl_resource*, const char*) {}
+// static void xdg_toplevel_show_window_menu(struct wl_client*, struct wl_resource*, struct wl_resource*, int32_t, int32_t) {}
+
+static void xdg_toplevel_show_window_menu(struct wl_client *client,
+				 struct wl_resource *resource,
+				 struct wl_resource *seat,
+				 uint32_t serial,
+				 int32_t x,
+				 int32_t y) 
+{
+    std::cout << "[LumaCompositor] Created xdg_toplevel_show_window_menu window\n";
+}
+
+static void xdg_toplevel_move(struct wl_client*, struct wl_resource*, struct wl_resource*, uint32_t) {}
+static void xdg_toplevel_resize(struct wl_client*, struct wl_resource*, struct wl_resource*, uint32_t, uint32_t) {}
+static void xdg_toplevel_set_max_size(struct wl_client*, struct wl_resource*, int32_t, int32_t) {}
+static void xdg_toplevel_set_min_size(struct wl_client*, struct wl_resource*, int32_t, int32_t) {}
+static void xdg_toplevel_set_maximized(struct wl_client*, struct wl_resource*) {}
+static void xdg_toplevel_unset_maximized(struct wl_client*, struct wl_resource*) {}
+static void xdg_toplevel_set_fullscreen(struct wl_client*, struct wl_resource*, struct wl_resource*) {}
+static void xdg_toplevel_unset_fullscreen(struct wl_client*, struct wl_resource*) {}
+static void xdg_toplevel_set_minimized(struct wl_client*, struct wl_resource*) {}
+
+static const struct xdg_toplevel_interface xdg_toplevel_impl = {
+    .destroy = xdg_toplevel_destroy,
+    .set_parent = xdg_toplevel_set_parent,
+    .set_title = xdg_toplevel_set_title,
+    .set_app_id = xdg_toplevel_set_app_id,
+    .show_window_menu = xdg_toplevel_show_window_menu,
+    .move = xdg_toplevel_move,
+    .resize = xdg_toplevel_resize,
+    .set_max_size = xdg_toplevel_set_max_size,
+    .set_min_size = xdg_toplevel_set_min_size,
+    .set_maximized = xdg_toplevel_set_maximized,
+    .unset_maximized = xdg_toplevel_unset_maximized,
+    .set_fullscreen = xdg_toplevel_set_fullscreen,
+    .unset_fullscreen = xdg_toplevel_unset_fullscreen,
+    .set_minimized = xdg_toplevel_set_minimized
+};
+
+// ------------------ xdg_surface ------------------
+static void xdg_surface_destroy(struct wl_client*, struct wl_resource*) {}
+static void xdg_surface_get_toplevel(struct wl_client* client, struct wl_resource* resource, uint32_t id) {
+    wl_resource* toplevel = wl_resource_create(client, &xdg_toplevel_interface, 7, id);
+    wl_resource_set_implementation(toplevel, &xdg_toplevel_impl, nullptr, nullptr);
+}
+static void xdg_surface_get_popup(struct wl_client*, struct wl_resource*, uint32_t, struct wl_resource*, struct wl_resource*) {}
+static void xdg_surface_set_window_geometry(struct wl_client*, struct wl_resource*, int32_t, int32_t, int32_t, int32_t) {}
+static void xdg_surface_ack_configure(struct wl_client*, struct wl_resource*, uint32_t) {}
+
+static const struct xdg_surface_interface xdg_surface_impl = {
+    .destroy = xdg_surface_destroy,
+    .get_toplevel = xdg_surface_get_toplevel,
+    .get_popup = xdg_surface_get_popup,
+    .set_window_geometry = xdg_surface_set_window_geometry,
+    .ack_configure = xdg_surface_ack_configure
+};
+
+// ------------------ xdg_wm_base ------------------
+static void xdg_wm_base_destroy(struct wl_client*, struct wl_resource*) {}
+static void xdg_wm_base_create_positioner(struct wl_client* client, struct wl_resource* resource, uint32_t id) {
+    wl_resource* pos = wl_resource_create(client, &xdg_positioner_interface, 7, id);
+    wl_resource_set_implementation(pos, &xdg_positioner_impl, nullptr, nullptr);
+}
+static void xdg_wm_base_get_xdg_surface(struct wl_client* client, struct wl_resource* resource,
+                                        uint32_t id, struct wl_resource* surface) {
+    wl_resource* xdg_surf = wl_resource_create(client, &xdg_surface_interface, 7, id);
+    wl_resource_set_implementation(xdg_surf, &xdg_surface_impl, surface, nullptr);
+}
+static void xdg_wm_base_pong(struct wl_client*, struct wl_resource*, uint32_t) {}
+
+static const struct xdg_wm_base_interface xdg_wm_base_impl = {
+    .destroy = xdg_wm_base_destroy,
+    .create_positioner = xdg_wm_base_create_positioner,
+    .get_xdg_surface = xdg_wm_base_get_xdg_surface,
+    .pong = xdg_wm_base_pong
+};
+
+static void bind_xdg_wm_base(struct wl_client* client, void*, uint32_t version, uint32_t id) {
+    wl_resource* res = wl_resource_create(client, &xdg_wm_base_interface, version, id);
+    wl_resource_set_implementation(res, &xdg_wm_base_impl, nullptr, nullptr);
+}
+
+// ------------------ Init & Run ------------------
+
+void luma_init(LumaCompositor* comp) {
+    comp->display = wl_display_create();
+    if (!comp->display) {
+        std::cerr << "[LumaCompositor] Failed to create display\n";
+        exit(1);
+    }
+
+    std::string displayName = "luma-0";
+
+    if (wl_display_add_socket(comp->display, displayName.c_str()))
+    {
+        std::cerr << "[LumaCompositor] Socket luma-0 in use, trying luma-1...\n";
+
+        displayName = "luma-1";
+
+        if (wl_display_add_socket(comp->display, displayName.c_str())) {
+            std::cerr << "[LumaCompositor] Failed to add any Wayland socket.\n";
+            return;
+        }
+    }
+
+    setenv("WAYLAND_DISPLAY", displayName.c_str(), 1);
+    std::cout << "[LumaCompositor] Using Wayland socket: "<<displayName<<std::endl;
+
+    // const char* socket = wl_display_add_socket_auto(comp->display);
+    // if (!socket) {
+    //     std::cerr << "[LumaCompositor] Failed to add Wayland socket\n";
+    //     exit(1);
+    // }
+
+    // std::cout << "[LumaCompositor] Using Wayland socket: " << socket << "\n";
+
+    comp->loop = wl_display_get_event_loop(comp->display);
+
+    comp->compositor_global = wl_global_create(comp->display,
+                                               &wl_compositor_interface,
+                                               4, nullptr, bind_compositor);
+    comp->shm_global = wl_global_create(comp->display,
+                                        &wl_shm_interface,
+                                        1, nullptr, bind_shm);
+    comp->xdg_wm_base_global = wl_global_create(comp->display,
+                                                &xdg_wm_base_interface,
+                                                1, nullptr, bind_xdg_wm_base);
+
+
+
+    // comp->compositor_global = wl_global_create(comp->display, &wl_compositor_interface, 4, nullptr, bind_compositor);
+    // comp->shm_global = wl_global_create(comp->display, &wl_shm_interface, 1, nullptr, bind_shm);
+    // comp->xdg_wm_base_global = wl_global_create(comp->display, &xdg_wm_base_interface, 7, nullptr, bind_xdg_wm_base);
+
+
+    std::cout << "[LumaCompositor] Wayland display initialized\n";
+}
+
+// void luma_init(LumaCompositor* comp) {
+//     comp->display = wl_display_create();
+//     if (!comp->display) {
+//         std::cerr << "[LumaCompositor] Failed to create display\n";
+//         exit(1);
+//     }
+
+//     const char* socket = wl_display_add_socket_auto(comp->display);
+//     std::cout << "[LumaCompositor] Using Wayland socket: " << socket << "\n";
+
+//     comp->compositor_global = wl_global_create(comp->display, &wl_compositor_interface, 4, nullptr, bind_compositor);
+//     comp->shm_global = wl_global_create(comp->display, &wl_shm_interface, 1, nullptr, bind_shm);
+//     comp->xdg_wm_base_global = wl_global_create(comp->display, &xdg_wm_base_interface, 7, nullptr, bind_xdg_wm_base);
+
+//     std::cout << "[LumaCompositor] Wayland display initialized\n";
+// }
+
+void luma_run(LumaCompositor* comp) {
+    std::cout << "[LumaCompositor] Running Wayland event loop...\n";
+    wl_display_run(comp->display);
+}
+
+
+
+// **********************************************************************************************************************************************
+// #include "compositor.h"
+// #include "wayland_protocols.h"
+// #include <iostream>
+// #include <wayland-server.h>
+// #include "build/generated/xdg-shell-protocol.h"
+// #include <vector>
+// #include <string>
+
+// // Basic structures to hold per-surface state
+// struct LumaSurface {
+//     wl_resource* surface_resource;
+//     wl_resource* buffer_resource; // last attached wl_buffer (may be null)
+//     int width;
+//     int height;
+//     bool committed;
+// };
+
+// // Simple container for allocated pools/buffers bookkeeping
+// struct LumaPool {
+//     wl_resource* pool_resource;
+//     size_t size;
+// };
+
+// static std::vector<LumaSurface*> surfaces;
+// static std::vector<LumaPool*> pools;
+
+// // Helper: get LumaSurface from wl_resource
+// static LumaSurface* get_surface_from_resource(wl_resource* res) {
+//     if (!res) return nullptr;
+//     return static_cast<LumaSurface*>(wl_resource_get_user_data(res));
+// }
+
+// // -----------------------------------------------------------------------------
+// // wl_surface implementation
+// // -----------------------------------------------------------------------------
+// static void surface_destroy(struct wl_client* /*client*/, struct wl_resource* resource)
+// {
+//     std::cout << "[COMPOSITOR] surface_attach_handler" << "\n";
+
+//     wl_resource_destroy(resource);
+// }
+
+// static void surface_attach_handler(wl_client* client, wl_resource* resource,
+//                                    wl_resource* buffer, int32_t x, int32_t y)
+// {
+//     std::cout << "[COMPOSITOR] surface_attach_handler" << "\n";
+
+//     (void)client; (void)x; (void)y;
+//     LumaSurface* s = get_surface_from_resource(resource);
+//     if (!s) return;
+//     // remember buffer resource; we won't mmap here, just keep pointer so it isn't GC'd
+//     if (s->buffer_resource) {
+//         // drop previous reference: release by setting null (Wayland will handle resource destroy)
+//         wl_resource_destroy(s->buffer_resource);
+//         s->buffer_resource = nullptr;
+//     }
+//     if (buffer) {
+//         // increase ref by setting user data? We'll just store pointer and rely on compositor lifetime.
+//         s->buffer_resource = buffer;
+//         // Important: don't call wl_resource_destroy(buffer) — the client owns it; we just keep reference.
+//     }
+// }
+
+// static void surface_damage_handler(wl_client* client, wl_resource* resource,
+//                                    int32_t x, int32_t y, int32_t width, int32_t height)
+// {
+//     std::cout << "[COMPOSITOR] surface_damage_handler" << "\n";
+
+//     (void)client; (void)resource; (void)x; (void)y; (void)width; (void)height;
+//     // No-op for now: clients may call damage before commit.
+// }
+
+// static void surface_frame_handler(wl_client* client, wl_resource* resource, uint32_t callback)
+// {
+//     std::cout << "[COMPOSITOR] surface_frame_handler" << "\n";
+
+//     (void)client;
+//     // Create a callback resource and immediately send done / destroy it later
+//     wl_resource* cb = wl_resource_create(client, &wl_callback_interface, 1, callback);
+//     if (cb) {
+//         // send done with current time 0 (not accurate, but valid)
+//         wl_callback_send_done(cb, 0);
+//         wl_resource_destroy(cb);
+//     }
+// }
+
+// static void surface_set_opaque_region(wl_client* c, wl_resource* r, wl_resource* region)
+// {
+//     std::cout << "[COMPOSITOR] surface_set_opaque_region" << "\n";
+
+//     (void)c; (void)r; (void)region;
+// }
+// static void surface_set_input_region(wl_client* c, wl_resource* r, wl_resource* region)
+// {
+//     std::cout << "[COMPOSITOR] surface_set_input_region" << "\n";
+
+//     (void)c; (void)r; (void)region;
+// }
+
+// static void surface_commit_handler(wl_client* client, wl_resource* resource)
+// {
+//     std::cout << "[COMPOSITOR] surface_commit_handler" << "\n";
+
+//     (void)client;
+//     (void)resource;
+//     // LumaSurface* s = get_surface_from_resource(resource);
+//     // if (!s) return;
+//     // // Mark committed; in a real compositor you would take s->buffer_resource and draw it
+//     // s->committed = true;
+//     // For debug:
+//     // std::cout << "[COMPOSITOR] surface commit, buffer=" << s->buffer_resource << "\n";
+// }
+
+// static void surface_set_buffer_transform(wl_client* client, wl_resource* resource, int32_t)
+// {
+//     std::cout << "[COMPOSITOR] surface_set_buffer_transform" << "\n";
+// }
+
+// static void surface_set_buffer_scale(wl_client* client, wl_resource* resource, int32_t)
+// {
+//     std::cout << "[COMPOSITOR] surface_set_buffer_scale" << "\n";
+// }
+
+// static void surface_damage_buffer(wl_client* client, wl_resource* resource, int32_t, int32_t, int32_t, int32_t)
+// {
+//     std::cout << "[COMPOSITOR] surface_damage_buffer" << "\n";
+// }
+
+// static void surface_offset(wl_client* client, wl_resource* resource, int32_t, int32_t)
+// {
+//     std::cout << "[COMPOSITOR] surface_offset" << "\n";
+// }
+
+
+// static const struct wl_surface_interface surface_interface = {
+//     .destroy = surface_destroy,
+//     .attach = surface_attach_handler,
+//     .damage = surface_damage_handler,
+//     .frame = surface_frame_handler,
+//     .set_opaque_region = surface_set_opaque_region,
+//     .set_input_region = surface_set_input_region,
+//     .commit = surface_commit_handler,
+//     .set_buffer_transform = surface_set_buffer_transform,
+//     .set_buffer_scale = surface_set_buffer_scale,
+//     .damage_buffer = surface_damage_buffer,
+//     .offset = surface_offset
+// };
+
+// // -----------------------------------------------------------------------------
+// // wl_compositor implementation
+// // -----------------------------------------------------------------------------
+// static void compositor_create_surface(struct wl_client* client,
+//                                       struct wl_resource* resource,
+//                                       uint32_t id)
+// {
+//     wl_resource* surface = wl_resource_create(client, &wl_surface_interface,
+//                                               wl_resource_get_version(resource), id);
+//     wl_resource_set_implementation(surface, &surface_interface, nullptr, nullptr);
+// }
+
+// static void compositor_create_region(struct wl_client* client,
+//                                      struct wl_resource* resource,
+//                                      uint32_t id)
+// {
+//     wl_resource_create(client, &wl_region_interface,
+//                        wl_resource_get_version(resource), id);
+// }
+
+// static const struct wl_compositor_interface compositor_interface = {
+//     .create_surface = compositor_create_surface,
+//     .create_region = compositor_create_region
+// };
+
+// // -----------------------------------------------------------------------------
+// // xdg_toplevel implementation (window)
+// // -----------------------------------------------------------------------------
+// static void xdg_toplevel_destroy(struct wl_client* /*client*/, struct wl_resource* resource) {
+//     wl_resource_destroy(resource);
+// }
+
+// static void xdg_toplevel_set_parent(struct wl_client *client,
+// 			   struct wl_resource *resource,
+// 			   struct wl_resource *parent) 
+// {
+//     std::cout << "[LumaCompositor] Created xdg_toplevel window\n";
+// }
+
+// static void xdg_toplevel_set_title(struct wl_client *client,
+// 			  struct wl_resource *resource,
+// 			  const char *title) 
+// {
+//     std::cout << "[LumaCompositor] Created xdg_toplevel_set_title window\n";
+// }
+
+// static void xdg_toplevel_set_app_id(struct wl_client *client,
+// 			   struct wl_resource *resource,
+// 			   const char *app_id) 
+// {
+//     std::cout << "[LumaCompositor] Created xdg_toplevel_set_app_id window\n";
+// }
+
+// static void xdg_toplevel_show_window_menu(struct wl_client *client,
+// 				 struct wl_resource *resource,
+// 				 struct wl_resource *seat,
+// 				 uint32_t serial,
+// 				 int32_t x,
+// 				 int32_t y) 
+// {
+//     std::cout << "[LumaCompositor] Created xdg_toplevel_show_window_menu window\n";
+// }
+
+// static void xdg_toplevel_move(struct wl_client *client,
+// 		     struct wl_resource *resource,
+// 		     struct wl_resource *seat,
+// 		     uint32_t serial) 
+// {
+//     std::cout << "[LumaCompositor] Created xdg_toplevel_move window\n";
+// }
+
+// static void xdg_toplevel_resize(struct wl_client *client,
+// 		       struct wl_resource *resource,
+// 		       struct wl_resource *seat,
+// 		       uint32_t serial,
+// 		       uint32_t edges) 
+// {
+//     std::cout << "[LumaCompositor] Created xdg_toplevel_resize window\n";
+// }
+
+// static void xdg_toplevel_set_max_size(struct wl_client *client,
+// 			     struct wl_resource *resource,
+// 			     int32_t width,
+// 			     int32_t height) 
+// {
+//     std::cout << "[LumaCompositor] Created xdg_toplevel_set_max_size window\n";
+// }
+
+// static void xdg_toplevel_set_min_size(struct wl_client *client,
+// 			     struct wl_resource *resource,
+// 			     int32_t width,
+// 			     int32_t height) 
+// {
+//     std::cout << "[LumaCompositor] Created xdg_toplevel_set_min_size window\n";
+// }
+
+// static void xdg_toplevel_set_maximized(struct wl_client *client,
+// 			      struct wl_resource *resource) 
+// {
+//     std::cout << "[LumaCompositor] Created xdg_toplevel_set_maximized window\n";
+// }
+
+// static void xdg_toplevel_unset_maximized(struct wl_client *client,
+// 				struct wl_resource *resource) 
+// {
+//     std::cout << "[LumaCompositor] Created xdg_toplevel_unset_maximized window\n";
+// }
+
+// static void xdg_toplevel_set_fullscreen(struct wl_client *client,
+// 			       struct wl_resource *resource,
+// 			       struct wl_resource *output) 
+// {
+//     std::cout << "[LumaCompositor] Created xdg_toplevel_set_fullscreen window\n";
+// }
+
+// static void xdg_toplevel_unset_fullscreen(struct wl_client *client,
+// 				 struct wl_resource *resource) 
+// {
+//     std::cout << "[LumaCompositor] Created xdg_toplevel_unset_fullscreen window\n";
+// }
+
+// static void xdg_toplevel_set_minimized(struct wl_client *client,
+// 			      struct wl_resource *resource) 
+// {
+//     std::cout << "[LumaCompositor] Created xdg_toplevel_set_minimized window\n";
+// }
+
+
+// static const struct xdg_toplevel_interface xdg_toplevel_impl = {
+//     .destroy = xdg_toplevel_destroy,
+//     .set_parent = xdg_toplevel_set_parent,
+//     .set_title = xdg_toplevel_set_title,
+//     .set_app_id = xdg_toplevel_set_app_id,
+//     .show_window_menu = xdg_toplevel_show_window_menu,
+//     .move = xdg_toplevel_move,
+//     .resize = xdg_toplevel_resize,
+//     .set_max_size = xdg_toplevel_set_max_size,
+//     .set_min_size = xdg_toplevel_set_min_size,
+//     .set_maximized = xdg_toplevel_set_maximized,
+//     .unset_maximized = xdg_toplevel_unset_maximized,
+//     .set_fullscreen = xdg_toplevel_set_fullscreen,
+//     .unset_fullscreen = xdg_toplevel_unset_fullscreen,
+//     .set_minimized = xdg_toplevel_set_minimized
+// };
+
+// // -----------------------------------------------------------------------------
+// // xdg_surface implementation
+// // -----------------------------------------------------------------------------
+// static void xdg_surface_destroy(struct wl_client* /*client*/, struct wl_resource* resource) {
+//     wl_resource_destroy(resource);
+// }
+
+// static void xdg_surface_get_toplevel(struct wl_client* client,
+//                                      struct wl_resource* resource,
+//                                      uint32_t id)
+// {
+//     wl_resource* toplevel = wl_resource_create(client, &xdg_toplevel_interface,
+//                                                wl_resource_get_version(resource), id);
+//     wl_resource_set_implementation(toplevel, &xdg_toplevel_impl, nullptr, nullptr);
+
+//     std::cout << "[LumaCompositor] Created xdg_toplevel window\n";
+// }
+
+// static void xdg_surface_ack_configure(struct wl_client*,
+//                                       struct wl_resource*,
+//                                       uint32_t)
+// {
+//     std::cout << "[LumaCompositor] Created xdg_surface_ack_configure window\n";
+// }
+
+// static void xdg_surface_set_window_geometry(struct wl_client*,
+//                                             struct wl_resource*,
+//                                             int32_t, int32_t, int32_t, int32_t)
+// {
+//     std::cout << "[LumaCompositor] Created xdg_surface_set_window_geometry window\n";
+// }
+
+// static void xdg_surface_get_popup(struct wl_client *client,
+// 			  struct wl_resource *resource,
+// 			  uint32_t id,
+// 			  struct wl_resource *parent,
+// 			  struct wl_resource *positioner) 
+// {
+//     std::cout << "[LumaCompositor] Created xdg_surface_get_popup window\n";
+// }
+
+// static const struct xdg_surface_interface xdg_surface_impl = {
+//     .destroy = xdg_surface_destroy,
+//     .get_toplevel = xdg_surface_get_toplevel,
+//     .get_popup = xdg_surface_get_popup,
+//     .set_window_geometry = xdg_surface_set_window_geometry,
+//     .ack_configure = xdg_surface_ack_configure
+// };
+
+// // -----------------------------------------------------------------------------
+// // xdg_wm_base implementation
+// // -----------------------------------------------------------------------------
+// static void xdg_wm_base_destroy(struct wl_client*, struct wl_resource*)
+// {
+//     std::cout << "[LumaCompositor] Client requested xdg_wm_base_destroy\n";
+
+// }
+
+// static void xdg_wm_base_create_positioner(struct wl_client*, struct wl_resource*, uint32_t)
+// {
+
+//     std::cout << "[LumaCompositor] Client requested xdg_wm_base_create_positioner\n";
+// }
+
+// static void xdg_wm_base_get_xdg_surface(struct wl_client* client,
+//                                         struct wl_resource* resource,
+//                                         uint32_t id,
+//                                         struct wl_resource* /*surface*/)
+// {
+//     wl_resource* xdg_surface = wl_resource_create(client, &xdg_surface_interface,
+//                                                   wl_resource_get_version(resource), id);
+//     wl_resource_set_implementation(xdg_surface, &xdg_surface_impl, nullptr, nullptr);
+//     std::cout << "[LumaCompositor] Client requested xdg_surface\n";
+// }
+
+// static void xdg_wm_base_pong(struct wl_client*, struct wl_resource*, uint32_t)
+// {
+//     std::cout << "[LumaCompositor] Client requested xdg_wm_base_pong\n";
+// }
+
+// static const struct xdg_wm_base_interface xdg_wm_base_impl = {
+//     .destroy = xdg_wm_base_destroy,
+//     .create_positioner = xdg_wm_base_create_positioner,
+//     .get_xdg_surface = xdg_wm_base_get_xdg_surface,
+//     .pong = xdg_wm_base_pong
+// };
+
+// // -----------------------------------------------------------------------------
+// // Global binding functions
+// // -----------------------------------------------------------------------------
+// void bind_compositor(struct wl_client* client, void* data,
+//                      uint32_t version, uint32_t id)
+// {
+//     (void)data;
+//     wl_resource* res = wl_resource_create(client, &wl_compositor_interface, version, id);
+//     wl_resource_set_implementation(res, &compositor_interface, nullptr, nullptr);
+// }
+
+// void bind_shm(struct wl_client* client, void* data, uint32_t version, uint32_t id) {
+//     (void)data;
+//     wl_resource* res = wl_resource_create(client, &wl_shm_interface, version, id);
+//     if (!res)
+//         wl_client_post_no_memory(client);
+// }
+
+// void bind_xdg_wm_base(struct wl_client* client, void* data,
+//                       uint32_t version, uint32_t id)
+// {
+//     (void)data;
+//     wl_resource* res = wl_resource_create(client, &xdg_wm_base_interface, version, id);
+//     wl_resource_set_implementation(res, &xdg_wm_base_impl, nullptr, nullptr);
+// }
+
+// // -----------------------------------------------------------------------------
+// // Compositor setup and run
+// // -----------------------------------------------------------------------------
+// void luma_init(LumaCompositor* comp) {
+//     comp->display = wl_display_create();
+//     if (!comp->display) {
+//         std::cerr << "[LumaCompositor] Failed to create display\n";
+//         exit(1);
+//     }
+
+//     std::string displayName = "luma-0";
+
+//     if (wl_display_add_socket(comp->display, displayName.c_str()))
+//     {
+//         std::cerr << "[LumaCompositor] Socket luma-0 in use, trying luma-1...\n";
+
+//         displayName = "luma-1";
+
+//         if (wl_display_add_socket(comp->display, displayName.c_str())) {
+//             std::cerr << "[LumaCompositor] Failed to add any Wayland socket.\n";
+//             return;
+//         }
+//     }
+
+//     setenv("WAYLAND_DISPLAY", displayName.c_str(), 1);
+//     std::cout << "[LumaCompositor] Using Wayland socket: "<<displayName<<std::endl;
+
+//     // const char* socket = wl_display_add_socket_auto(comp->display);
+//     // if (!socket) {
+//     //     std::cerr << "[LumaCompositor] Failed to add Wayland socket\n";
+//     //     exit(1);
+//     // }
+
+//     // std::cout << "[LumaCompositor] Using Wayland socket: " << socket << "\n";
+
+//     comp->loop = wl_display_get_event_loop(comp->display);
+
+//     comp->compositor_global = wl_global_create(comp->display,
+//                                                &wl_compositor_interface,
+//                                                4, nullptr, bind_compositor);
+//     comp->shm_global = wl_global_create(comp->display,
+//                                         &wl_shm_interface,
+//                                         1, nullptr, bind_shm);
+//     comp->xdg_wm_base_global = wl_global_create(comp->display,
+//                                                 &xdg_wm_base_interface,
+//                                                 1, nullptr, bind_xdg_wm_base);
+
+//     std::cout << "[LumaCompositor] Wayland display initialized\n";
+// }
+
+// void luma_run(LumaCompositor* comp) {
+//     std::cout << "[LumaCompositor] Running Wayland event loop...\n";
+//     wl_display_run(comp->display);
+// }
