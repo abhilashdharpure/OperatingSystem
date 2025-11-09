@@ -110,6 +110,7 @@ weston-terminal
 export WAYLAND_DISPLAY=luma-0
 ./build/luma-compositor &
 weston-terminal
+WAYLAND_DEBUG=luma-0 weston-terminal
 
 # Remove previous wayland 
 ls -l /run/user/1000/ | grep luma-0 
@@ -123,3 +124,10 @@ wayland-scanner server-header protocols/wayland.xml build/generated/wayland-prot
 
 
 sudo apt install libsdl2-dev
+
+# Add your user to the input group 
+sudo usermod -aG input $USER
+sudo usermod -a -G video $USER
+sudo usermod -aG video $USER
+sudo chmod 666 /dev/fb0
+newgrp input

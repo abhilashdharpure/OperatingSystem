@@ -17,15 +17,23 @@
 #include <atomic>
 #include <vector>
 
-static int comp_width = 1920;
-static int comp_height = 1080;
-// static uint32_t *comp_framebuffer = nullptr;
+#include <sys/mman.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <cstring>
+#include <xkbcommon/xkbcommon.h>
+#include <chrono>
 
+CompositorInput compositorInput;
+SDL_Window* window;
+SDL_Texture* texture;
+SDL_Renderer* renderer;
 static std::vector<uint32_t> comp_framebuffer; // stored as ARGB8888 (32-bit words)
 static std::mutex comp_fb_mutex;
 static std::atomic<bool> sdl_thread_running{false};
 static std::thread sdl_thread;
 
+using namespace std;
 
 // --- Simple linked list utilities using std::list ---
 static void add_to_list(std::list<my_output*>& lst, my_output* item)
@@ -38,13 +46,249 @@ static void remove_from_list(std::list<my_output*>& lst, my_output* item)
     lst.remove(item);
 }
 
+uint32_t get_current_time_ms()
+{
+    auto now = chrono::system_clock::now();
+
+    // Convert the current time to time since epoch
+    auto duration = now.time_since_epoch();
+
+    // Convert duration to milliseconds
+    auto milliseconds
+        = chrono::duration_cast<chrono::milliseconds>(
+              duration)
+              .count();
+
+    // Print the result
+    std::cout << "Current time in milliseconds is: "
+         << milliseconds << std::endl;
+
+    return milliseconds;
+}
+
+wl_resource* get_focused_keyboard_2(LumaCompositor* compositor)
+{
+    if (!compositor->focused_surface)
+        return nullptr;
+
+    wl_client* focused_client = wl_resource_get_client(compositor->focused_surface);
+
+    wl_resource* keyboard_res;
+    wl_list_for_each(keyboard_res, &compositor->seat->keyboards, link)
+    {
+        if (wl_resource_get_client(keyboard_res) == focused_client)
+        {
+            return keyboard_res;
+        }
+    }
+
+    return nullptr;
+}
+
+
+void destroy_keymap_fd(struct wl_listener* listener, void* data)
+{
+    keymap_fd_holder* holder = wl_container_of(listener, holder, listener);
+    close(holder->fd);
+    delete holder;
+}
+
+void send_keymap_to_client(wl_resource* keyboard_res)
+{
+    std::cout << "[LumaCompositor] send_keymap_to_client" << std::endl;
+    struct xkb_context* ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+    struct xkb_rule_names names = { "evdev", "pc105", "us", "", "" };
+    struct xkb_keymap* keymap = xkb_keymap_new_from_names(ctx, &names, XKB_KEYMAP_COMPILE_NO_FLAGS);
+    const char* keymap_str = xkb_keymap_get_as_string(keymap, XKB_KEYMAP_FORMAT_TEXT_V1);
+    size_t size = strlen(keymap_str) + 1;
+
+    int fd = memfd_create("keymap", MFD_CLOEXEC);
+    ftruncate(fd, size);
+    void* map = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    memcpy(map, keymap_str, size);
+    munmap(map, size);
+
+    wl_keyboard_send_keymap(keyboard_res, WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1, fd, size);
+
+    // defer close
+    keymap_fd_holder* holder = new keymap_fd_holder;
+    holder->fd = fd;
+    holder->listener.notify = destroy_keymap_fd;
+    wl_resource_add_destroy_listener(keyboard_res, &holder->listener);
+
+    xkb_keymap_unref(keymap);
+    xkb_context_unref(ctx);
+}
+
+void fb_flush(LumaCompositor *comp)
+{
+    SDL_UpdateTexture(texture, nullptr, comp_framebuffer.data(), comp->output_width * 4);
+    SDL_RenderClear(renderer);
+    SDL_RenderCopy(renderer, texture, nullptr, nullptr);
+    SDL_RenderPresent(renderer);
+}
+
+static const struct wl_keyboard_interface keyboard_impl = {
+    .release = [](struct wl_client* client, struct wl_resource* resource) {
+        wl_resource_destroy(resource);
+    },
+};
+
+wl_resource* seat_get_pointer(LumaSeat* seat, wl_client* client)
+{
+    std::cout << "[LumaCompositor] seat_get_pointer\n";
+
+    wl_resource* resource;
+    wl_list_for_each(resource, &seat->pointers, link) {
+        if (wl_resource_get_client(resource) == client)
+            return resource;
+    }
+    return nullptr;
+}
+
+static void keyboard_resource_destroy(struct wl_resource *resource)
+{
+    std::cout << "[LumaCompositor] keyboard_resource_destroy\n";
+
+    // nothing stored as user_data currently
+    wl_resource_set_user_data(resource, nullptr);
+}
+
+void safe_send_keyboard_enter(LumaCompositor* compositor,
+                              struct wl_resource* focused_surface,
+                              struct wl_display* display)
+{
+    std::cout << "[LumaCompositor] safe_send_keyboard_enter\n";
+
+    if (!compositor->keyboard_resource || !focused_surface || !display) return;
+
+    if (!focused_surface || !display) return;
+
+    wl_client* focused_client = wl_resource_get_client(focused_surface);
+    if (!focused_client) return;
+
+    uint32_t serial = wl_display_next_serial(display);
+    struct wl_array empty_keys;
+    wl_array_init(&empty_keys);
+
+    xkb_mod_mask_t depressed = xkb_state_serialize_mods(compositor->xkb_state, (xkb_state_component)XKB_STATE_DEPRESSED);
+    xkb_mod_mask_t latched   = xkb_state_serialize_mods(compositor->xkb_state, (xkb_state_component)XKB_STATE_LATCHED);
+    xkb_mod_mask_t locked    = xkb_state_serialize_mods(compositor->xkb_state, (xkb_state_component)XKB_STATE_LOCKED);
+    xkb_layout_index_t group = xkb_state_serialize_layout(compositor->xkb_state, (xkb_state_component)XKB_STATE_EFFECTIVE);
+
+    wl_resource* focused_kbd = get_focused_keyboard_2(compositor);
+
+    if(focused_kbd)
+    {
+        wl_keyboard_send_enter(focused_kbd, serial, focused_surface, &empty_keys);
+        wl_keyboard_send_modifiers(focused_kbd, serial, depressed, latched, locked, group);
+    }
+
+    wl_array_release(&empty_keys);
+
+    wl_display_flush_clients(display);
+
+    std::cout << "[Focus] Sent wl_keyboard.enter serial=" << serial << "\n";
+}
+
+static void seat_get_keyboard(struct wl_client *client, struct wl_resource *seat_res, uint32_t id)
+{
+    std::cout << "[LumaCompositor] seat_get_keyboard\n";
+
+    LumaSeat* seat = (LumaSeat*)wl_resource_get_user_data(seat_res);
+    wl_resource* keyboard_res = wl_resource_create(client, &wl_keyboard_interface, 1, id);
+
+    wl_resource_set_implementation(keyboard_res, &keyboard_impl, nullptr, keyboard_resource_destroy);
+    wl_list_insert(&seat->keyboards, wl_resource_get_link(keyboard_res));
+
+    send_keymap_to_client(keyboard_res);
+    compositorInput.AddKeyboardEvent(keyboard_res);
+
+    LumaCompositor* compositor = seat->compositor;
+    compositor->keyboard_resource = keyboard_res;
+}
+
+static void wl_pointer_interface_set_cursor(struct wl_client* client, struct wl_resource* resource, uint32_t serial,
+                     struct wl_resource* surface, int32_t hotspot_x, int32_t hotspot_y)
+{
+    std::cout << "[LumaCompositor] wl_pointer_interface_set_cursor\n";
+
+}
+
+
+static void wl_pointer_interface_release(struct wl_client* client, struct wl_resource* resource)
+{
+    std::cout << "[LumaCompositor] wl_pointer_interface_release\n";
+    wl_resource_destroy(resource);
+}
+
+static const struct wl_pointer_interface pointer_impl = {
+    .set_cursor = wl_pointer_interface_set_cursor,
+    .release = wl_pointer_interface_release,
+};
+
+static void seat_get_pointer(struct wl_client *client, struct wl_resource *seat_res, uint32_t id)
+{
+    std::cout << "[LumaCompositor] seat_get_pointer\n";
+
+    wl_resource* pointer_res = wl_resource_create(client, &wl_pointer_interface, 1, id);
+    wl_resource_set_implementation(pointer_res, &pointer_impl, nullptr, nullptr);
+    // g_pointers.push_back(pointer_res);
+    compositorInput.AddKeyMouseEvent(pointer_res);
+}
+
+static void seat_get_touch(struct wl_client* client,
+                           struct wl_resource* seat_res,
+                           uint32_t id)
+{
+    std::cout << "[LumaCompositor] seat_get_touch\n";
+}
+
+static void seat_get_release(struct wl_client *client,
+			struct wl_resource *resource)
+{
+    std::cout << "[LumaCompositor] seat_get_release\n";
+}
+
+static const struct wl_seat_interface seat_interface = {
+    .get_pointer = seat_get_pointer,
+    .get_keyboard = seat_get_keyboard,
+    .get_touch = seat_get_touch,
+    .release = seat_get_release,
+};
+
+static void seat_bind(struct wl_client* client, void* data, uint32_t version, uint32_t id)
+{
+    std::cout << "[LumaCompositor] seat_bind\n";
+
+    LumaSeat* seat = (LumaSeat*)data;
+
+    uint32_t ver = std::min<uint32_t>(version, wl_seat_interface.version);
+    wl_resource* resource = wl_resource_create(client, &wl_seat_interface, ver, id);
+    wl_resource_set_implementation(resource, &seat_interface, seat, nullptr);
+
+    wl_seat_send_capabilities(resource,
+        WL_SEAT_CAPABILITY_POINTER | WL_SEAT_CAPABILITY_KEYBOARD);
+
+    wl_seat_send_name(resource, "luma-seat");
+}
+
 static void buffer_resource_destroy(struct wl_resource* resource)
 {
     std::cout << "[LumaCompositor] buffer_resource_destroy\n";
 
+
     shm_buffer* buf = static_cast<shm_buffer*>(wl_resource_get_user_data(resource));
     if (!buf) return;
-    if (buf->data && buf->size) munmap(buf->data, buf->size); // only if you mmap'ed
+
+    if (buf->owner_surface) {
+        buf->owner_surface->buffer_res = nullptr;
+    }
+
+    if (buf->data && buf->size) {
+        munmap(buf->data, buf->size);
+    }
+
     delete buf;
     wl_resource_set_user_data(resource, nullptr);
 }
@@ -56,14 +300,6 @@ static void buffer_destroy_request(struct wl_client* client, struct wl_resource*
     (void)client;
     // client requested to destroy buffer resource - server can ignore or destroy
     wl_resource_destroy(resource);
-}
-
-// call when you're done with buffer:
-static void release_buffer_to_client(wl_resource* buffer_res)
-{
-    if (!buffer_res) return;
-    // send release event to client
-    wl_buffer_send_release(buffer_res);
 }
 
 static const struct wl_buffer_interface buffer_impl = {
@@ -84,7 +320,6 @@ static void shm_pool_destroy_req(struct wl_client* client, struct wl_resource* r
     (void)client;
     wl_resource_destroy(resource);
 }
-
 
 static void shm_pool_create_buffer(struct wl_client *client, struct wl_resource *pool_res,
                                    uint32_t id, int32_t offset, int32_t width, int32_t height,
@@ -180,6 +415,7 @@ static void shm_create_pool(struct wl_client* client, struct wl_resource* resour
     }
 
     wl_resource_set_implementation(pool_res, &shm_pool_impl, pool, shm_pool_destroy);
+    
     std::cout << "[LumaCompositor] End shm_create_pool\n";
 
 }
@@ -187,7 +423,6 @@ static void shm_create_pool(struct wl_client* client, struct wl_resource* resour
 static const struct wl_shm_interface shm_impl = {
     .create_pool = shm_create_pool
 };
-
 
 // ------------------ wl_surface ------------------
 static void surface_attach(wl_client* /*client*/, wl_resource* surface_res, wl_resource* buffer, int32_t /*x*/, int32_t /*y*/)
@@ -198,90 +433,127 @@ static void surface_attach(wl_client* /*client*/, wl_resource* surface_res, wl_r
 
     if (!surf)
     {
+        std::cout << "[LumaCompositor] ERROR:  surface_attach,surf is NULL\n";
+
         return;
     }
+
+    shm_buffer* buf = static_cast<shm_buffer*>(wl_resource_get_user_data(buffer));
+    if (buf)
+    {
+        buf->owner_surface = surf;
+    }
     surf->buffer_res = buffer; // just track it
+
 }
 
-static void surface_commit(wl_client*, wl_resource* surface_res)
+static void surface_commit(wl_client* client, wl_resource* surface_res)
 {
-    std::cout << "[LumaCompositor] wl_surface commit\n";
+    std::cout << "[LumaCompositor] surface_commit\n";
 
     my_surface* surf = static_cast<my_surface*>(wl_resource_get_user_data(surface_res));
     if (!surf)
     {
         return;
     }
+    LumaCompositor* compositor = surf->compositor;
 
         // if no buffer attached → nothing to show, but still respond to callbacks
     wl_resource* buf_res = surf->buffer_res;
-    if (buf_res) {
-        auto *buf = static_cast<shm_buffer*>(wl_resource_get_user_data(buf_res));
+        std::cout << "[LumaCompositor] surface_commit buf_res = "<<buf_res<<std::endl;;
+
+
+
+    if (surf->pending_callback && surf->buffer_res)
+    {
+        std::cout << "[LumaCompositor] surface_commit: frame callback present, copying buffer\n";
+
+        auto* buf = static_cast<shm_buffer*>(wl_resource_get_user_data(surf->buffer_res));
         if (buf && buf->data) {
-            // Minimal compositor: copy to an internal framebuffer at offset (0,0)
-            // assume comp_framebuffer is a global uint32_t* sized to output width*height
-            // and that format is ARGB8888 matching client.
-            int copy_w = std::min(buf->width, comp_width);
-            int copy_h = std::min(buf->height, comp_height);
-            // uint32_t *dst = comp_framebuffer; // your compositor framebuffer
-            // uint32_t *src = static_cast<uint32_t*>(buf->data);
-            // for (int y = 0; y < copy_h; ++y) {
-            //     memcpy(&dst[y * comp_width], &src[y * (buf->stride / 4)], copy_w * 4);
-            // }
+            std::lock_guard<std::mutex> lk(comp_fb_mutex);
+
+            int copy_w = std::min(buf->width, compositor->output_width);
+            int copy_h = std::min(buf->height, compositor->output_height);
 
             uint8_t* src8 = reinterpret_cast<uint8_t*>(buf->data);
             uint8_t* dst8 = reinterpret_cast<uint8_t*>(comp_framebuffer.data());
 
+            int dst_x = surf->x;
+            int dst_y = surf->y;
+
             for (int y = 0; y < copy_h; ++y) {
                 uint8_t* srow = src8 + y * buf->stride;
-                uint8_t* drow = dst8 + y * comp_width * 4;
+                uint8_t* drow = dst8 + (dst_y + y) * compositor->output_width * 4 + dst_x * 4;
                 memcpy(drow, srow, copy_w * 4);
             }
 
-            // mark output as needing repaint — if you have an actual output loop, schedule it
-            // For now, we won't display on host but at least we processed pixels.
+            fb_flush(compositor);
+
+            if (surf->buffer_res)
+            {
+                wl_buffer_send_release(surf->buffer_res);
+                surf->buffer_res = nullptr;
+            }
         }
-        // done with buffer: return it to client
-        // release_buffer_to_client(buf_res);
-        // clear current buffer pointer if you want
-        // wl_resource_destroy? no — client owns resource; you just release.
 
-        // Notify client that buffer is released (so it can reuse it)
-        wl_buffer_send_release(surf->buffer_res);
-        // Optionally nullify buffer_res so you don't reuse it
-        surf->buffer_res = nullptr;
-    }
-
-    // Fire frame callback if requested
-    if (surf->pending_callback) {
-        wl_client *c = wl_resource_get_client(surf->pending_callback);
-        wl_display *d = wl_client_get_display(c);
+        // Send frame done
+        wl_client* c = wl_resource_get_client(surf->pending_callback);
+        wl_display* d = wl_client_get_display(c);
         uint32_t serial = wl_display_next_serial(d);
         wl_callback_send_done(surf->pending_callback, serial);
         wl_resource_destroy(surf->pending_callback);
         surf->pending_callback = nullptr;
+
+        // Now safe to clear buffer
+        surf->buffer_res = nullptr;
     }
 
+    if(compositor != nullptr)
+    {
+
+        if (surf->is_xdg_toplevel && !compositor->focused_surface) 
+        {
+            // sanity checks
+            if (!surf->toplevel_res)
+            {
+                std::cout << "[LumaCompositor] surface_commit: toplevel_res is NULL, skipping initial configure\n";
+            } 
+            else 
+            {
+                compositor->focused_surface = surface_res;
+            }
+
+            std::cout << "[Focus] Sent wl_keyboard.enter to client" << std::endl;
+        }
+    }
+    else
+    {
+        std::cout << "[LumaCompositor] ERROR: surface_commit, comp is NULL"<<std::endl;
+
+    }
 }
 
 static void surface_destroy(wl_client* /*client*/, wl_resource* resource)
 {
-    // my_surface* surf = static_cast<my_surface*>(wl_resource_get_user_data(resource));
-    // delete surf;
-
     wl_resource_destroy(resource);
 }
 
 static void surface_damage(wl_client*, wl_resource*, int32_t, int32_t, int32_t, int32_t)
 {
     std::cout << "[LumaCompositor] surface_damage \n";
-
 }
 
-static void surface_frame(wl_client*, wl_resource*, uint32_t)
+static void surface_frame(wl_client* client, wl_resource* surface_res, uint32_t callback_id)
 {
     std::cout << "[LumaCompositor] surface_frame \n";
+    my_surface* surf = static_cast<my_surface*>(wl_resource_get_user_data(surface_res));
+    if (!surf) return;
 
+    wl_resource* cb = wl_resource_create(client, &wl_callback_interface,
+                                         wl_resource_get_version(surface_res), callback_id);
+    if (!cb) return;
+
+    surf->pending_callback = cb;
 }
 
 static void surface_set_opaque_region(wl_client*, wl_resource*, wl_resource*)
@@ -332,52 +604,19 @@ static void surface_resource_destroy(struct wl_resource *resource)
 {
     std::cout << "[LumaCompositor] surface_resource_destroy\n";
 
-    auto *surf = static_cast<my_surface*>(wl_resource_get_user_data(resource));
-    std::cerr << "[DEBUG] Deleting my_surface " << surf << " (surface=" << resource << ")\n";
+    my_surface* surf = static_cast<my_surface*>(wl_resource_get_user_data(resource));
     if (!surf) 
     { 
         std::cerr << "[DEBUG] surf NULL in xdg handler\n";
         return; 
     }
-
-    // If xdg/toplevel still exist, detach their user_data so they don't delete same wrapper later
-    if (surf->xdg_surface_res)
-    {
-        wl_resource_set_user_data(surf->xdg_surface_res, nullptr);
-    }
-
-    if (surf->toplevel_res)
-    {
-        wl_resource_set_user_data(surf->toplevel_res, nullptr);
-    }
-
-    if (surf->buffer_res)
-    {
-        wl_resource_set_user_data(surf->buffer_res, nullptr);
-    }
-
-    delete surf;
-
-    // clear surface user_data (defensive)
+    // Prevent double free
     wl_resource_set_user_data(resource, nullptr);
+
+    // Clean up safely
+    delete surf;
 }
 
-
-static void surface_frame_impl(struct wl_client* client, struct wl_resource* surface_res, uint32_t callback_id)
-{
-    std::cout << "[LumaCompositor] surface_frame_impl\n";
-
-    my_surface* surf = static_cast<my_surface*>(wl_resource_get_user_data(surface_res));
-    if (!surf) return;
-
-    uint32_t ver = std::min<uint32_t>(wl_resource_get_version(surface_res), wl_callback_interface.version);
-    wl_resource* cb = wl_resource_create(client, &wl_callback_interface, ver, callback_id);
-    if (!cb) return;
-
-    // store once — we may only have one outstanding callback per surface typically
-    surf->pending_callback = cb;
-    std::cout << "[LumaCompositor] surface_frame (callback=" << callback_id << ")\n";
-}
 
 // --------------------------- xdg_surface ---------------------------
 static void destroy_xdg_toplevel_resource(struct wl_resource* resource)
@@ -413,8 +652,6 @@ static void xdg_toplevel_set_app_id(struct wl_client*, struct wl_resource*, cons
 {
     std::cout << "[LumaCompositor] xdg_toplevel_set_app_id\n";
 }
-
-// static void xdg_toplevel_show_window_menu(struct wl_client*, struct wl_resource*, struct wl_resource*, int32_t, int32_t) {}
 
 static void xdg_toplevel_show_window_menu(struct wl_client *client,
 				 struct wl_resource *resource,
@@ -489,8 +726,6 @@ static const struct xdg_toplevel_interface xdg_toplevel_impl = {
     .set_minimized = xdg_toplevel_set_minimized
 };
 
-
-
 // ------------------ xdg_surface ------------------
 static void xdg_surface_destroy(struct wl_client*, struct wl_resource* resource)
 {
@@ -512,7 +747,12 @@ static void xdg_surface_get_toplevel(struct wl_client* client, struct wl_resourc
 
     uint32_t ver = std::min<uint32_t>(wl_resource_get_version(resource), xdg_toplevel_interface.version);
     wl_resource* toplevel = wl_resource_create(client, &xdg_toplevel_interface, ver, id);
-    if (!toplevel) {
+
+    std::cout << "[LumaCompositor] Sending initial configure after get_toplevel\n";
+    if (!toplevel)
+    {
+        std::cerr << "[LumaCompositor] ERROR: toplevel is NULL\n";
+
         wl_client_post_no_memory(client);
         return;
     }
@@ -520,24 +760,21 @@ static void xdg_surface_get_toplevel(struct wl_client* client, struct wl_resourc
     // attach the same surface-wrapper (or a new wrapper for toplevel) as user_data
     wl_resource_set_implementation(toplevel, &xdg_toplevel_impl, surf, destroy_xdg_toplevel_resource);
 
-    // wl_resource_set_implementation(
-    // toplevel,
-    // &xdg_toplevel_impl,
-    // surf,
-    // [](wl_resource* res){
-    //     my_surface* s = static_cast<my_surface*>(wl_resource_get_user_data(res));
-    //     s->toplevel_res = nullptr;
-    //     if (!s->xdg_surface_res) delete s; // delete only if no xdg_surface
-    // }
-    // );
 
     surf->toplevel_res = toplevel;
+    surf->is_xdg_toplevel = true;
+    surf->xdg_surface_res = resource; 
 
+    struct wl_array states;
+    wl_array_init(&states);
 
+    xdg_toplevel_send_configure(toplevel, 1000, 600, &states);
+    wl_array_release(&states);
     uint32_t serial = wl_display_next_serial(wl_client_get_display(client));
+
     xdg_surface_send_configure(resource, serial);
 
-    std::cout << "[LumaCompositor] End xdg_surface_get_toplevel...\n";
+    std::cout << "[LumaCompositor] End xdg_surface_get_toplevel..." << std::endl;
 }
 
 static void xdg_surface_get_popup(struct wl_client*, struct wl_resource*, uint32_t, struct wl_resource*, struct wl_resource*)
@@ -545,14 +782,50 @@ static void xdg_surface_get_popup(struct wl_client*, struct wl_resource*, uint32
     std::cout << "[LumaCompositor] xdg_surface_get_popup...\n";
 }
 
-static void xdg_surface_set_window_geometry(struct wl_client*, struct wl_resource*, int32_t, int32_t, int32_t, int32_t)
+static void xdg_surface_set_window_geometry(struct wl_client*, struct wl_resource* resource, int32_t x, int32_t y, int32_t width, int32_t height)
 {
     std::cout << "[LumaCompositor] xdg_surface_set_window_geometry...\n";
+    my_surface* surface = (my_surface*)wl_resource_get_user_data(resource);
+
+    if(surface != nullptr)
+    {
+        surface->x = x;
+        surface->y = y;
+        surface->width = width;
+        surface->height = height;
+        LumaCompositor* comp = surface->compositor;
+
+        if(comp != nullptr)
+        {
+
+            comp->cursor_x = width/2;
+            comp->cursor_y = height/2;
+            
+            comp->focus_x = x;
+            comp->focus_y = y;
+            comp->focus_width = width;
+            comp->focus_height = height;
+            std::cout << "[LumaCompositor] xdg_surface_set_window_geometry. x = "<<comp->focus_x<<", y = "<<comp->focus_y<< ", focus_width = "<<comp->focus_width<<", focus_height = "<<comp->focus_height<<std::endl;
+        }
+    }
 }
 
-static void xdg_surface_ack_configure(struct wl_client*, struct wl_resource*, uint32_t serial)
+static void xdg_surface_ack_configure(struct wl_client*, struct wl_resource* resource, uint32_t serial)
 {
     std::cout << "[LumaCompositor] xdg_surface_ack_configure serial= "<<serial<<std::endl;
+
+
+    my_surface* surface = (my_surface*)wl_resource_get_user_data(resource);
+    LumaCompositor* comp = surface->compositor;
+
+    surface->configured = true;
+    comp->focused_surface = surface->resource;
+    std::cout << "[LumaCompositor] xdg_surface_ack_configure comp->focused_surface= "<<comp->focused_surface<<std::endl;
+
+    // Send keyboard enter
+    if (comp->keyboard_resource) {
+        safe_send_keyboard_enter(comp, comp->focused_surface, comp->display);
+    }
 }
 
 static const struct xdg_surface_interface xdg_surface_impl = {
@@ -563,7 +836,6 @@ static const struct xdg_surface_interface xdg_surface_impl = {
     .ack_configure = xdg_surface_ack_configure
 };
 
-
 // ------------------ xdg_wm_base ------------------
 static void xdg_wm_base_destroy(struct wl_client*, struct wl_resource*)
 {
@@ -571,48 +843,52 @@ static void xdg_wm_base_destroy(struct wl_client*, struct wl_resource*)
 
 }
 
-
-
-
-
-
 // ------------------ xdg_positioner ------------------
 static void xdg_positioner_destroy(struct wl_client*, struct wl_resource*)
 {
     std::cout << "[LumaCompositor] xdg_positioner_destroy\n";
 }
+
 static void xdg_positioner_set_size(struct wl_client*, struct wl_resource*, int32_t, int32_t)
 {
     std::cout << "[LumaCompositor] xdg_positioner_set_size\n";
 }
+
 static void xdg_positioner_set_anchor_rect(struct wl_client*, struct wl_resource*, int32_t, int32_t, int32_t, int32_t)
 {
     std::cout << "[LumaCompositor] xdg_positioner_set_anchor_rect\n";
 }
+
 static void xdg_positioner_set_anchor(struct wl_client*, struct wl_resource*, uint32_t)
 {
     std::cout << "[LumaCompositor] xdg_positioner_set_anchor\n";
 }
+
 static void xdg_positioner_set_gravity(struct wl_client*, struct wl_resource*, uint32_t)
 {
     std::cout << "[LumaCompositor] xdg_positioner_set_gravity\n";
 }
+
 static void xdg_positioner_set_constraint_adjustment(struct wl_client*, struct wl_resource*, uint32_t)
 {
     std::cout << "[LumaCompositor] xdg_positioner_set_constraint_adjustment\n";
 }
+
 static void xdg_positioner_set_offset(struct wl_client*, struct wl_resource*, int32_t, int32_t) 
 {
     std::cout << "[LumaCompositor] xdg_positioner_set_offset\n";
 }
+
 static void xdg_positioner_set_reactive(struct wl_client*, struct wl_resource*)
 {
     std::cout << "[LumaCompositor] xdg_positioner_set_reactive\n";
 }
+
 static void xdg_positioner_set_parent_size(struct wl_client*, struct wl_resource*, int32_t, int32_t)
 {
     std::cout << "[LumaCompositor] xdg_positioner_set_parent_size\n";
 }
+
 static void xdg_positioner_set_parent_configure(struct wl_client*, struct wl_resource*, uint32_t)
 {
     std::cout << "[LumaCompositor] xdg_positioner_set_parent_configure\n";
@@ -641,7 +917,8 @@ static void xdg_wm_base_create_positioner(struct wl_client* client, struct wl_re
     wl_resource_set_implementation(pos, &xdg_positioner_impl, nullptr, nullptr);
 }
 
-static void xdg_surface_resource_destroy(struct wl_resource* resource) {
+static void xdg_surface_resource_destroy(struct wl_resource* resource)
+{
     // resource user_data should be a pointer to the xdg-surface wrapper (if you allocate one)
     // or if you used the my_surface as user_data, do nothing here if it's managed by wl_surface destroy.
 
@@ -685,6 +962,7 @@ static void xdg_wm_base_get_xdg_surface(struct wl_client* client, struct wl_reso
     uint32_t ver = std::min<uint32_t>(wl_resource_get_version(resource), xdg_surface_interface.version);
 
     wl_resource* xdg_surf = wl_resource_create(client, &xdg_surface_interface, ver, id);
+
     if (!xdg_surf)
     {
         wl_client_post_no_memory(client);
@@ -714,30 +992,6 @@ static const struct xdg_wm_base_interface xdg_wm_base_impl = {
     .get_xdg_surface = xdg_wm_base_get_xdg_surface,
     .pong = xdg_wm_base_pong
 };
-
-// --------------------------- wl_compositor ---------------------------
-
-static void compositor_create_surface(struct wl_client* client, struct wl_resource* resource, uint32_t id)
-{
-    std::cout << "[LumaCompositor] compositor_create_surface\n";
-
-    // negotiate version: use the version requested by client when created (resource passed is the compositor global resource)
-    uint32_t ver = std::min<uint32_t>(wl_resource_get_version(resource), wl_surface_interface.version);
-    wl_resource* surface_res = wl_resource_create(client, &wl_surface_interface, ver, id);
-    if (!surface_res)
-    {
-        wl_client_post_no_memory(client);
-        return;
-    }
-
-    my_surface* surf = new my_surface();
-    surf->resource = surface_res;
-
-    wl_resource_set_implementation(surface_res, &surface_impl, surf, surface_resource_destroy);
-    std::cout << "[LumaCompositor] Client created surface (resource=" << surface_res << ")\n";
-}
-
-
 
 // ------------------ safe wl_region implementation ------------------
 // Put this near other interface implementations.
@@ -770,21 +1024,43 @@ static void region_subtract_impl(struct wl_client *client, struct wl_resource *r
     std::cout << "[LumaCompositor] region_subtract_impl\n";
 }
 
-
-
 static const struct wl_region_interface region_impl = {
     .destroy  = region_destroy_impl,
     .add      = region_add_impl,
     .subtract = region_subtract_impl
 };
 
+// --------------------------- wl_compositor ---------------------------
+
+static void compositor_create_surface(struct wl_client* client, struct wl_resource* resource, uint32_t id)
+{
+    std::cout << "[LumaCompositor] compositor_create_surface called (compositor_global_res=" << resource << " ) creating surface_res id=" << id << "\n";
+    LumaCompositor* comp = (LumaCompositor*)wl_resource_get_user_data(resource);
+
+    // negotiate version: use the version requested by client when created (resource passed is the compositor global resource)
+    uint32_t ver = std::min<uint32_t>(wl_resource_get_version(resource), wl_surface_interface.version);
+    wl_resource* surface_res = wl_resource_create(client, &wl_surface_interface, ver, id);
+    if (!surface_res)
+    {
+        wl_client_post_no_memory(client);
+        return;
+    }
+
+    my_surface* surf = new my_surface();
+    comp->surfaces.push_back(surf);
+    surf->resource = surface_res;
+    surf->compositor = comp;
+    std::cout << "[LumaCompositor] Client created surface comp =" << comp <<std::endl;
+
+    wl_resource_set_implementation(surface_res, &surface_impl, surf, surface_resource_destroy);
+    std::cout << "[LumaCompositor] Client created surface (resource=" << surface_res << ")\n";
+}
+
 static void compositor_create_region(struct wl_client* client, struct wl_resource* resource, uint32_t id)
 {
     std::cout << "[LumaCompositor] compositor_create_region\n";
-    // wl_resource_create(client, &wl_region_interface, 1, id);
 
-
-        // negotiate version safely
+    // negotiate version safely
     uint32_t ver = std::min<uint32_t>(wl_resource_get_version(resource), wl_region_interface.version);
     wl_resource *region_res = wl_resource_create(client, &wl_region_interface, ver, id);
     if (!region_res) {
@@ -808,7 +1084,13 @@ static void bind_compositor(struct wl_client* client, void* data, uint32_t versi
 
     uint32_t ver = std::min<uint32_t>(version, wl_compositor_interface.version);
     wl_resource* res = wl_resource_create(client, &wl_compositor_interface, ver, id);
-    wl_resource_set_implementation(res, &compositor_impl, nullptr, nullptr);
+
+    if (!res) {
+        wl_client_post_no_memory(client);
+        return;
+    }
+
+    wl_resource_set_implementation(res, &compositor_impl, data, nullptr);
 }
 
 // --------------------------- wl_output (minimal) ---------------------------
@@ -880,13 +1162,7 @@ static void wl_output_handle_bind(struct wl_client* client, void* data,
 
     client_output->resource = resource;
 
-
     add_to_list(state->client_outputs, client_output);
-
-    // wl_output_send_geometry(resource, 0, 0, 1920, 1080,
-    // WL_OUTPUT_SUBPIXEL_UNKNOWN, "Foobar, Inc",
-    // "Fancy Monitor 9001 4K HD 120 FPS Noscope",
-    // WL_OUTPUT_TRANSFORM_NORMAL);
 
     // Send required events depending on bound version.
     int res_ver = wl_resource_get_version(resource);
@@ -933,11 +1209,6 @@ static void wl_output_handle_bind(struct wl_client* client, void* data,
         wl_output_send_description(resource, description);
     }
 
-    // --- TODO: Send geometry, mode, scale, etc. ---
-    // wl_output_send_geometry(resource, ...);
-    // wl_output_send_mode(resource, ...);
-    // wl_output_send_done(resource);
-
     std::cout << "[LumaCompositor] END of wl_output_handle_bind...\n";
 }
 
@@ -978,16 +1249,15 @@ static void bind_shm(struct wl_client* client, void* data, uint32_t version, uin
     wl_resource_set_implementation(res, &shm_impl, nullptr, nullptr);
 }
 
-
-
-static void bind_xdg_wm_base(struct wl_client* client, void*, uint32_t version, uint32_t id)
+static void bind_xdg_wm_base(struct wl_client* client, void* data, uint32_t version, uint32_t id)
 {
     std::cout << "[LumaCompositor] bind_xdg_wm_base...\n";
 
     wl_resource* res = wl_resource_create(client, &xdg_wm_base_interface, version, id);
-    wl_resource_set_implementation(res, &xdg_wm_base_impl, nullptr, nullptr);
+    wl_resource_set_implementation(res, &xdg_wm_base_impl, data, nullptr);
 
-
+    LumaCompositor* compositor = static_cast<LumaCompositor*>(data);
+    compositor->wm_base_resource = res;
 
     std::cout << "[LumaCompositor] Sending initial xdg_wm_base ping...\n";
     uint32_t serial = wl_display_next_serial(wl_client_get_display(client));
@@ -996,8 +1266,6 @@ static void bind_xdg_wm_base(struct wl_client* client, void*, uint32_t version, 
     std::cout << "[LumaCompositor] End bind_xdg_wm_base...\n";
 
 }
-
-
 
 void setup_wayland_display(wl_display* display) 
 {
@@ -1008,39 +1276,42 @@ void setup_wayland_display(wl_display* display)
     wl_display_add_client_created_listener(display, &client_listener);
 }
 
-
-
-static void sdl_renderer_thread(int win_w, int win_h) {
-    if (SDL_Init(SDL_INIT_VIDEO) != 0) {
+static void sdl_renderer_thread(int win_w, int win_h)
+{
+    if (SDL_Init(SDL_INIT_VIDEO) != 0)
+    {
         std::cerr << "SDL_Init error: " << SDL_GetError() << std::endl;
         return;
     }
 
-    SDL_Window* window = SDL_CreateWindow("LumaCompositor (Preview)",
+    window = SDL_CreateWindow("LumaCompositor (Preview)",
                                           SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                                           win_w, win_h,
                                           SDL_WINDOW_RESIZABLE);
-    if (!window) {
+    if (!window)
+    {
         std::cerr << "SDL_CreateWindow error: " << SDL_GetError() << std::endl;
         SDL_Quit();
         return;
     }
 
-    SDL_Renderer* ren = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
-    if (!ren) {
+    renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+    if (!renderer)
+    {
         std::cerr << "SDL_CreateRenderer error: " << SDL_GetError() << std::endl;
         SDL_DestroyWindow(window);
         SDL_Quit();
         return;
     }
 
-    SDL_Texture* tex = SDL_CreateTexture(ren,
-                                         SDL_PIXELFORMAT_ARGB8888,
-                                         SDL_TEXTUREACCESS_STREAMING,
-                                         comp_width, comp_height);
-    if (!tex) {
+    texture = SDL_CreateTexture(renderer,
+                                SDL_PIXELFORMAT_ARGB8888,
+                                SDL_TEXTUREACCESS_STREAMING,
+                                win_w, win_h);
+    if (!texture)
+    {
         std::cerr << "SDL_CreateTexture error: " << SDL_GetError() << std::endl;
-        SDL_DestroyRenderer(ren);
+        SDL_DestroyRenderer(renderer);
         SDL_DestroyWindow(window);
         SDL_Quit();
         return;
@@ -1048,9 +1319,11 @@ static void sdl_renderer_thread(int win_w, int win_h) {
 
     sdl_thread_running.store(true);
 
-    while (sdl_thread_running.load()) {
+    while (sdl_thread_running.load())
+    {
         SDL_Event ev;
-        while (SDL_PollEvent(&ev)) {
+        while (SDL_PollEvent(&ev))
+        {
             if (ev.type == SDL_QUIT) {
                 sdl_thread_running.store(false);
             } else if (ev.type == SDL_WINDOWEVENT && ev.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
@@ -1064,37 +1337,37 @@ static void sdl_renderer_thread(int win_w, int win_h) {
             // note: comp_framebuffer.size == comp_width*comp_height
             void* pixels = nullptr;
             int pitch = 0;
-            if (SDL_LockTexture(tex, nullptr, &pixels, &pitch) == 0) {
+            if (SDL_LockTexture(texture, nullptr, &pixels, &pitch) == 0) {
                 // pitch is bytes per row; our comp_width*4 equals expected pitch if sizes match
                 uint8_t* dst = (uint8_t*)pixels;
                 uint8_t* src = (uint8_t*)comp_framebuffer.data();
                 // if comp_width equals texture width and pitch == comp_width*4, we can memcpy whole buffer
-                if (pitch == comp_width * 4) {
-                    memcpy(dst, src, comp_width * comp_height * 4);
+                if (pitch == win_w * 4) {
+                    memcpy(dst, src, win_w * win_h * 4);
                 } else {
                     // copy row by row
-                    for (int y = 0; y < comp_height; ++y) {
-                        memcpy(dst + y * pitch, src + y * comp_width * 4, comp_width * 4);
+                    for (int y = 0; y < win_h; ++y) {
+                        memcpy(dst + y * pitch, src + y * win_w * 4, win_h * 4);
                     }
                 }
-                SDL_UnlockTexture(tex);
+                SDL_UnlockTexture(texture);
             }
         }
 
-        SDL_RenderClear(ren);
+        SDL_RenderClear(renderer);
         // Fit texture to window
         SDL_Rect dest;
         int ww, wh;
         SDL_GetWindowSize(window, &ww, &wh);
         dest.x = 0; dest.y = 0; dest.w = ww; dest.h = wh;
-        SDL_RenderCopy(ren, tex, nullptr, &dest);
-        SDL_RenderPresent(ren);
+        SDL_RenderCopy(renderer, texture, nullptr, &dest);
+        SDL_RenderPresent(renderer);
 
         SDL_Delay(16); // ~60 FPS
     }
 
-    SDL_DestroyTexture(tex);
-    SDL_DestroyRenderer(ren);
+    SDL_DestroyTexture(texture);
+    SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     SDL_Quit();
 }
@@ -1104,16 +1377,30 @@ static void sdl_renderer_thread(int win_w, int win_h) {
 
 void luma_init(LumaCompositor* comp)
 {
+    std::cout << "[LumaCompositor] init: output_width=" << comp->output_width
+          << " output_height=" << comp->output_height << std::endl;
+
+    comp->xkb_ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+    comp->keymap = xkb_keymap_new_from_names(comp->xkb_ctx, nullptr, XKB_KEYMAP_COMPILE_NO_FLAGS);
+    comp->xkb_state = xkb_state_new(comp->keymap);
 
     // comp_framebuffer = (uint32_t*)malloc(comp_width * comp_height * 4);
     // memset(comp_framebuffer, 0x00, comp_width * comp_height * 4);
 
-    comp_framebuffer.assign(comp_width * comp_height, 0xff000000); // opaque black
-
+    comp_framebuffer.assign(comp->output_width * comp->output_height, 0xff000000); // opaque black
+    comp->fb_stride = comp->output_width * 4;  // ARGB8888 = 4 bytes/pixel
     // Start SDL preview window at e.g. 1280x720
-    sdl_thread = std::thread(sdl_renderer_thread, 1280, 720);
 
+    std::cout << "[LumaCompositor] framebuffer size: " << comp_framebuffer.size()
+          << " (expected " << (comp->output_width * comp->output_height) << ")\n";
+    std::cout << "[LumaCompositor] fb_stride = " << comp->fb_stride << std::endl;
+    sdl_thread = std::thread(sdl_renderer_thread, comp->output_width, comp->output_height);
+    std::cout << "[LumaCompositor] sdl_thread_running = " << sdl_thread_running.load() << std::endl;
     comp->display = wl_display_create();
+
+    compositorInput.Initialize(comp);
+
+
     if (!comp->display) {
         std::cerr << "[LumaCompositor] Failed to create display\n";
         exit(1);
@@ -1136,14 +1423,6 @@ void luma_init(LumaCompositor* comp)
     setenv("WAYLAND_DISPLAY", displayName.c_str(), 1);
     std::cout << "[LumaCompositor] Using Wayland socket: "<<displayName<<std::endl;
 
-    // const char* socket = wl_display_add_socket_auto(comp->display);
-    // if (!socket) {
-    //     std::cerr << "[LumaCompositor] Failed to add Wayland socket\n";
-    //     exit(1);
-    // }
-
-    // std::cout << "[LumaCompositor] Using Wayland socket: " << socket << "\n";
-
     comp->loop = wl_display_get_event_loop(comp->display);
 
 
@@ -1156,14 +1435,29 @@ void luma_init(LumaCompositor* comp)
     comp->compositor_global = wl_global_create(comp->display,
                                                &wl_compositor_interface,
                                                4,                           // version from wayland.xml
-                                               nullptr, bind_compositor);
+                                               comp, bind_compositor);
     comp->shm_global = wl_global_create(comp->display,
                                         &wl_shm_interface,
-                                        1, nullptr, bind_shm);
+                                        1, comp, bind_shm);
     comp->xdg_wm_base_global = wl_global_create(comp->display,
                                                 &xdg_wm_base_interface,
                                                 4,                          // version from your xdg-shell.xml
-                                                nullptr, bind_xdg_wm_base);
+                                                comp, bind_xdg_wm_base);
+
+    // Setup Keyboard and Mouse
+    LumaSeat* seat = new LumaSeat();
+    comp->seat = seat;
+    seat->display = comp->display;
+    seat->compositor = comp;
+    wl_list_init(&seat->keyboards);
+    wl_list_init(&seat->pointers);
+
+    seat->seat_global = wl_global_create(
+        comp->display,
+        &wl_seat_interface,
+        4, // version
+        seat,
+        seat_bind);
 
     setup_wayland_display(comp->display);
 
@@ -1175,4 +1469,3 @@ void luma_run(LumaCompositor* comp)
     std::cout << "[LumaCompositor] Running Wayland event loop...\n";
     wl_display_run(comp->display);
 }
-
