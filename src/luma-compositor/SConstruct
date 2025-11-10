@@ -58,7 +58,8 @@ for xml in protocols:
 sources = [
     'src/main.cpp',
     'src/compositor.cpp',
-    'src/compositor_input.cpp'
+    'src/compositor_input.cpp',
+    'src/compositor_helper.cpp'
 ] + generated_sources
 
 # --- Build target ---

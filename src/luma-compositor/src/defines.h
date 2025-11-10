@@ -2,6 +2,7 @@
 
 #include <wayland-server.h>
 #include <list>
+#include <vector>
 
 // Forward declarations
 struct my_output;

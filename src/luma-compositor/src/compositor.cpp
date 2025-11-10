@@ -1,4 +1,6 @@
 #include "compositor.h"
+#include "compositor_helper.h"
+
 #include <iostream>
 #include <wayland-server.h>
 
@@ -65,26 +67,6 @@ uint32_t get_current_time_ms()
 
     return milliseconds;
 }
-
-wl_resource* get_focused_keyboard_2(LumaCompositor* compositor)
-{
-    if (!compositor->focused_surface)
-        return nullptr;
-
-    wl_client* focused_client = wl_resource_get_client(compositor->focused_surface);
-
-    wl_resource* keyboard_res;
-    wl_list_for_each(keyboard_res, &compositor->seat->keyboards, link)
-    {
-        if (wl_resource_get_client(keyboard_res) == focused_client)
-        {
-            return keyboard_res;
-        }
-    }
-
-    return nullptr;
-}
-
 
 void destroy_keymap_fd(struct wl_listener* listener, void* data)
 {
@@ -160,35 +142,23 @@ void safe_send_keyboard_enter(LumaCompositor* compositor,
 {
     std::cout << "[LumaCompositor] safe_send_keyboard_enter\n";
 
-    if (!compositor->keyboard_resource || !focused_surface || !display) return;
-
-    if (!focused_surface || !display) return;
-
-    wl_client* focused_client = wl_resource_get_client(focused_surface);
-    if (!focused_client) return;
-
-    uint32_t serial = wl_display_next_serial(display);
-    struct wl_array empty_keys;
-    wl_array_init(&empty_keys);
-
-    xkb_mod_mask_t depressed = xkb_state_serialize_mods(compositor->xkb_state, (xkb_state_component)XKB_STATE_DEPRESSED);
-    xkb_mod_mask_t latched   = xkb_state_serialize_mods(compositor->xkb_state, (xkb_state_component)XKB_STATE_LATCHED);
-    xkb_mod_mask_t locked    = xkb_state_serialize_mods(compositor->xkb_state, (xkb_state_component)XKB_STATE_LOCKED);
-    xkb_layout_index_t group = xkb_state_serialize_layout(compositor->xkb_state, (xkb_state_component)XKB_STATE_EFFECTIVE);
-
-    wl_resource* focused_kbd = get_focused_keyboard_2(compositor);
-
-    if(focused_kbd)
+    if (!compositor->keyboard_resource || !focused_surface || !display)
     {
-        wl_keyboard_send_enter(focused_kbd, serial, focused_surface, &empty_keys);
-        wl_keyboard_send_modifiers(focused_kbd, serial, depressed, latched, locked, group);
+        return;
     }
 
-    wl_array_release(&empty_keys);
+    if (!focused_surface || !display)
+    {
+        return;
+    }
 
-    wl_display_flush_clients(display);
+    wl_client* focused_client = wl_resource_get_client(focused_surface);
+    if (!focused_client)
+    {
+        return;
+    }
 
-    std::cout << "[Focus] Sent wl_keyboard.enter serial=" << serial << "\n";
+    compositorInput.SendKeyboardEnterEvent(compositor, focused_surface);
 }
 
 static void seat_get_keyboard(struct wl_client *client, struct wl_resource *seat_res, uint32_t id)
@@ -277,19 +247,24 @@ static void buffer_resource_destroy(struct wl_resource* resource)
 {
     std::cout << "[LumaCompositor] buffer_resource_destroy\n";
 
-
     shm_buffer* buf = static_cast<shm_buffer*>(wl_resource_get_user_data(resource));
-    if (!buf) return;
+    if (!buf)
+    {
+        return;
+    }
 
-    if (buf->owner_surface) {
+    if (buf->owner_surface)
+    {
         buf->owner_surface->buffer_res = nullptr;
     }
 
-    if (buf->data && buf->size) {
+    if (buf->data && buf->size)
+    {
         munmap(buf->data, buf->size);
     }
 
     delete buf;
+
     wl_resource_set_user_data(resource, nullptr);
 }
 
@@ -523,7 +498,7 @@ static void surface_commit(wl_client* client, wl_resource* surface_res)
                 compositor->focused_surface = surface_res;
             }
 
-            std::cout << "[Focus] Sent wl_keyboard.enter to client" << std::endl;
+            std::cout << "[Focus] surface_commit compositor->focused_surface = "<<compositor->focused_surface << std::endl;
         }
     }
     else

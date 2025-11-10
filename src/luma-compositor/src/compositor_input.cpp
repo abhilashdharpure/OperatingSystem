@@ -4,6 +4,7 @@
 #include <mutex>
 #include <xkbcommon/xkbcommon.h>
 #include <sys/time.h>
+#include "compositor_helper.h"
 
 // We'll keep references to active keyboard and pointer resources
 static std::vector<wl_resource*> g_keyboards;
@@ -13,22 +14,7 @@ static std::atomic<bool> g_running{true};
 void CompositorInput::Initialize(LumaCompositor* compositor)
 {
     std::cout << "[Input] Start Initialize " << std::endl;
-    std::thread(evdev_input_loop, compositor).detach();
-}
-
-wl_resource* get_focused_keyboard_for_compositor(LumaCompositor* comp)
-{
-    if (!comp || !comp->focused_surface)
-        return nullptr;
-
-    wl_client* focused_client = wl_resource_get_client(comp->focused_surface);
-
-    // Find the keyboard resource belonging to that client
-    for (auto* kbd : g_keyboards) {
-        if (wl_resource_get_client(kbd) == focused_client)
-            return kbd;
-    }
-    return nullptr;
+    std::thread(evdev_input_loop, this, compositor).detach();
 }
 
 static my_surface* hit_test_surface(LumaCompositor* comp, int32_t x, int32_t y)
@@ -43,7 +29,6 @@ static my_surface* hit_test_surface(LumaCompositor* comp, int32_t x, int32_t y)
     // assume surfaces vector is bottom->top; search top to bottom:
     for (auto it = comp->surfaces.rbegin(); it != comp->surfaces.rend(); ++it)
     {
-
         my_surface* s = *it;
         if (!s || !s->resource)
         {
@@ -71,63 +56,67 @@ static my_surface* hit_test_surface(LumaCompositor* comp, int32_t x, int32_t y)
 // returns keyboard wl_resource* for the client that owns `surface_res` (or nullptr)
 static wl_resource* get_keyboard_for_surface_client(LumaCompositor* comp, wl_resource* surface_res)
 {
-    if (!surface_res) return nullptr;
+    if (!surface_res)
+    {
+        return nullptr;
+    }
+
     wl_client* surface_client = wl_resource_get_client(surface_res);
 
     struct wl_resource *kbd_res;
-    wl_list_for_each(kbd_res, &comp->seat->keyboards, link) {
+    wl_list_for_each(kbd_res, &comp->seat->keyboards, link)
+    {
         if (wl_resource_get_client(kbd_res) == surface_client)
+        {
             return kbd_res;
+        }
     }
     return nullptr;
 }
 
 // called from your evdev input loop on BTN_LEFT press
-void handle_pointer_button(LumaCompositor* comp, int x, int y, uint32_t button, uint32_t state)
+void handle_pointer_button(CompositorInput* input, LumaCompositor* comp, int x, int y, uint32_t button, uint32_t state)
 {
-    std::cout << "[Input] handle_pointer_button" << std::endl;
-
-    my_surface* under = hit_test_surface(comp, x, y); // implement hit_test_surface
+    my_surface* under = hit_test_surface(comp, x, y);
     wl_resource* prev = comp->focused_surface;
 
-    if (under) {
-        std::cout << "[Input] under is not NULL" << std::endl;
-
+    if (under)
+    {
         wl_resource* new_surf_res = under->resource;
-        if (new_surf_res != prev) {
+        if (new_surf_res != prev)
+        {
             std::cout << "[Input] inside if (new_surf_res != prev) " << std::endl;
 
             // tell old focused client it lost keyboard focus
             wl_resource* old_kbd = get_keyboard_for_surface_client(comp, prev);
-            if (old_kbd) {
+            if (old_kbd)
+            {
                 std::cout << "[Input] wl_keyboard_send_leave" << std::endl;
 
                 wl_keyboard_send_leave(old_kbd, wl_display_next_serial(comp->display), prev);
             }
+            
             // set new focus and notify
             comp->focused_surface = new_surf_res;
-            wl_resource* new_kbd = get_keyboard_for_surface_client(comp, new_surf_res);
-            if (new_kbd) {
-                std::cout << "[Input] wl_keyboard_send_enter" << std::endl;
+            input->SendKeyboardEnterEvent(comp, comp->focused_surface);
 
-                uint32_t ser = wl_display_next_serial(comp->display);
-
-                wl_keyboard_send_enter(new_kbd,
-                    ser,
-                    new_surf_res,
-                    nullptr /* empty keys array */);
-            }
-            wl_display_flush_clients(comp->display);
+            // wl_resource* new_kbd = get_keyboard_for_surface_client(comp, new_surf_res);
+            // if (new_kbd)
+            // {
+            //     input->SendKeyboardEnterEvent(comp, comp->focused_surface);
+            // }
         }
     }
     else
     {
-        // clicked outside any surface -> clear focus
+        // // clicked outside any surface -> clear focus
         if (prev) {
-            wl_resource* old_kbd = get_keyboard_for_surface_client(comp, prev);
-            if (old_kbd) {
-                wl_keyboard_send_leave(old_kbd, wl_display_next_serial(comp->display), prev);
-            }
+        //     wl_resource* old_kbd = get_keyboard_for_surface_client(comp, prev);
+        //     if (old_kbd) {
+        //         wl_keyboard_send_leave(old_kbd, wl_display_next_serial(comp->display), prev);
+        //     }
+
+
             comp->focused_surface = nullptr;
             wl_display_flush_clients(comp->display);
         }
@@ -137,24 +126,7 @@ void handle_pointer_button(LumaCompositor* comp, int x, int y, uint32_t button, 
     // (your existing pointer_send_button loop works if you track pointer enter/leave correctly)
 }
 
-wl_resource* get_focused_keyboard(LumaCompositor* compositor)
-{
-    if (!compositor->focused_surface)
-        return nullptr;
-
-    wl_client* focused_client = wl_resource_get_client(compositor->focused_surface);
-
-    wl_resource* keyboard_res;
-    wl_list_for_each(keyboard_res, &compositor->seat->keyboards, link) {
-        if (wl_resource_get_client(keyboard_res) == focused_client) {
-            return keyboard_res;
-        }
-    }
-
-    return nullptr;
-}
-
-void CompositorInput::evdev_input_loop(LumaCompositor* compositor)
+void CompositorInput::evdev_input_loop(CompositorInput* input, LumaCompositor* compositor)
 {
     std::cout << "[Input] Start evdev_input_loop " << std::endl;
 
@@ -210,59 +182,32 @@ void CompositorInput::evdev_input_loop(LumaCompositor* compositor)
                 if ((ev.code == BTN_LEFT || ev.code == BTN_RIGHT))
                 {
                     // std::cout << "[Mouse] Mouse Clicked"<<std::endl;
-                    std::cout << "[Input] Mouse button event detected!" << std::endl;
 
-                    handle_pointer_button(compositor, (int)compositor->cursor_x, (int)compositor->cursor_y, ev.code, ev.value);
-                    std::cout << "[Input] After Mouse button event detected!" << std::endl;
+                    handle_pointer_button(input, compositor, (int)compositor->cursor_x, (int)compositor->cursor_y, ev.code, ev.value);
 
-                    uint32_t evdev_code = ev.code;
-                    uint32_t xkb_key = evdev_code + 8;
-                    uint32_t state = ev.value ? WL_KEYBOARD_KEY_STATE_PRESSED : WL_KEYBOARD_KEY_STATE_RELEASED;
-                    xkb_state_update_key(compositor->xkb_state, xkb_key,
-                        state == WL_KEYBOARD_KEY_STATE_PRESSED ? XKB_KEY_DOWN : XKB_KEY_UP);
-
-                    xkb_mod_mask_t depressed = xkb_state_serialize_mods(compositor->xkb_state, (xkb_state_component)XKB_STATE_DEPRESSED);
-                    xkb_mod_mask_t latched   = xkb_state_serialize_mods(compositor->xkb_state, (xkb_state_component)XKB_STATE_LATCHED);
-                    xkb_mod_mask_t locked    = xkb_state_serialize_mods(compositor->xkb_state, (xkb_state_component)XKB_STATE_LOCKED);
-                    xkb_layout_index_t group = xkb_state_serialize_layout(compositor->xkb_state, (xkb_state_component)XKB_STATE_EFFECTIVE);
-                    uint32_t serial = wl_display_next_serial(compositor->display);
-
-                    // wl_keyboard_send_modifiers(compositor->keyboard_resource, serial, depressed, latched, locked, group);
-                    wl_resource*  foucusKeyboard = get_focused_keyboard(compositor);
-
-                    std::cout << "[Input] After wl_keyboard_send_modifiers compositor->keyboard_resource = "<<compositor->keyboard_resource << std::endl;
-                    // std::cout << "[Input] After wl_keyboard_send_modifiers foucusKeyboard = "<<cfoucusKeyboard << std::endl;
-
-                    if (foucusKeyboard)
+                    if (compositor->focused_surface)
                     {
-                        std::cout << "[Input] After wl_keyboard_send_modifiers foucusKeyboard is Okay" << std::endl;
-                        wl_keyboard_send_modifiers(foucusKeyboard, serial, depressed, latched, locked, group);
-                    }
-                    else{
-                        std::cout << "[Input] After wl_keyboard_send_modifiers foucusKeyboard is NULL" << std::endl;
+                        uint32_t evdev_code = ev.code;
+                        uint32_t xkb_key = evdev_code + 8;
+                        uint32_t state = ev.value ? WL_KEYBOARD_KEY_STATE_PRESSED : WL_KEYBOARD_KEY_STATE_RELEASED;
+                        xkb_state_update_key(compositor->xkb_state, xkb_key, (state == WL_KEYBOARD_KEY_STATE_PRESSED) ? XKB_KEY_DOWN : XKB_KEY_UP);
 
+                        input->SendKeyboardEnterEvent(compositor, compositor->focused_surface);
                     }
                 }
                 else
                 {
                     // std::cout << "[Keuboard] Key Clicked"<<std::endl;
-
-                    // compute XKB keycode (evdev + 8)
-                    // uint32_t evdev_code = ev.code;
-                    // uint32_t xkb_key = evdev_code + 8u;
-                    // uint32_t state = ev.value ? WL_KEYBOARD_KEY_STATE_PRESSED : WL_KEYBOARD_KEY_STATE_RELEASED;
-                    // uint32_t time_ms = (uint32_t)(ev.time.tv_sec * 1000 + ev.time.tv_usec / 1000);
-
-                    // std::cout << "[Input] evdev code=" << evdev_code << " -> xkb_key=" << xkb_key
-                    //         << " state=" << state << "\n";
-
+ 
                     // who is focused?
-                    if (!compositor->focused_surface) {
+                    if (!compositor->focused_surface)
+                    {
                         // no focused client -> ignore keys for now
                         continue;
                     }
 
-                    wl_resource* focused_kbd = get_focused_keyboard_for_compositor(compositor);
+                    // wl_resource* focused_kbd = get_focused_keyboard_for_compositor(compositor);
+                    wl_resource* focused_kbd = get_focused_keyboard(compositor);
 
                     // if (focused_kbd && isTerminalClicked)
                     if (focused_kbd)
@@ -281,7 +226,8 @@ void CompositorInput::evdev_input_loop(LumaCompositor* compositor)
                         uint32_t serial = wl_display_next_serial(compositor->display);
                         wl_resource* focused_kbd = get_focused_keyboard(compositor);
 
-                        if (focused_kbd) {
+                        if (focused_kbd)
+                        {
                             wl_keyboard_send_modifiers(focused_kbd, serial, depressed, latched, locked, group);
 
                             uint32_t time_ms = ev.time.tv_sec * 1000 + ev.time.tv_usec / 1000;
@@ -374,21 +320,34 @@ void CompositorInput::AddKeyMouseEvent(wl_resource* mouse_res)
     g_pointers.push_back(mouse_res);
 }
 
-void CompositorInput::SendKeyboardEnterEvent(wl_display* display, wl_resource* resource)
-{
-    std::cout << "[Input] SendKeyboardEnterEvent " << std::endl;                    
-
-    for (auto* kbd : g_keyboards) {
-        wl_keyboard_send_enter(
-            kbd,
-            wl_display_next_serial(display),
-            resource,
-            nullptr  // no pressed keys
-        );
-        wl_keyboard_send_modifiers(kbd, wl_display_next_serial(display), 0, 0, 0, 0);
-
+void CompositorInput::SendKeyboardEnterEvent(LumaCompositor* compositor, wl_resource* focused_surface)
+{   
+    if((compositor == nullptr) || (focused_surface == nullptr))
+    {
+        std::cout << "[Input] ERROR: SendKeyboardEnterEvent compositor or focused_surface is NULL" << std::endl;
+        return;
     }
 
-    // wl_display_flush_clients(comp->display);
+    uint32_t serial = wl_display_next_serial(compositor->display);
+    struct wl_array empty_keys;
+    wl_array_init(&empty_keys);
+
+    wl_resource* focused_kbd = get_focused_keyboard(compositor);
+
+    if(focused_kbd)
+    {
+        wl_keyboard_send_enter(focused_kbd, serial, focused_surface, &empty_keys);
+
+        xkb_mod_mask_t depressed = xkb_state_serialize_mods(compositor->xkb_state, (xkb_state_component)XKB_STATE_DEPRESSED);
+        xkb_mod_mask_t latched   = xkb_state_serialize_mods(compositor->xkb_state, (xkb_state_component)XKB_STATE_LATCHED);
+        xkb_mod_mask_t locked    = xkb_state_serialize_mods(compositor->xkb_state, (xkb_state_component)XKB_STATE_LOCKED);
+        xkb_layout_index_t group = xkb_state_serialize_layout(compositor->xkb_state, (xkb_state_component)XKB_STATE_EFFECTIVE);
+
+        wl_keyboard_send_modifiers(focused_kbd, serial, depressed, latched, locked, group);
+    }
+
+    wl_array_release(&empty_keys);
+
+    wl_display_flush_clients(compositor->display);
 
 }

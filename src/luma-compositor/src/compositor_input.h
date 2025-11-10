@@ -20,8 +20,8 @@ public:
 
     void AddKeyboardEvent(wl_resource* keyboard_res);
     void AddKeyMouseEvent(wl_resource* mouse_res);
-    void SendKeyboardEnterEvent(wl_display* display, wl_resource* resource);
+    void SendKeyboardEnterEvent(LumaCompositor* compositor, wl_resource* focused_surface);
 
 private:
-    static void evdev_input_loop(LumaCompositor* compositor);
+    static void evdev_input_loop(CompositorInput* input, LumaCompositor* compositor);
 };
