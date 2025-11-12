@@ -110,7 +110,7 @@ weston-terminal
 export WAYLAND_DISPLAY=luma-0
 ./build/luma-compositor &
 weston-terminal
-WAYLAND_DEBUG=luma-0 weston-terminal
+WAYLAND_DEBUG=1 weston-terminal
 
 # Remove previous wayland 
 ls -l /run/user/1000/ | grep luma-0 

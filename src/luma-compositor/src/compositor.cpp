@@ -200,10 +200,13 @@ static const struct wl_pointer_interface pointer_impl = {
 static void seat_get_pointer(struct wl_client *client, struct wl_resource *seat_res, uint32_t id)
 {
     std::cout << "[LumaCompositor] seat_get_pointer\n";
+    LumaSeat* seat = (LumaSeat*)wl_resource_get_user_data(seat_res);
+    uint32_t ver = std::min<uint32_t>(wl_resource_get_version(seat_res), wl_pointer_interface.version);
 
-    wl_resource* pointer_res = wl_resource_create(client, &wl_pointer_interface, 1, id);
-    wl_resource_set_implementation(pointer_res, &pointer_impl, nullptr, nullptr);
+    wl_resource* pointer_res = wl_resource_create(client, &wl_pointer_interface, ver, id);
+    wl_resource_set_implementation(pointer_res, &pointer_impl, seat, nullptr);
     // g_pointers.push_back(pointer_res);
+    seat->pointer_res = pointer_res;
     compositorInput.AddKeyMouseEvent(pointer_res);
 }
 
@@ -281,12 +284,25 @@ static const struct wl_buffer_interface buffer_impl = {
     .destroy = buffer_destroy_request
 };
 
-static void shm_pool_resize(struct wl_client* client, struct wl_resource* resource, int32_t size)
+static void shm_pool_resize(struct wl_client* client, struct wl_resource* resource, int32_t new_size)
 {
-    (void)client;
-    // Just log — resizing is not yet implemented, but don’t crash
-    std::cout << "[LumaCompositor] wl_shm_pool_resize(" << size << ")\n";
+    shm_pool_data* pool = (shm_pool_data*) wl_resource_get_user_data(resource);
+    if (!pool) return;
+
+    if (pool->data)
+        munmap(pool->data, pool->size);
+
+    pool->size = new_size;
+    pool->data = (uint8_t*) mmap(NULL, new_size, PROT_READ | PROT_WRITE, MAP_SHARED, pool->fd, 0);
+    if (pool->data == MAP_FAILED) {
+        wl_resource_post_no_memory(resource);
+        pool->data = nullptr;
+        return;
+    }
+
+    std::cout << "[LumaCompositor] wl_shm_pool_resize: remapped new size " << new_size << std::endl;
 }
+
 
 static void shm_pool_destroy_req(struct wl_client* client, struct wl_resource* resource)
 {
@@ -326,6 +342,7 @@ static void shm_pool_create_buffer(struct wl_client *client, struct wl_resource 
     {
         std::cerr << "[LumaCompositor] shm_pool_create_buffer: out-of-bounds\n";
         wl_client_post_no_memory(client);
+        wl_resource_post_error(pool_res, WL_SHM_ERROR_INVALID_STRIDE, "buffer outside pool");
         wl_resource_destroy(buf_res);
         return;
     }
@@ -402,7 +419,7 @@ static const struct wl_shm_interface shm_impl = {
 // ------------------ wl_surface ------------------
 static void surface_attach(wl_client* /*client*/, wl_resource* surface_res, wl_resource* buffer, int32_t /*x*/, int32_t /*y*/)
 {
-    std::cout << "[LumaCompositor] surface_attach\n";
+    // std::cout << "[LumaCompositor] surface_attach\n";
 
     my_surface* surf = static_cast<my_surface*>(wl_resource_get_user_data(surface_res));
 
@@ -424,7 +441,7 @@ static void surface_attach(wl_client* /*client*/, wl_resource* surface_res, wl_r
 
 static void surface_commit(wl_client* client, wl_resource* surface_res)
 {
-    std::cout << "[LumaCompositor] surface_commit\n";
+    // std::cout << "[LumaCompositor] surface_commit\n";
 
     my_surface* surf = static_cast<my_surface*>(wl_resource_get_user_data(surface_res));
     if (!surf)
@@ -433,34 +450,44 @@ static void surface_commit(wl_client* client, wl_resource* surface_res)
     }
     LumaCompositor* compositor = surf->compositor;
 
-        // if no buffer attached → nothing to show, but still respond to callbacks
-    wl_resource* buf_res = surf->buffer_res;
-        std::cout << "[LumaCompositor] surface_commit buf_res = "<<buf_res<<std::endl;;
-
-
-
+    // if no buffer attached → nothing to show, but still respond to callbacks
     if (surf->pending_callback && surf->buffer_res)
     {
-        std::cout << "[LumaCompositor] surface_commit: frame callback present, copying buffer\n";
-
         auto* buf = static_cast<shm_buffer*>(wl_resource_get_user_data(surf->buffer_res));
         if (buf && buf->data) {
             std::lock_guard<std::mutex> lk(comp_fb_mutex);
 
-            int copy_w = std::min(buf->width, compositor->output_width);
-            int copy_h = std::min(buf->height, compositor->output_height);
-
-            uint8_t* src8 = reinterpret_cast<uint8_t*>(buf->data);
-            uint8_t* dst8 = reinterpret_cast<uint8_t*>(comp_framebuffer.data());
+            // geometry as reported by xdg_surface_set_window_geometry()
+            int geo_x = surf->x;
+            int geo_y = surf->y;
+            int geo_w = surf->width;
+            int geo_h = surf->height;
 
             int dst_x = surf->x;
             int dst_y = surf->y;
 
+            // std::cout << "[LumaCompositor] surface_commit, "
+            //   << "buf_w=" << buf->width << ", buf_h=" << buf->height
+            //   << ", geo_x=" << geo_x << ", geo_y=" << geo_y
+            //   << ", geo_w=" << geo_w << ", geo_h=" << geo_h
+            //   << ", dst_x=" << dst_x << ", dst_y=" << dst_y << std::endl;
+
+            // std::cout << "[LumaCompositor] surface_commit, x = "<<dst_x <<", y = "<<dst_y<<", width = "<<copy_w<<", height = "<<copy_h<<std::endl;;
+
+            uint8_t* src8 = reinterpret_cast<uint8_t*>(buf->data);
+            uint8_t* dst8 = reinterpret_cast<uint8_t*>(comp_framebuffer.data());
+
+            // Clip to framebuffer size
+            int copy_w = std::min(geo_w, compositor->output_width - dst_x);
+            int copy_h = std::min(geo_h, compositor->output_height - dst_y);
+            
             for (int y = 0; y < copy_h; ++y) {
-                uint8_t* srow = src8 + y * buf->stride;
+                int src_y = geo_y + y;
+                uint8_t* srow = src8 + src_y * buf->stride + geo_x * 4;
                 uint8_t* drow = dst8 + (dst_y + y) * compositor->output_width * 4 + dst_x * 4;
                 memcpy(drow, srow, copy_w * 4);
             }
+            
 
             fb_flush(compositor);
 
@@ -498,7 +525,7 @@ static void surface_commit(wl_client* client, wl_resource* surface_res)
                 compositor->focused_surface = surface_res;
             }
 
-            std::cout << "[Focus] surface_commit compositor->focused_surface = "<<compositor->focused_surface << std::endl;
+            // std::cout << "[Focus] surface_commit compositor->focused_surface = "<<compositor->focused_surface << std::endl;
         }
     }
     else
@@ -510,17 +537,19 @@ static void surface_commit(wl_client* client, wl_resource* surface_res)
 
 static void surface_destroy(wl_client* /*client*/, wl_resource* resource)
 {
+    std::cout << "[LumaCompositor] surface_destroy \n";
+
     wl_resource_destroy(resource);
 }
 
 static void surface_damage(wl_client*, wl_resource*, int32_t, int32_t, int32_t, int32_t)
 {
-    std::cout << "[LumaCompositor] surface_damage \n";
+    // std::cout << "[LumaCompositor] surface_damage \n";
 }
 
 static void surface_frame(wl_client* client, wl_resource* surface_res, uint32_t callback_id)
 {
-    std::cout << "[LumaCompositor] surface_frame \n";
+    // std::cout << "[LumaCompositor] surface_frame \n";
     my_surface* surf = static_cast<my_surface*>(wl_resource_get_user_data(surface_res));
     if (!surf) return;
 
@@ -594,19 +623,96 @@ static void surface_resource_destroy(struct wl_resource *resource)
 
 
 // --------------------------- xdg_surface ---------------------------
-static void destroy_xdg_toplevel_resource(struct wl_resource* resource)
-{
-    std::cout << "[LumaCompositor] destroy_xdg_toplevel_resource\n";
 
-    my_surface* surf = static_cast<my_surface*>(wl_resource_get_user_data(resource));
-    if (!surf) return;
-    surf->toplevel_res = nullptr;
-    // do not delete surf here — surface_resource_destroy owns lifecycle
-
-    wl_resource_set_user_data(resource, nullptr);
+// Helper to append a state value into a wl_array
+static void push_state(struct wl_array *states, uint32_t value) {
+    uint32_t *s = (uint32_t *)wl_array_add(states, sizeof(uint32_t));
+    if (s) {
+        *s = value;
+    }
 }
 
+void send_toplevel_configure(struct wl_resource *xdg_toplevel, int w, int h,
+                             bool activated, bool resizing, bool maximized, bool fullscreen)
+{
+    struct wl_array states;
+    wl_array_init(&states);
+
+    if (activated)   push_state(&states, XDG_TOPLEVEL_STATE_ACTIVATED);
+    if (resizing)    push_state(&states, XDG_TOPLEVEL_STATE_RESIZING);
+    if (maximized)   push_state(&states, XDG_TOPLEVEL_STATE_MAXIMIZED);
+    if (fullscreen)  push_state(&states, XDG_TOPLEVEL_STATE_FULLSCREEN);
+
+    xdg_toplevel_send_configure(xdg_toplevel, w, h, &states);
+    wl_array_release(&states);
+}
+
+void compositor_maximize(my_surface *surf, struct wl_display *display,
+                         int work_w, int work_h)
+{
+    send_toplevel_configure(surf->toplevel_res, work_w, work_h,
+                            /*activated=*/true, /*resizing=*/false,
+                            /*maximized=*/true, /*fullscreen=*/false);
+
+    uint32_t serial = wl_display_next_serial(display);
+    xdg_surface_send_configure(surf->xdg_surface_res, serial);
+}
+
+void compositor_restore(my_surface *surf, struct wl_display *display,
+                        int w, int h)
+{
+    send_toplevel_configure(surf->toplevel_res, w, h,
+                            /*activated=*/true, /*resizing=*/false,
+                            /*maximized=*/false, /*fullscreen=*/false);
+
+    uint32_t serial = wl_display_next_serial(display);
+    xdg_surface_send_configure(surf->xdg_surface_res, serial);
+}
+
+void compositor_fullscreen(my_surface *surf, struct wl_display *display,
+                           int mode_w, int mode_h)
+{
+    send_toplevel_configure(surf->toplevel_res, mode_w, mode_h,
+                            /*activated=*/true, /*resizing=*/false,
+                            /*maximized=*/false, /*fullscreen=*/true);
+
+    uint32_t serial = wl_display_next_serial(display);
+    xdg_surface_send_configure(surf->xdg_surface_res, serial);
+}
+
+void compositor_minimize(my_surface *surf, LumaCompositor *comp)
+{
+    if (comp->focused_surface == surf->resource)
+        comp->focused_surface = NULL; // and send wl_keyboard.leave if needed
+
+    surf->visible = false; // your scene-graph flag; skip it in rendering
+}
+
+void compositor_close(my_surface *surf)
+{
+    if (surf->toplevel_res)
+        wl_resource_destroy(surf->toplevel_res);
+    if (surf->xdg_surface_res)
+        wl_resource_destroy(surf->xdg_surface_res);
+    // Also remove from scene graph and free your my_surface
+}
+
+void compositor_resize_step(my_surface *surf, struct wl_display *display,
+                            int new_w, int new_h)
+{
+    send_toplevel_configure(surf->toplevel_res, new_w, new_h,
+                            /*activated=*/true, /*resizing=*/true,
+                            /*maximized=*/false, /*fullscreen=*/false);
+
+    uint32_t serial = wl_display_next_serial(display);
+    xdg_surface_send_configure(surf->xdg_surface_res, serial);
+}
+
+
+
+
 // ------------------ xdg_toplevel ------------------
+
 static void xdg_toplevel_destroy(struct wl_client*, struct wl_resource* resource)
 {
     std::cout << "[LumaCompositor] xdg_toplevel_destroy\n";
@@ -641,6 +747,15 @@ static void xdg_toplevel_show_window_menu(struct wl_client *client,
 static void xdg_toplevel_move(struct wl_client*, struct wl_resource*, struct wl_resource*, uint32_t)
 {
     std::cout << "[LumaCompositor] xdg_toplevel_move\n";
+
+    // SeatState *seat = (SeatState*) wl_resource_get_user_data(seat_res);
+    // if (!seat) return;
+    // if (serial != seat->last_pointer_serial) {
+    //     // ignore invalid/stale serial
+    //     return;
+    // }
+    // // start compositor-side move: set grab, compute offsets, listen to pointer motion
+    // begin_move_grab(seat, toplevel_res, 
 }
 
 static void xdg_toplevel_resize(struct wl_client*, struct wl_resource*, struct wl_resource*, uint32_t, uint32_t)
@@ -658,14 +773,80 @@ static void xdg_toplevel_set_min_size(struct wl_client*, struct wl_resource*, in
     std::cout << "[LumaCompositor] xdg_toplevel_set_min_size\n";
 }
 
-static void xdg_toplevel_set_maximized(struct wl_client*, struct wl_resource*)
+static void xdg_toplevel_set_maximized(struct wl_client* client, struct wl_resource* resource)
 {
     std::cout << "[LumaCompositor] xdg_toplevel_set_maximized\n";
+
+    my_surface* surf = (my_surface*)wl_resource_get_user_data(resource);
+    if (!surf) return;
+    LumaCompositor* comp = surf->compositor;
+    if (!comp) return;
+
+    // idempotent: if already maximized, ignore
+    if (surf->is_maximized)
+    {
+        std::cout << "[LumaCompositor] xdg_toplevel_set_maximized (already maximized) - ignored\n";
+        return;
+    }
+
+    // store current geometry so we can restore on unset
+    surf->restore_x = surf->x;
+    surf->restore_y = surf->y;
+    surf->restore_width = surf->width;
+    surf->restore_height = surf->height;
+
+    // set maximized geometry
+    surf->is_maximized = true;
+    surf->x = 0;
+    surf->y = 0;
+    surf->width = comp->output_width;
+    surf->height = comp->output_height;
+
+    std::cout << "[LumaCompositor] xdg_toplevel_set_maximized\n";
+
+    // Tell the client it is now maximized via configure (include maximized state)
+    send_toplevel_configure(surf->toplevel_res, surf->width, surf->height,
+                            /*activated=*/true, /*resizing=*/false,
+                            /*maximized=*/true, /*fullscreen=*/false);
+
+    // also send xdg_surface.configure so client acks and can resize its buffer
+    uint32_t serial = wl_display_next_serial(wl_client_get_display(client));
+    xdg_surface_send_configure(surf->xdg_surface_res, serial);
+
+    wl_display_flush_clients(comp->display);
 }
 
-static void xdg_toplevel_unset_maximized(struct wl_client*, struct wl_resource*)
+static void xdg_toplevel_unset_maximized(struct wl_client* client, struct wl_resource* resource)
 {
     std::cout << "[LumaCompositor] xdg_toplevel_unset_maximized\n";
+
+    my_surface* surf = (my_surface*)wl_resource_get_user_data(resource);
+    if (!surf) return;
+    LumaCompositor* comp = surf->compositor;
+    if (!comp) return;
+
+    if (!surf->is_maximized) {
+        std::cout << "[LumaCompositor] xdg_toplevel_unset_maximized (not maximized) - ignored\n";
+        return;
+    }
+
+    // restore previous geometry
+    surf->is_maximized = false;
+    surf->x = surf->restore_x;
+    surf->y = surf->restore_y;
+    surf->width = surf->restore_width;
+    surf->height = surf->restore_height;
+
+    std::cout << "[LumaCompositor] xdg_toplevel_unset_maximized\n";
+
+    send_toplevel_configure(surf->toplevel_res, surf->width, surf->height,
+                            /*activated=*/true, /*resizing=*/false,
+                            /*maximized=*/false, /*fullscreen=*/false);
+
+    uint32_t serial = wl_display_next_serial(wl_client_get_display(client));
+    xdg_surface_send_configure(surf->xdg_surface_res, serial);
+
+    wl_display_flush_clients(comp->display);
 }
 
 static void xdg_toplevel_set_fullscreen(struct wl_client*, struct wl_resource*, struct wl_resource*) 
@@ -701,12 +882,26 @@ static const struct xdg_toplevel_interface xdg_toplevel_impl = {
     .set_minimized = xdg_toplevel_set_minimized
 };
 
+static void destroy_xdg_toplevel_resource(struct wl_resource* resource)
+{
+    std::cout << "[LumaCompositor] destroy_xdg_toplevel_resource\n";
+
+    my_surface* surf = static_cast<my_surface*>(wl_resource_get_user_data(resource));
+    if (!surf) return;
+    surf->toplevel_res = nullptr;
+    // do not delete surf here — surface_resource_destroy owns lifecycle
+
+    wl_resource_set_user_data(resource, nullptr);
+}
+
 // ------------------ xdg_surface ------------------
 static void xdg_surface_destroy(struct wl_client*, struct wl_resource* resource)
 {
     std::cout << "[LumaCompositor] xdg_surface_destroy...\n";
     wl_resource_destroy(resource);
 }
+
+
 
 static void xdg_surface_get_toplevel(struct wl_client* client, struct wl_resource* resource, uint32_t id)
 {
@@ -740,15 +935,13 @@ static void xdg_surface_get_toplevel(struct wl_client* client, struct wl_resourc
     surf->is_xdg_toplevel = true;
     surf->xdg_surface_res = resource; 
 
-    struct wl_array states;
-    wl_array_init(&states);
+    send_toplevel_configure(surf->toplevel_res, 1000, 600, /*activated=*/true,
+                        /*resizing=*/true, /*maximized=*/false, /*fullscreen=*/false);
 
-    xdg_toplevel_send_configure(toplevel, 1000, 600, &states);
-    wl_array_release(&states);
     uint32_t serial = wl_display_next_serial(wl_client_get_display(client));
 
     xdg_surface_send_configure(resource, serial);
-
+    wl_display_flush_clients(wl_client_get_display(client));
     std::cout << "[LumaCompositor] End xdg_surface_get_toplevel..." << std::endl;
 }
 
@@ -1251,7 +1444,7 @@ void setup_wayland_display(wl_display* display)
     wl_display_add_client_created_listener(display, &client_listener);
 }
 
-static void sdl_renderer_thread(int win_w, int win_h)
+static void sdl_renderer_thread(int win_w, int win_h, LumaCompositor* comp)
 {
     if (SDL_Init(SDL_INIT_VIDEO) != 0)
     {
@@ -1297,14 +1490,77 @@ static void sdl_renderer_thread(int win_w, int win_h)
     while (sdl_thread_running.load())
     {
         SDL_Event ev;
+        // while (SDL_PollEvent(&ev))
+        // {
+        //     if (ev.type == SDL_QUIT) {
+        //         sdl_thread_running.store(false);
+        //     } else if (ev.type == SDL_WINDOWEVENT && ev.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
+        //         // optionally respond to resize
+        //     }
+        // }
+
+
         while (SDL_PollEvent(&ev))
         {
-            if (ev.type == SDL_QUIT) {
+            if (ev.type == SDL_QUIT)
+            {
                 sdl_thread_running.store(false);
-            } else if (ev.type == SDL_WINDOWEVENT && ev.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
-                // optionally respond to resize
+            } 
+            else if (ev.type == SDL_WINDOWEVENT && ev.window.event == SDL_WINDOWEVENT_SIZE_CHANGED)
+            {
+                // Optionally respond to resize
+            }
+            else if (ev.type == SDL_MOUSEMOTION) {
+                int win_x, win_y;
+                SDL_GetWindowPosition(window, &win_x, &win_y);   // top-left of window on screen
+                int mouse_x_global, mouse_y_global;
+                SDL_GetGlobalMouseState(&mouse_x_global, &mouse_y_global);
+
+                // Compute mouse position relative to the SDL window content area
+                double local_x = mouse_x_global - win_x;
+                double local_y = mouse_y_global - win_y;
+
+                // Optional: scale correction if window != compositor framebuffer
+                int win_w, win_h;
+                SDL_GetWindowSize(window, &win_w, &win_h);
+
+                double sx = local_x * ((double)comp->output_width  / (double)win_w);
+                double sy = local_y * ((double)comp->output_height / (double)win_h);
+
+                if (sx >= 0 && sy >= 0 && sx < comp->output_width && sy < comp->output_height) {
+                    uint32_t time = SDL_GetTicks();
+                    compositorInput.SendMouseMoveEvent(sx, sy, time);
+                }
+            }
+            else if (ev.type == SDL_MOUSEBUTTONDOWN || ev.type == SDL_MOUSEBUTTONUP)
+            {
+                uint32_t button = 0;
+                switch (ev.button.button) {
+                    case SDL_BUTTON_LEFT: button = BTN_LEFT; break;
+                    case SDL_BUTTON_MIDDLE: button = BTN_MIDDLE; break;
+                    case SDL_BUTTON_RIGHT: button = BTN_RIGHT; break;
+                }
+
+                uint32_t state = (ev.type == SDL_MOUSEBUTTONDOWN)
+                                    ? WL_POINTER_BUTTON_STATE_PRESSED
+                                    : WL_POINTER_BUTTON_STATE_RELEASED;
+
+                uint32_t serial = wl_display_next_serial(comp->display);
+                compositorInput.SendButtonEvent(comp, serial, SDL_GetTicks(), button, state);
             }
         }
+
+
+
+
+
+
+
+
+
+
+
+
 
         // Copy compositor framebuffer into texture
         {
@@ -1369,7 +1625,7 @@ void luma_init(LumaCompositor* comp)
     std::cout << "[LumaCompositor] framebuffer size: " << comp_framebuffer.size()
           << " (expected " << (comp->output_width * comp->output_height) << ")\n";
     std::cout << "[LumaCompositor] fb_stride = " << comp->fb_stride << std::endl;
-    sdl_thread = std::thread(sdl_renderer_thread, comp->output_width, comp->output_height);
+    sdl_thread = std::thread(sdl_renderer_thread, comp->output_width, comp->output_height, comp);
     std::cout << "[LumaCompositor] sdl_thread_running = " << sdl_thread_running.load() << std::endl;
     comp->display = wl_display_create();
 

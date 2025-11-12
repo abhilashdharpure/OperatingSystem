@@ -66,14 +66,22 @@ struct my_surface
     int32_t width = 0, height = 0; // size the compositor gave via xdg_toplevel_send_configure
     bool configured = false;     
     bool is_xdg_toplevel = false;             // true when xdg_toplevel created for this surface
+    bool visible = false;
+    bool is_maximized = false;
+
+    // Restore for Maximize -> Minimize
+    int32_t restore_x = 0;
+    int32_t restore_y = 0;
+    int32_t restore_width = 0;
+    int32_t restore_height = 0;
 };
 
 struct my_output {
     wl_resource* resource = nullptr;
     LumaCompositor* state = nullptr;
 
-    int width = 1920;
-    int height = 1080;
+    int width = 1200; //1920;
+    int height = 800; //1080;
     int scale = 1;
     int refresh_rate = 60000;
     // You can extend with position, transform, etc.
@@ -102,10 +110,17 @@ struct LumaSeat {
     wl_list keyboards; // linked list of wl_resources
     wl_list pointers;
     wl_display* display;
+
+    wl_resource *pointer_res; 
+    wl_resource *pointer_focus_surface; // wl_surface the pointer is over
+    uint32_t last_pointer_serial;
+    bool grab_active;
+    int grab_offset_x, grab_offset_y;
+
     LumaCompositor* compositor;
 };
 
 struct keymap_fd_holder {
     int fd;
-    struct wl_listener listener;
+    struct wl_listener listener;    
 };
