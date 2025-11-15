@@ -8,6 +8,7 @@
 
 static constexpr int SCREEN_WIDTH_TEMP = 1920;
 static constexpr int SCREEN_HEIGHT_TEMP = 1080;
+int count = 1;
 
 // We'll keep references to active keyboard and pointer resources
 static std::vector<wl_resource*> g_keyboards;
@@ -45,45 +46,16 @@ static my_surface* hit_test_surface(LumaCompositor* comp, int32_t x, int32_t y)
         // test against recorded geometry
         if (x >= s->x && x < s->x + s->width && y >= s->y && y < s->y + s->height)
         {
-            std::cout << "[Input] Inside **********" << std::endl;
-
+            // std::cout << "[Input] Inside **********" << std::endl;
             return s;
         }
         else
         {
-            std::cout << "[Input] Outside " << std::endl;
-
+            // std::cout << "[Input] Outside " << std::endl;
         }
     }
     return nullptr;
 }
-
-// void on_host_pointer_motion(LumaSeat *seat, double gx, double gy, uint32_t time_ms) {
-//     my_surface *surf = hit_test(gx, gy);
-//     if (surf != seat->pointer_focus_surface) {
-//         uint32_t enter_serial = wl_display_next_serial(seat->display);
-//         wl_pointer_send_enter(seat->pointer_res, enter_serial, surf->surface_res,
-//                               wl_fixed_from_double(gx - surf->global_x),
-//                               wl_fixed_from_double(gy - surf->global_y));
-//         seat->pointer_focus_surface = surf;
-//         seat->last_pointer_serial = enter_serial;
-//     }
-//     wl_pointer_send_motion(seat->pointer_res, time_ms,
-//                            wl_fixed_from_double(gx), wl_fixed_from_double(gy));
-// }
-
-// void on_host_button(LumaSeat *seat, uint32_t btn, bool pressed, uint32_t time_ms) {
-//     uint32_t serial = wl_display_next_serial(seat->display);
-//     wl_pointer_send_button(seat->pointer_res, time_ms, serial, btn,
-//                            pressed ? WL_POINTER_BUTTON_STATE_PRESSED : WL_POINTER_BUTTON_STATE_RELEASED);
-//     if (pressed) {
-//         seat->last_pointer_serial = serial;
-//         seat->pressed_surface = seat->pointer_focus_surface;
-//         seat->pressed_button = btn;
-//     } else {
-//         // handle release: end grabs if needed
-//     }
-// }
 
 // returns keyboard wl_resource* for the client that owns `surface_res` (or nullptr)
 static wl_resource* get_keyboard_for_surface_client(LumaCompositor* comp, wl_resource* surface_res)
@@ -110,24 +82,35 @@ static wl_resource* get_keyboard_for_surface_client(LumaCompositor* comp, wl_res
 void send_pointer_click_to_surface(LumaCompositor* comp, wl_resource* pointer_res, wl_resource* surface_res, int32_t global_x, int32_t global_y, uint32_t button_code, uint32_t value)
 {
     // compute surface-local coords
-    my_surface* surf = (my_surface*) wl_resource_get_user_data(surface_res);
-    double sx = (double)global_x - surf->x; // MUST be surface-local
-    double sy = (double)global_y - surf->y;
+    uint32_t serial = 0;
+    
+    if(comp->pointer_enter_serial != 0)
+    {
+        // For Move toplevel
+        serial = comp->pointer_enter_serial;
+        comp->pointer_enter_serial = 0;
+    }
+    else
+    {
+        serial = wl_display_next_serial(comp->display);
+    }
+    
+    if(value == 1 )
+    {
+        uint32_t time_ms = (uint32_t)((uint64_t)time(nullptr) * 1000);
+        wl_pointer_send_button(pointer_res, time_ms, serial, button_code, value);
 
-    // serial for enter/button
-    uint32_t serial = wl_display_next_serial(comp->display);
+        // frame to finish the input event
+        wl_pointer_send_frame(pointer_res);
 
-    // send enter (if not already sent) - sending enter repeatedly is OK but unnecessary
-    wl_pointer_send_enter(pointer_res, serial, surface_res,
-                          wl_fixed_from_double(sx),
-                          wl_fixed_from_double(sy));
+        // std::cout << "[Input] Mouse Clicked, serial = "<<serial<< std::endl;
+    }
+    else
+    {
+        // std::cout << "[Input] Mouse Released"<< std::endl;
+    }
+    
 
-    // send button press/release (value = 1 for press, 0 for release)
-    uint32_t time_ms = (uint32_t)((uint64_t)time(nullptr) * 1000);
-    wl_pointer_send_button(pointer_res, time_ms, serial, button_code, value);
-
-    // frame to finish the input event
-    wl_pointer_send_frame(pointer_res);
 
     // flush
     wl_display_flush_clients(comp->display);
@@ -145,74 +128,79 @@ void handle_pointer_button(CompositorInput* input, LumaCompositor* comp, int x, 
         wl_resource* new_surf_res = under->resource;
         if (new_surf_res != prev)
         {
-            std::cout << "[Input] inside if (new_surf_res != prev) " << std::endl;
-
-            // tell old focused client it lost keyboard focus
-            wl_resource* old_kbd = get_keyboard_for_surface_client(comp, prev);
-            if (old_kbd)
+            if( state == WL_POINTER_BUTTON_STATE_PRESSED)
             {
-                std::cout << "[Input] wl_keyboard_send_leave" << std::endl;
-
-                //wl_keyboard_send_leave(old_kbd, wl_display_next_serial(comp->display), prev);
+                // set new focus and notify
+                comp->focused_surface = new_surf_res;
+                input->SendKeyboardEnterEvent(comp, comp->focused_surface);
             }
-            
-            // set new focus and notify
-            comp->focused_surface = new_surf_res;
-            input->SendKeyboardEnterEvent(comp, comp->focused_surface);
-
-            uint32_t serial = wl_display_next_serial(comp->display);
-            int local_x = x - under->x;
-            int local_y = y - under->y;
-
-            for (auto* ptr : g_pointers)
-            {
-                wl_pointer_send_enter(ptr, serial, under->resource,
-                    wl_fixed_from_int(local_x),
-                    wl_fixed_from_int(local_y));
-                wl_pointer_send_frame(ptr);
-            }
-
-
-            // wl_resource* new_kbd = get_keyboard_for_surface_client(comp, new_surf_res);
-            // if (new_kbd)
-            // {
-            //     input->SendKeyboardEnterEvent(comp, comp->focused_surface);
-            // }
         }
     }
     else
     {
         // // clicked outside any surface -> clear focus
-        if (prev) {
-        //     wl_resource* old_kbd = get_keyboard_for_surface_client(comp, prev);
-        //     if (old_kbd) {
-        //         wl_keyboard_send_leave(old_kbd, wl_display_next_serial(comp->display), prev);
-        //     }
-
+        if (prev)
+        {
+            wl_resource* old_kbd = get_keyboard_for_surface_client(comp, prev);
+            if (old_kbd)
+            {
+                // std::cout << "[Input] Keyboard Leave" << std::endl;
+                wl_keyboard_send_leave(old_kbd, wl_display_next_serial(comp->display), prev);
+            }
 
             comp->focused_surface = nullptr;
             wl_display_flush_clients(comp->display);
         }
     }
+}
 
+void handle_pointer_motion(LumaCompositor* comp, int x, int y)
+{
+    wl_resource *prev_surface = comp->pointer_focused_surface;
+    my_surface* surface = hit_test_surface(comp, x, y);
 
-    if (under)
+    if(surface != nullptr)
     {
+        wl_resource *new_surface = surface->resource;
 
-        for (auto* ptr : g_pointers)
+        if (new_surface != prev_surface)
         {
-            // pointer_res should be the pointer resource for that client (you probably have one per seat/client)
-            send_pointer_click_to_surface(comp, ptr, under->resource,
-                                        comp->cursor_x, comp->cursor_y, BTN_LEFT, 1 /*press*/);
-            // later send release:
-            send_pointer_click_to_surface(comp, ptr, under->resource,
-                                        comp->cursor_x, comp->cursor_y, BTN_LEFT, 0 /*release*/);
+            comp->pointer_enter_serial = wl_display_next_serial(comp->display);
+
+            for (auto* pointer : g_pointers)
+            {
+                // Enter new surface
+                if (new_surface)
+                {
+                    std::cout << "[Input] handle_pointer_motion Entering new surface, serial = "<<comp->pointer_enter_serial << std::endl;
+                    wl_pointer_send_enter(pointer, comp->pointer_enter_serial, new_surface,
+                                        wl_fixed_from_double(x),
+                                        wl_fixed_from_double(y));
+                    wl_pointer_send_frame(pointer);
+                }
+            }
+
+            // Update pointer focus
+            comp->pointer_focused_surface = new_surface;
         }
     }
+    else
+    {
+        uint32_t serial = wl_display_next_serial(comp->display);
+        comp->pointer_enter_serial = 0;
+        for (auto* pointer : g_pointers)
+        {
+            // Leave previous surface
+            if (prev_surface)
+            {
+                std::cout << "[Input] handle_pointer_motion Leaving new surface" << std::endl;
+                wl_pointer_send_leave(pointer, serial, prev_surface);
+                wl_pointer_send_frame(pointer);
+            }
+        }
 
-
-    // Also send pointer button events to pointer resources that have entered this client
-    // (your existing pointer_send_button loop works if you track pointer enter/leave correctly)
+        comp->pointer_focused_surface = nullptr;
+    }
 }
 
 void CompositorInput::evdev_input_loop(CompositorInput* input, LumaCompositor* compositor)
@@ -268,8 +256,8 @@ void CompositorInput::evdev_input_loop(CompositorInput* input, LumaCompositor* c
 
             if (ev.type == EV_KEY)
             {
-                // if ((ev.code == BTN_LEFT || ev.code == BTN_RIGHT))
-                // {
+                if ((ev.code == BTN_LEFT || ev.code == BTN_RIGHT))
+                {
                 //     // std::cout << "[Mouse] Mouse Clicked"<<std::endl;
 
                 //     handle_pointer_button(input, compositor, (int)compositor->cursor_x, (int)compositor->cursor_y, ev.code, ev.value);
@@ -292,8 +280,8 @@ void CompositorInput::evdev_input_loop(CompositorInput* input, LumaCompositor* c
                 //             wl_pointer_send_frame(ptr);
                 //         }
                 //     }
-                // }
-                // else
+                }
+                else
                 {
                     // std::cout << "[Keuboard] Key Clicked"<<std::endl;
  
@@ -332,7 +320,6 @@ void CompositorInput::evdev_input_loop(CompositorInput* input, LumaCompositor* c
                             wl_keyboard_send_key(focused_kbd, serial, time_ms, xkb_key, state);
                             for (auto* ptr : g_pointers)
                             {
-
                                 wl_pointer_send_button(ptr, time_ms, serial, ev.code, state);
                             }
                         }
@@ -432,6 +419,8 @@ void CompositorInput::AddKeyMouseEvent(wl_resource* mouse_res)
 
 void CompositorInput::SendKeyboardEnterEvent(LumaCompositor* compositor, wl_resource* focused_surface)
 {   
+    std::cout << "[Input] SendKeyboardEnterEvent" << std::endl;
+
     if((compositor == nullptr) || (focused_surface == nullptr))
     {
         std::cout << "[Input] ERROR: SendKeyboardEnterEvent compositor or focused_surface is NULL" << std::endl;
@@ -462,38 +451,71 @@ void CompositorInput::SendKeyboardEnterEvent(LumaCompositor* compositor, wl_reso
 
 }
 
-void CompositorInput::SendMouseMoveEvent(double gx, double gy, uint32_t time_ms)
+void CompositorInput::SendMouseMoveEvent(LumaCompositor* compositor, double gx, double gy, uint32_t time_ms)
 {
     // std::cout << "[Mouse] SendMouseMoveEvent cursor_x= "<<gx<<", cursor_y = "<<gy<<std::endl;
-    for (auto* ptr : g_pointers)
+    handle_pointer_motion(compositor, gx, gy);
+
+    // When mouse curcer inside client then only send motion
+    if(compositor->pointer_focused_surface != nullptr)
     {
-        if (ptr)
+        for (auto* ptr : g_pointers)
         {
-            wl_pointer_send_motion(ptr, time_ms, wl_fixed_from_double(gx), wl_fixed_from_double(gy));
-            wl_pointer_send_frame(ptr);
+            if (ptr)
+            {
+                wl_pointer_send_motion(ptr, time_ms, wl_fixed_from_double(gx), wl_fixed_from_double(gy));
+                wl_pointer_send_frame(ptr);
+            }
         }
     }
 }
 
-void CompositorInput::SendButtonEvent(LumaCompositor* compositor, uint32_t serial, uint32_t time_ms, uint32_t button, uint32_t state)
+void CompositorInput::SendButtonEvent(LumaCompositor* compositor, uint32_t passed_serial, uint32_t time_ms, uint32_t button, uint32_t state)
 {
-    handle_pointer_button(this, compositor, (int)compositor->cursor_x, (int)compositor->cursor_y, button, state);
-
-    if (compositor->focused_surface)
+    if(button == BTN_LEFT)
     {
-        xkb_state_update_key(compositor->xkb_state, button, (state == WL_KEYBOARD_KEY_STATE_PRESSED) ? XKB_KEY_DOWN : XKB_KEY_UP);
+        // determine the serial to use:
+        uint32_t serial = 0;
 
-        SendKeyboardEnterEvent(compositor, compositor->focused_surface);
-    }
-
-
-
-    for (auto* ptr : g_pointers)
-    {
-        if (ptr)
+        // prefer the current pointer-enter serial if pointer is in a surface
+        if (compositor->pointer_focused_surface && compositor->pointer_enter_serial != 0)
         {
-            wl_pointer_send_button(ptr, serial, time_ms, button, state);
-            wl_pointer_send_frame(ptr);
+            serial = compositor->pointer_enter_serial;
         }
+        else if (passed_serial != 0)
+        {
+            serial = passed_serial;
+        }
+        else
+        {
+            serial = wl_display_next_serial(compositor->display);
+        }
+
+
+
+        handle_pointer_button(this, compositor, (int)compositor->cursor_x, (int)compositor->cursor_y, button, state);
+
+        // if (compositor->focused_surface)
+        // {
+        //     xkb_state_update_key(compositor->xkb_state, button, (state == WL_KEYBOARD_KEY_STATE_PRESSED) ? XKB_KEY_DOWN : XKB_KEY_UP);
+
+        //     SendKeyboardEnterEvent(compositor, compositor->focused_surface);
+        // }
+
+
+        // for (auto* ptr : g_pointers)
+        // {
+        //     send_pointer_click_to_surface(comp, ptr, under->resource, x, y, button, state);
+        // }
+
+        for (auto* ptr : g_pointers)
+        {
+            if (ptr)
+            {
+                wl_pointer_send_button(ptr, serial, time_ms, button, state);
+                wl_pointer_send_frame(ptr);
+            }
+        }
+            
     }
 }

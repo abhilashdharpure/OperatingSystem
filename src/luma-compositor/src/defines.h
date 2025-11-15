@@ -45,6 +45,25 @@ struct LumaCompositor {
     int32_t focus_width = 0;
     int32_t focus_height = 0;
 
+    uint32_t pointer_enter_serial = 0;
+    bool needs_repaint = false;
+
+    // For Toplevel Move
+    my_surface* moving_surface = nullptr;
+    bool move_grab_active = false;
+    double grab_start_x = 0.0;
+    double grab_start_y = 0.0;
+    double window_start_x = 0.0;
+    double window_start_y = 0.0;
+    uint32_t move_grab_serial = 0;
+
+    // For Toplevel Resize
+    my_surface* resizing_surface = nullptr;
+    bool resize_grab_active = false;
+    double window_start_w = 0.0;
+    double window_start_h = 0.0;
+    uint32_t resize_edges = 0;
+
     struct xkb_context* xkb_ctx = nullptr;
     struct xkb_keymap* keymap = nullptr;
     struct xkb_state* xkb_state = nullptr;
@@ -59,7 +78,7 @@ struct my_surface
 
     // track attached buffer, pending callback, etc.
     wl_resource* buffer_res = nullptr;
-    wl_resource* pending_callback = nullptr;
+    wl_resource* pending_frame_callback = nullptr;
 
     // geometry we will use for hit-testing and configure
     int32_t x = 0, y = 0;   // top-left position on the compositor output
@@ -74,6 +93,8 @@ struct my_surface
     int32_t restore_y = 0;
     int32_t restore_width = 0;
     int32_t restore_height = 0;
+
+    bool mapped = false;
 };
 
 struct my_output {
@@ -97,9 +118,9 @@ struct shm_buffer {
     wl_resource* resource = nullptr;
     void* data = nullptr;
     size_t size = 0;
-    int width = 0,
-    height = 0,
-    stride = 0;
+    int width = 0;
+    int height = 0;
+    int stride = 0;
     uint32_t format = 0;
 
     my_surface* owner_surface = nullptr;

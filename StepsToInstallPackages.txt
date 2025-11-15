@@ -102,9 +102,13 @@ ls -l /run/user/1000/ | grep wayland
 export WAYLAND_DISPLAY=luma-0
 ./build/luma-compositor
 
+// Run Compositor with GDB
+gdb --args ./build/luma-compositor
+
 // Run clients
 export WAYLAND_DISPLAY=luma-0
 weston-terminal
+
 
 // FOr both:
 export WAYLAND_DISPLAY=luma-0
