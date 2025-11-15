@@ -109,93 +109,170 @@ void fb_flush(LumaCompositor *comp)
     SDL_RenderPresent(renderer);
 }
 
+// void UpdateFrameBuffer(LumaCompositor* comp, my_surface* surf)
+// {
+//     if (!surf->committed_buffer)
+//         return;
+
+//     shm_buffer* buf = surf->committed_buffer;
+
+//     uint8_t* src = (uint8_t*)buf->data;
+//     uint8_t* dst = (uint8_t*)comp_framebuffer.data();
+
+//     int W = comp->output_width;
+//     int H = comp->output_height;
+
+//     int sx = surf->x;
+//     int sy = surf->y;
+//     int sw = surf->width;
+//     int sh = surf->height;
+
+//     int copy_w = std::min(sw, W - sx);
+//     int copy_h = std::min(sh, H - sy);
+
+//     for (int y = 0; y < copy_h; y++)
+//     {
+//         uint8_t* s = src + y * buf->stride;
+//         uint8_t* d = dst + (sy + y) * W * 4 + sx * 4;
+//         memcpy(d, s, copy_w * 4);
+//     }
+// }
+// Assumes 4 bytes per pixel (ARGB8888)
 void UpdateFrameBuffer(LumaCompositor* compositor, my_surface* surf)
 {
-    std::cout<<"[LumaCompositor] UpdateFrameBuffer "<<std::endl;
+    if (!surf || !surf->committed_buffer) return;
 
-    if (!surf) return;
-    if (!surf->buffer_res) return; // use current_buffer_res
+    shm_buffer* buf = surf->committed_buffer;
+    if (!buf->data) return;
 
-    auto* buf = static_cast<shm_buffer*>(wl_resource_get_user_data(surf->buffer_res));
-    if (!buf || !buf->data) return;
+    uint8_t* src_base = reinterpret_cast<uint8_t*>(buf->data);
+    uint8_t* dst_base = reinterpret_cast<uint8_t*>(comp_framebuffer.data());
 
-    // geometry as reported by xdg_surface_set_window_geometry() or surface fields
+    const int FBW = compositor->output_width;
+    const int FBH = compositor->output_height;
+
+    // surface position on framebuffer
     int dst_x = surf->x;
     int dst_y = surf->y;
-    int geo_w = surf->width;
-    int geo_h = surf->height;
 
-    // Source buffer width/height - buf->width/buf->height
-    // Clip to framebuffer boundaries
-    if (dst_x >= compositor->output_width || dst_y >= compositor->output_height)
+    // buffer size (the client's buffer pixels)
+    int buf_w = buf->width;
+    int buf_h = buf->height;
+    int buf_stride = buf->stride; // bytes per row
+
+    // If surface entirely outside framebuffer, nothing to copy
+    if (dst_x + buf_w <= 0 || dst_y + buf_h <= 0 || dst_x >= FBW || dst_y >= FBH)
         return;
 
-    int copy_w = std::min(geo_w, compositor->output_width - dst_x);
-    int copy_h = std::min(geo_h, compositor->output_height - dst_y);
+    // Compute src start inside buffer and dst start inside framebuffer
+    int src_x = 0;
+    int src_y = 0;
+
+    if (dst_x < 0) { src_x = -dst_x; dst_x = 0; }
+    if (dst_y < 0) { src_y = -dst_y; dst_y = 0; }
+
+    // How many pixels to copy horizontally & vertically
+    int copy_w = std::min(buf_w - src_x, FBW - dst_x);
+    int copy_h = std::min(buf_h - src_y, FBH - dst_y);
+
     if (copy_w <= 0 || copy_h <= 0) return;
 
-    uint8_t* src8 = reinterpret_cast<uint8_t*>(buf->data);
-    uint8_t* dst8 = reinterpret_cast<uint8_t*>(comp_framebuffer.data());
-
-    // buf->stride is bytes per source row
-    for (int row = 0; row < copy_h; ++row) {
-        uint8_t* srow = src8 + row * buf->stride; // start of row inside the buffer
-        uint8_t* drow = dst8 + (dst_y + row) * compositor->output_width * 4 + dst_x * 4;
-        memcpy(drow, srow, copy_w * 4); // assume ARGB32 (4 bytes/pix)
+    // For each row copy exactly copy_w * 4 bytes, using buffer stride for source.
+    for (int row = 0; row < copy_h; ++row)
+    {
+        uint8_t* srow = src_base + (src_y + row) * buf_stride + src_x * 4;
+        uint8_t* drow = dst_base + (dst_y + row) * FBW * 4 + dst_x * 4;
+        memcpy(drow, srow, copy_w * 4);
     }
-    // DO NOT send wl_buffer_send_release here - compositor still needs this buffer.
 
-    // if(surf != nullptr)
-    // {
-    //     if(surf->buffer_res == nullptr)
-    //     {
-    //         return;
-    //     }
-    //     auto* buf = static_cast<shm_buffer*>(wl_resource_get_user_data(surf->buffer_res));
-    //     if (buf && buf->data)
-    //     {
-    //         // geometry as reported by xdg_surface_set_window_geometry()
-    //         int geo_x = surf->x;
-    //         int geo_y = surf->y;
-    //         int geo_w = surf->width;
-    //         int geo_h = surf->height;
-
-    //         int dst_x = surf->x;
-    //         int dst_y = surf->y;
-
-    //         // std::cout << "[LumaCompositor] surface_commit, "
-    //         //   << "buf_w=" << buf->width << ", buf_h=" << buf->height
-    //         //   << ", geo_x=" << geo_x << ", geo_y=" << geo_y
-    //         //   << ", geo_w=" << geo_w << ", geo_h=" << geo_h
-    //         //   << ", dst_x=" << dst_x << ", dst_y=" << dst_y << std::endl;
-
-    //         // std::cout << "[LumaCompositor] surface_commit, x = "<<dst_x <<", y = "<<dst_y<<", width = "<<copy_w<<", height = "<<copy_h<<std::endl;;
-
-    //         uint8_t* src8 = reinterpret_cast<uint8_t*>(buf->data);
-    //         uint8_t* dst8 = reinterpret_cast<uint8_t*>(comp_framebuffer.data());
-
-    //         // Clip to framebuffer size
-    //         int copy_w = std::min(geo_w, compositor->output_width - dst_x);
-    //         int copy_h = std::min(geo_h, compositor->output_height - dst_y);
-            
-    //         for (int y = 0; y < copy_h; ++y) {
-    //             int src_y = geo_y + y;
-    //             uint8_t* srow = src8 + src_y * buf->stride + geo_x * 4;
-    //             uint8_t* drow = dst8 + (dst_y + y) * compositor->output_width * 4 + dst_x * 4;
-    //             memcpy(drow, srow, copy_w * 4);
-    //         }
-            
-
-    //         fb_flush(compositor);
-
-    //         if (surf->buffer_res)
-    //         {
-    //             wl_buffer_send_release(surf->buffer_res);
-    //             surf->buffer_res = nullptr;
-    //         }
-    //     }
-    // }
+    // DO NOT call fb_flush() here — flush once after full composite.
 }
+
+// void UpdateFrameBuffer(LumaCompositor* compositor, my_surface* surf)
+// {
+//     std::cout<<"[LumaCompositor] UpdateFrameBuffer "<<std::endl;
+
+//     if (!surf) return;
+//     if (!surf->buffer_res) return; // use current_buffer_res
+
+//     auto* buf = static_cast<shm_buffer*>(wl_resource_get_user_data(surf->buffer_res));
+//     if (!buf || !buf->data) return;
+
+//     // geometry as reported by xdg_surface_set_window_geometry() or surface fields
+//     int dst_x = surf->x;
+//     int dst_y = surf->y;
+//     int geo_w = surf->width;
+//     int geo_h = surf->height;
+
+//     // Source buffer width/height - buf->width/buf->height
+//     // Clip to framebuffer boundaries
+//     if (dst_x >= compositor->output_width || dst_y >= compositor->output_height)
+//         return;
+
+//     int copy_w = std::min(geo_w, compositor->output_width - dst_x);
+//     int copy_h = std::min(geo_h, compositor->output_height - dst_y);
+//     if (copy_w <= 0 || copy_h <= 0) return;
+
+//     uint8_t* src8 = reinterpret_cast<uint8_t*>(buf->data);
+//     uint8_t* dst8 = reinterpret_cast<uint8_t*>(comp_framebuffer.data());
+
+//     // buf->stride is bytes per source row
+//     for (int row = 0; row < copy_h; ++row) {
+//         uint8_t* srow = src8 + row * buf->stride; // start of row inside the buffer
+//         uint8_t* drow = dst8 + (dst_y + row) * compositor->output_width * 4 + dst_x * 4;
+//         memcpy(drow, srow, copy_w * 4); // assume ARGB32 (4 bytes/pix)
+//     }
+//     // DO NOT send wl_buffer_send_release here - compositor still needs this buffer.
+
+//     // if(surf != nullptr)
+//     // {
+//     //     if(surf->buffer_res == nullptr)
+//     //     {
+//     //         return;
+//     //     }
+//     //     auto* buf = static_cast<shm_buffer*>(wl_resource_get_user_data(surf->buffer_res));
+//     //     if (buf && buf->data)
+//     //     {
+//     //         // geometry as reported by xdg_surface_set_window_geometry()
+//     //         int geo_x = surf->x;
+//     //         int geo_y = surf->y;
+//     //         int geo_w = surf->width;
+//     //         int geo_h = surf->height;
+
+//     //         int dst_x = surf->x;
+//     //         int dst_y = surf->y;
+
+//     //         //   << "buf_w=" << buf->width << ", buf_h=" << buf->height
+//     //         //   << ", geo_x=" << geo_x << ", geo_y=" << geo_y
+//     //         //   << ", geo_w=" << geo_w << ", geo_h=" << geo_h
+//     //         //   << ", dst_x=" << dst_x << ", dst_y=" << dst_y << std::endl;
+
+
+//     //         uint8_t* src8 = reinterpret_cast<uint8_t*>(buf->data);
+//     //         uint8_t* dst8 = reinterpret_cast<uint8_t*>(comp_framebuffer.data());
+
+//     //         // Clip to framebuffer size
+//     //         int copy_w = std::min(geo_w, compositor->output_width - dst_x);
+//     //         int copy_h = std::min(geo_h, compositor->output_height - dst_y);
+            
+//     //         for (int y = 0; y < copy_h; ++y) {
+//     //             int src_y = geo_y + y;
+//     //             uint8_t* srow = src8 + src_y * buf->stride + geo_x * 4;
+//     //             uint8_t* drow = dst8 + (dst_y + y) * compositor->output_width * 4 + dst_x * 4;
+//     //             memcpy(drow, srow, copy_w * 4);
+//     //         }
+            
+
+//     //         fb_flush(compositor);
+
+//     //         if (surf->buffer_res)
+//     //         {
+//     //             wl_buffer_send_release(surf->buffer_res);
+//     //             surf->buffer_res = nullptr;
+//     //         }
+//     //     }
+//     // }
+// }
 
 void compositor_repaint(LumaCompositor* comp)
 {
@@ -572,150 +649,162 @@ static void surface_attach(wl_client* /*client*/, wl_resource* surface_res, wl_r
 
 }
 
-// static void surface_commit(wl_client* client, wl_resource* surface_res)
-// {
-//     std::cout << "[LumaCompositor] surface_commit\n";
-//     my_surface* surf = static_cast<my_surface*>(wl_resource_get_user_data(surface_res));
-//     if (!surf) return;
-
-//     LumaCompositor* comp = surf->compositor;
-//     if (!comp) return;
-
-//     // Surface becomes visible on first commit
-//     surf->mapped = true;
-
-//     // Nothing to render yet if no buffer is attached
-//     if (!surf->buffer_res) {
-//         // If client requested frame callback → send it immediately
-//         if (surf->pending_frame_callback) {
-//             uint32_t time = get_current_time_ms();
-//             wl_callback_send_done(surf->pending_frame_callback, time);
-//             wl_resource_destroy(surf->pending_frame_callback);
-//             surf->pending_frame_callback = nullptr;
-//         }
-//         return;
-//     }
-
-//     //----------------------------------------------------------
-//     // DO NOT BLIT / DRAW PIXELS HERE!
-//     // Just mark that compositor needs a repaint.
-//     //----------------------------------------------------------
-//     comp->needs_repaint = true;
-
-//     //----------------------------------------------------------
-//     // Release old buffer now that we have committed it
-//     //----------------------------------------------------------
-//     wl_buffer_send_release(surf->buffer_res);
-//     surf->buffer_res = nullptr;
-
-//     //----------------------------------------------------------
-//     // Do NOT send frame done here if you are repainting later.
-//     compositor_repaint(comp); //will send frame done.
-//     //----------------------------------------------------------
-// }
-
-
 static void surface_commit(wl_client* client, wl_resource* surface_res)
 {
-    // std::cout << "[LumaCompositor] surface_commit\n";
-
+    std::cout << "[LumaCompositor] surface_commit\n";
     my_surface* surf = static_cast<my_surface*>(wl_resource_get_user_data(surface_res));
-    if (!surf)
-    {
+    if (!surf) return;
+
+    LumaCompositor* comp = surf->compositor;
+    if (!comp) return;
+
+    // Surface becomes visible on first commit
+    surf->mapped = true;
+
+    // Nothing to render yet if no buffer is attached
+    if (!surf->buffer_res) {
+        // If client requested frame callback → send it immediately
+        if (surf->pending_frame_callback) {
+            uint32_t time = get_current_time_ms();
+            wl_callback_send_done(surf->pending_frame_callback, time);
+            wl_resource_destroy(surf->pending_frame_callback);
+            surf->pending_frame_callback = nullptr;
+        }
         return;
     }
-    LumaCompositor* compositor = surf->compositor;
-    surf->mapped = true;
-    compositor->needs_repaint = true;
 
-    // if no buffer attached → nothing to show, but still respond to callbacks
-    if (surf->pending_frame_callback && surf->buffer_res)
+    //----------------------------------------------------------
+    // DO NOT BLIT / DRAW PIXELS HERE!
+    // Just mark that compositor needs a repaint.
+    //----------------------------------------------------------
+    comp->needs_repaint = true;
+
+
+    if (surf->buffer_res)
     {
-        // std::lock_guard<std::mutex> lk(comp_fb_mutex);
-        // UpdateFrameBuffer(compositor, surf);
+        shm_buffer* buf = static_cast<shm_buffer*>(
+            wl_resource_get_user_data(surf->buffer_res)
+        );
 
-        auto* buf = static_cast<shm_buffer*>(wl_resource_get_user_data(surf->buffer_res));
-        if (buf && buf->data)
-        {
-            std::lock_guard<std::mutex> lk(comp_fb_mutex);
-
-            // geometry as reported by xdg_surface_set_window_geometry()
-            int geo_x = surf->x;
-            int geo_y = surf->y;
-            int geo_w = surf->width;
-            int geo_h = surf->height;
-
-            int dst_x = surf->x;
-            int dst_y = surf->y;
-
-            // std::cout << "[LumaCompositor] surface_commit, "
-            //   << "buf_w=" << buf->width << ", buf_h=" << buf->height
-            //   << ", geo_x=" << geo_x << ", geo_y=" << geo_y
-            //   << ", geo_w=" << geo_w << ", geo_h=" << geo_h
-            //   << ", dst_x=" << dst_x << ", dst_y=" << dst_y << std::endl;
-
-            // std::cout << "[LumaCompositor] surface_commit, x = "<<dst_x <<", y = "<<dst_y<<", width = "<<copy_w<<", height = "<<copy_h<<std::endl;;
-
-            uint8_t* src8 = reinterpret_cast<uint8_t*>(buf->data);
-            uint8_t* dst8 = reinterpret_cast<uint8_t*>(comp_framebuffer.data());
-
-            // Clip to framebuffer size
-            int copy_w = std::min(geo_w, compositor->output_width - dst_x);
-            int copy_h = std::min(geo_h, compositor->output_height - dst_y);
-            
-            for (int y = 0; y < copy_h; ++y) {
-                int src_y = geo_y + y;
-                uint8_t* srow = src8 + src_y * buf->stride + geo_x * 4;
-                uint8_t* drow = dst8 + (dst_y + y) * compositor->output_width * 4 + dst_x * 4;
-                memcpy(drow, srow, copy_w * 4);
-            }
-            
-
-            fb_flush(compositor);
-
-            if (surf->buffer_res)
-            {
-                wl_buffer_send_release(surf->buffer_res);
-                surf->buffer_res = nullptr;
-            }
-        }
-
-        // Send frame done
-        wl_client* c = wl_resource_get_client(surf->pending_frame_callback);
-        wl_display* d = wl_client_get_display(c);
-        uint32_t serial = wl_display_next_serial(d);
-        wl_callback_send_done(surf->pending_frame_callback, serial);
-        wl_resource_destroy(surf->pending_frame_callback);
-        surf->pending_frame_callback = nullptr;
-
-        // Now safe to clear buffer
-        surf->buffer_res = nullptr;
+        // Save buffer so compositor_repaint() can draw it
+        surf->committed_buffer = buf;
     }
 
-    if(compositor != nullptr)
-    {
 
-        if (surf->is_xdg_toplevel && !compositor->focused_surface) 
-        {
-            // sanity checks
-            if (!surf->toplevel_res)
-            {
-                std::cout << "[LumaCompositor] surface_commit: toplevel_res is NULL, skipping initial configure\n";
-            } 
-            else 
-            {
-                compositor->focused_surface = surface_res;
-            }
+    //----------------------------------------------------------
+    // Release old buffer now that we have committed it
+    //----------------------------------------------------------
+    wl_buffer_send_release(surf->buffer_res);
+    surf->buffer_res = nullptr;
 
-            // std::cout << "[Focus] surface_commit compositor->focused_surface = "<<compositor->focused_surface << std::endl;
-        }
-    }
-    else
-    {
-        std::cout << "[LumaCompositor] ERROR: surface_commit, comp is NULL"<<std::endl;
-
-    }
+    //----------------------------------------------------------
+    // Do NOT send frame done here if you are repainting later.
+    compositor_repaint(comp); //will send frame done.
+    //----------------------------------------------------------
 }
+
+
+// static void surface_commit(wl_client* client, wl_resource* surface_res)
+// {
+//     // std::cout << "[LumaCompositor] surface_commit\n";
+
+//     my_surface* surf = static_cast<my_surface*>(wl_resource_get_user_data(surface_res));
+//     if (!surf)
+//     {
+//         return;
+//     }
+//     LumaCompositor* compositor = surf->compositor;
+//     surf->mapped = true;
+//     compositor->needs_repaint = true;
+
+//     // if no buffer attached → nothing to show, but still respond to callbacks
+//     if (surf->pending_frame_callback && surf->buffer_res)
+//     {
+//         // std::lock_guard<std::mutex> lk(comp_fb_mutex);
+//         // UpdateFrameBuffer(compositor, surf);
+
+//         auto* buf = static_cast<shm_buffer*>(wl_resource_get_user_data(surf->buffer_res));
+//         if (buf && buf->data)
+//         {
+//             std::lock_guard<std::mutex> lk(comp_fb_mutex);
+
+//             // geometry as reported by xdg_surface_set_window_geometry()
+//             int geo_x = surf->x;
+//             int geo_y = surf->y;
+//             int geo_w = surf->width;
+//             int geo_h = surf->height;
+
+//             int dst_x = surf->x;
+//             int dst_y = surf->y;
+
+//             // std::cout << "[LumaCompositor] surface_commit, "
+//             //   << "buf_w=" << buf->width << ", buf_h=" << buf->height
+//             //   << ", geo_x=" << geo_x << ", geo_y=" << geo_y
+//             //   << ", geo_w=" << geo_w << ", geo_h=" << geo_h
+//             //   << ", dst_x=" << dst_x << ", dst_y=" << dst_y << std::endl;
+
+//             // std::cout << "[LumaCompositor] surface_commit, x = "<<dst_x <<", y = "<<dst_y<<", width = "<<copy_w<<", height = "<<copy_h<<std::endl;;
+
+//             uint8_t* src8 = reinterpret_cast<uint8_t*>(buf->data);
+//             uint8_t* dst8 = reinterpret_cast<uint8_t*>(comp_framebuffer.data());
+
+//             // Clip to framebuffer size
+//             int copy_w = std::min(geo_w, compositor->output_width - dst_x);
+//             int copy_h = std::min(geo_h, compositor->output_height - dst_y);
+            
+//             for (int y = 0; y < copy_h; ++y) {
+//                 int src_y = geo_y + y;
+//                 uint8_t* srow = src8 + src_y * buf->stride + geo_x * 4;
+//                 uint8_t* drow = dst8 + (dst_y + y) * compositor->output_width * 4 + dst_x * 4;
+//                 memcpy(drow, srow, copy_w * 4);
+//             }
+            
+
+//             fb_flush(compositor);
+
+//             if (surf->buffer_res)
+//             {
+//                 wl_buffer_send_release(surf->buffer_res);
+//                 surf->buffer_res = nullptr;
+//             }
+//         }
+
+//         // Send frame done
+//         wl_client* c = wl_resource_get_client(surf->pending_frame_callback);
+//         wl_display* d = wl_client_get_display(c);
+//         uint32_t serial = wl_display_next_serial(d);
+//         wl_callback_send_done(surf->pending_frame_callback, serial);
+//         wl_resource_destroy(surf->pending_frame_callback);
+//         surf->pending_frame_callback = nullptr;
+
+//         // Now safe to clear buffer
+//         surf->buffer_res = nullptr;
+//     }
+
+//     if(compositor != nullptr)
+//     {
+
+//         if (surf->is_xdg_toplevel && !compositor->focused_surface) 
+//         {
+//             // sanity checks
+//             if (!surf->toplevel_res)
+//             {
+//                 std::cout << "[LumaCompositor] surface_commit: toplevel_res is NULL, skipping initial configure\n";
+//             } 
+//             else 
+//             {
+//                 compositor->focused_surface = surface_res;
+//             }
+
+//             // std::cout << "[Focus] surface_commit compositor->focused_surface = "<<compositor->focused_surface << std::endl;
+//         }
+//     }
+//     else
+//     {
+//         std::cout << "[LumaCompositor] ERROR: surface_commit, comp is NULL"<<std::endl;
+
+//     }
+// }
 
 static void surface_destroy(wl_client* /*client*/, wl_resource* resource)
 {

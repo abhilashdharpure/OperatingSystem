@@ -8,6 +8,7 @@
 struct my_output;
 struct LumaSeat;
 struct my_surface;
+struct shm_buffer;
 
 struct LumaCompositor {
     wl_display* display;
@@ -79,6 +80,8 @@ struct my_surface
     // track attached buffer, pending callback, etc.
     wl_resource* buffer_res = nullptr;
     wl_resource* pending_frame_callback = nullptr;
+
+    shm_buffer* committed_buffer = nullptr; // store latest committed buffer
 
     // geometry we will use for hit-testing and configure
     int32_t x = 0, y = 0;   // top-left position on the compositor output
