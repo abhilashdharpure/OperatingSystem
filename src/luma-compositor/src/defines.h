@@ -30,7 +30,9 @@ struct LumaCompositor {
     wl_resource* focused_surface = nullptr; // wl_surface resource that's keyboard focused
     wl_resource* pointer_focused_surface = nullptr; // wl_surface resource that pointer currently over
     wl_resource *keyboard_resource = nullptr;
-    wl_resource* wm_base_resource;
+    wl_resource* wm_base_resource= nullptr;
+    wl_resource* cursor_pending_buffer = nullptr;
+
 
     LumaSeat* seat;
     
@@ -38,6 +40,8 @@ struct LumaCompositor {
 
     double cursor_x = 0.0;
     double cursor_y = 0.0;
+    double cursor_w = 0.0;
+    double cursor_h = 0.0;
     int output_width =  1200; //1920;
     int output_height = 800; //1080;
 
@@ -65,6 +69,12 @@ struct LumaCompositor {
     double window_start_h = 0.0;
     uint32_t resize_edges = 0;
 
+    // Cursor surca
+    my_surface* cursor_surface = nullptr;
+    bool is_cursor_surface = false;
+    double cursor_hot_x = 0.0;
+    double cursor_hot_y = 0.0;
+
     struct xkb_context* xkb_ctx = nullptr;
     struct xkb_keymap* keymap = nullptr;
     struct xkb_state* xkb_state = nullptr;
@@ -84,7 +94,7 @@ struct my_surface
     shm_buffer* committed_buffer = nullptr; // store latest committed buffer
 
     // geometry we will use for hit-testing and configure
-    int32_t x = 0, y = 0;   // top-left position on the compositor output
+    int32_t x = 100, y = 20;   // top-left position on the compositor output
     int32_t width = 0, height = 0; // size the compositor gave via xdg_toplevel_send_configure
     bool configured = false;     
     bool is_xdg_toplevel = false;             // true when xdg_toplevel created for this surface
