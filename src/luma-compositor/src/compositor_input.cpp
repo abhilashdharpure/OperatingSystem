@@ -78,42 +78,10 @@ static wl_resource* get_keyboard_for_surface_client(LumaCompositor* comp, wl_res
     return nullptr;
 }
 
-// Example: send enter + button + frame when clicking a surface
-void send_pointer_click_to_surface(LumaCompositor* comp, wl_resource* pointer_res, wl_resource* surface_res, int32_t global_x, int32_t global_y, uint32_t button_code, uint32_t value)
+bool isClickOnTopBar(int x, int y, int surface_x, int surface_y, int surface_width, int surface_height)
 {
-    // compute surface-local coords
-    uint32_t serial = 0;
-    
-    if(comp->pointer_enter_serial != 0)
-    {
-        // For Move toplevel
-        serial = comp->pointer_enter_serial;
-        comp->pointer_enter_serial = 0;
-    }
-    else
-    {
-        serial = wl_display_next_serial(comp->display);
-    }
-    
-    if(value == 1 )
-    {
-        uint32_t time_ms = (uint32_t)((uint64_t)time(nullptr) * 1000);
-        wl_pointer_send_button(pointer_res, time_ms, serial, button_code, value);
-
-        // frame to finish the input event
-        wl_pointer_send_frame(pointer_res);
-
-        // std::cout << "[Input] Mouse Clicked, serial = "<<serial<< std::endl;
-    }
-    else
-    {
-        // std::cout << "[Input] Mouse Released"<< std::endl;
-    }
-    
-
-
-    // flush
-    wl_display_flush_clients(comp->display);
+    int topbar_height = 30;
+    return ( (x > surface_x) && (x < (surface_x + surface_width)) && (y > surface_y) && ((y< surface_y +  topbar_height)));
 }
 
 
@@ -130,9 +98,17 @@ void handle_pointer_button(CompositorInput* input, LumaCompositor* comp, int x, 
         {
             if( state == WL_POINTER_BUTTON_STATE_PRESSED)
             {
-                // set new focus and notify
-                comp->focused_surface = new_surf_res;
-                input->SendKeyboardEnterEvent(comp, comp->focused_surface);
+                std::cout<<"handle_pointer_button x = "<<x<<", y = "<<y << ", under->x = "<<under->x << ", under->y = "<<under->y<<std::endl;
+                if(!isClickOnTopBar(x, y, under->x , under->y, under->width, under->height))
+                {
+                    // set new focus and notify
+                    comp->focused_surface = new_surf_res;
+                    input->SendKeyboardEnterEvent(comp, comp->focused_surface);
+                }
+                else
+                {
+                    std::cout<<"Clicked on Topbar !!!!!!!!"<<std::endl;
+                }
             }
         }
     }
@@ -165,37 +141,47 @@ void handle_pointer_motion(LumaCompositor* comp, int x, int y)
 
         if (new_surface != prev_surface)
         {
-            comp->pointer_enter_serial = wl_display_next_serial(comp->display);
-
-            for (auto* pointer : g_pointers)
+            // Enter new surface
+            if (new_surface)
             {
-                // Enter new surface
-                if (new_surface)
+                if(!comp->mouse_pressed)
                 {
-                    std::cout << "[Input] handle_pointer_motion Entering new surface, serial = "<<comp->pointer_enter_serial << std::endl;
-                    wl_pointer_send_enter(pointer, comp->pointer_enter_serial, new_surface,
-                                        wl_fixed_from_double(x),
-                                        wl_fixed_from_double(y));
-                    wl_pointer_send_frame(pointer);
+                    uint32_t serial = wl_display_next_serial(comp->display);
+
+                    double sx = x - surface->x;
+                    double sy = y - surface->y;
+
+                    for (auto* pointer : g_pointers)
+                    {
+                        std::cout << "[Input] handle_pointer_motion Entering new surface, x = "<<x<<", y ="<<y <<", sx = "<< sx<<", sy = "<<sy<< std::endl;
+                        wl_pointer_send_enter(pointer, serial, new_surface,
+                                            wl_fixed_from_double(sx),
+                                            wl_fixed_from_double(sy));
+                        wl_pointer_send_frame(pointer);
+                    }
                 }
+
+
+                // Update pointer focus
+                comp->pointer_focused_surface = new_surface;
             }
 
-            // Update pointer focus
-            comp->pointer_focused_surface = new_surface;
         }
     }
     else
     {
-        uint32_t serial = wl_display_next_serial(comp->display);
-        comp->pointer_enter_serial = 0;
-        for (auto* pointer : g_pointers)
+        if(!comp->mouse_pressed)
         {
-            // Leave previous surface
-            if (prev_surface)
+            uint32_t serial = wl_display_next_serial(comp->display);
+            for (auto* pointer : g_pointers)
             {
-                std::cout << "[Input] handle_pointer_motion Leaving new surface" << std::endl;
-                wl_pointer_send_leave(pointer, serial, prev_surface);
-                wl_pointer_send_frame(pointer);
+                // Leave previous surface
+                if (prev_surface)
+                {
+                    std::cout << "[Input] handle_pointer_motion Leaving new surface" << std::endl;
+                    wl_pointer_send_leave(pointer, serial, prev_surface);
+                    wl_pointer_send_frame(pointer);
+                }
             }
         }
 
@@ -334,66 +320,6 @@ void CompositorInput::evdev_input_loop(CompositorInput* input, LumaCompositor* c
                     wl_display_flush_clients(compositor->display);
                 }
             }
-            // else if (ev.type == EV_REL && ev.code == REL_X)
-            // {
-            //     compositor->cursor_x += ev.value;
-            //     // mouse move X
-
-            //     // Clamp inside screen
-            //     if (compositor->cursor_x < 0) compositor->cursor_x = 0;
-            //     if (compositor->cursor_y < 0) compositor->cursor_y = 0;
-            //     if (compositor->cursor_x >= compositor->output_width) compositor->cursor_x = compositor->output_width - 1;
-            //     if (compositor->cursor_y >= compositor->output_height) compositor->cursor_y = compositor->output_height - 1;
-            //     // if (compositor->cursor_x >= SCREEN_WIDTH_TEMP) compositor->cursor_x = SCREEN_WIDTH_TEMP - 1;
-            //     // if (compositor->cursor_y >= SCREEN_HEIGHT_TEMP) compositor->cursor_y = SCREEN_HEIGHT_TEMP - 1;
-
-            //     // As we have SDL window and ubuntu application icons on left side
-            //     // double cursor_x = (compositor->cursor_x - 80) < 0 ? 0: compositor->cursor_x; 
-            //     // double cursor_y = (compositor->cursor_y - 80) < 0 ? 0: compositor->cursor_y;
-            //     double cursor_x = compositor->cursor_x; 
-            //     double cursor_y = compositor->cursor_y; 
-            //     // std::cout << "[Mouse] compositor->cursor_x= "<<cursor_x<<", compositor->cursor_y = "<<cursor_y<<std::endl;
-                
-            //     for (auto* ptr : g_pointers)
-            //     {
-            //         // std::cout << "[Input] Sending motion " << std::endl;                    
-
-            //         wl_pointer_send_motion(ptr,
-            //             (uint32_t)(ev.time.tv_sec * 1000 + ev.time.tv_usec / 1000),
-            //             wl_fixed_from_double(cursor_x),
-            //             wl_fixed_from_double(cursor_y));
-            //         wl_pointer_send_frame(ptr);
-            //     }
-            // } 
-            // else if (ev.type == EV_REL && ev.code == REL_Y)
-            // {
-            //     // mouse move Y
-            //     compositor->cursor_y += ev.value;
-
-            //     // Clamp inside screen
-            //     if (compositor->cursor_x < 0) compositor->cursor_x = 0;
-            //     if (compositor->cursor_y < 0) compositor->cursor_y = 0;
-            //     if (compositor->cursor_x >= compositor->output_width) compositor->cursor_x = compositor->output_width - 1;
-            //     if (compositor->cursor_y >= compositor->output_height) compositor->cursor_y = compositor->output_height - 1;
-            //     // if (compositor->cursor_x >= SCREEN_WIDTH_TEMP) compositor->cursor_x = SCREEN_WIDTH_TEMP - 1;
-            //     // if (compositor->cursor_y >= SCREEN_HEIGHT_TEMP) compositor->cursor_y = SCREEN_HEIGHT_TEMP - 1;
-
-            //     // As we have SDL window and ubuntu application icons on left side
-            //     //double cursor_x = (compositor->cursor_x - 80) < 0 ? 0: compositor->cursor_x; 
-            //     //double cursor_y = (compositor->cursor_y - 80) < 0 ? 0: compositor->cursor_y; 
-            //     double cursor_x = compositor->cursor_x; 
-            //     double cursor_y = compositor->cursor_y; 
-            //     // std::cout << "[Mouse] compositor->cursor_x= "<<cursor_x<<", compositor->cursor_y = "<<cursor_y<<std::endl;
-
-            //     for (auto* ptr : g_pointers)
-            //     {
-            //         wl_pointer_send_motion(ptr,
-            //             (uint32_t)(ev.time.tv_sec * 1000 + ev.time.tv_usec / 1000),
-            //             wl_fixed_from_double(cursor_x),
-            //             wl_fixed_from_double(cursor_y));
-            //         wl_pointer_send_frame(ptr);
-            //     }
-            // }
         }
     }
 
@@ -454,68 +380,55 @@ void CompositorInput::SendKeyboardEnterEvent(LumaCompositor* compositor, wl_reso
 void CompositorInput::SendMouseMoveEvent(LumaCompositor* compositor, double gx, double gy, uint32_t time_ms)
 {
     // std::cout << "[Mouse] SendMouseMoveEvent cursor_x= "<<gx<<", cursor_y = "<<gy<<std::endl;
+
     handle_pointer_motion(compositor, gx, gy);
 
     // When mouse curcer inside client then only send motion
     if(compositor->pointer_focused_surface != nullptr)
     {
-        for (auto* ptr : g_pointers)
+        my_surface *surface = static_cast<my_surface*>(wl_resource_get_user_data(compositor->pointer_focused_surface));
+
+        if(surface != nullptr)
         {
-            if (ptr)
+            double sx = gx - surface->x;
+            double sy = gy - surface->y;
+
+            // double sx = gx;
+            // double sy = gy;
+
+            // double sx = gx - surface->x - surface->window_geom_x;
+            // double sy = gy - surface->y - surface->window_geom_y;
+
+            for (auto* ptr : g_pointers)
             {
-                wl_pointer_send_motion(ptr, time_ms, wl_fixed_from_double(gx), wl_fixed_from_double(gy));
-                wl_pointer_send_frame(ptr);
+                if (ptr)
+                {
+                    // std::cout << "[Mouse] wl_pointer_send_motion cursor_x= "<<sx<<", cursor_y = "<<sy<<std::endl;
+
+                    wl_pointer_send_motion(ptr, time_ms, wl_fixed_from_double(sx), wl_fixed_from_double(sy));
+                    wl_pointer_send_frame(ptr);
+                }
             }
         }
     }
 }
 
-void CompositorInput::SendButtonEvent(LumaCompositor* compositor, uint32_t passed_serial, uint32_t time_ms, uint32_t button, uint32_t state)
+void CompositorInput::SendButtonEvent(LumaCompositor* compositor, uint32_t time_ms, uint32_t button, uint32_t state)
 {
     if(button == BTN_LEFT)
     {
-        // determine the serial to use:
-        uint32_t serial = 0;
-
-        // prefer the current pointer-enter serial if pointer is in a surface
-        if (compositor->pointer_focused_surface && compositor->pointer_enter_serial != 0)
-        {
-            serial = compositor->pointer_enter_serial;
-        }
-        else if (passed_serial != 0)
-        {
-            serial = passed_serial;
-        }
-        else
-        {
-            serial = wl_display_next_serial(compositor->display);
-        }
-
-
-
-        handle_pointer_button(this, compositor, (int)compositor->cursor_x, (int)compositor->cursor_y, button, state);
-
-        // if (compositor->focused_surface)
-        // {
-        //     xkb_state_update_key(compositor->xkb_state, button, (state == WL_KEYBOARD_KEY_STATE_PRESSED) ? XKB_KEY_DOWN : XKB_KEY_UP);
-
-        //     SendKeyboardEnterEvent(compositor, compositor->focused_surface);
-        // }
-
-
-        // for (auto* ptr : g_pointers)
-        // {
-        //     send_pointer_click_to_surface(comp, ptr, under->resource, x, y, button, state);
-        // }
-
+        uint32_t serial = wl_display_next_serial(compositor->display);
         for (auto* ptr : g_pointers)
         {
             if (ptr)
             {
+                std::cout << "[Input] wl_pointer_send_button serial = "<<serial <<", button = "<<button<<", state = "<<state<<std::endl;
+
                 wl_pointer_send_button(ptr, serial, time_ms, button, state);
                 wl_pointer_send_frame(ptr);
             }
         }
-            
+        compositor->last_press_serial = serial;
+        handle_pointer_button(this, compositor, (int)compositor->cursor_x, (int)compositor->cursor_y, button, state);
     }
 }

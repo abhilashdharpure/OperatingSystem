@@ -10,6 +10,20 @@ struct LumaSeat;
 struct my_surface;
 struct shm_buffer;
 
+
+// enum class toplevel_edges
+// {
+//     TOP = 1,
+//     BOTTOM = 2,
+//     LEFT = 4,
+//     RIGHT = 8,
+//     TOP_LEFT = 5,
+//     TOP_RIGHT = 9,
+//     BOTTOM_RIGHT = 10,
+//     BOTTOM_LEFT = 6
+// }
+
+
 struct LumaCompositor {
     wl_display* display;
     wl_event_loop* loop;
@@ -42,6 +56,7 @@ struct LumaCompositor {
     double cursor_y = 0.0;
     double cursor_w = 0.0;
     double cursor_h = 0.0;
+    bool mouse_pressed = false;
     int output_width =  1200; //1920;
     int output_height = 800; //1080;
 
@@ -50,11 +65,13 @@ struct LumaCompositor {
     int32_t focus_width = 0;
     int32_t focus_height = 0;
 
-    uint32_t pointer_enter_serial = 0;
+    uint32_t last_press_serial = 0;
     bool needs_repaint = false;
+    bool is_pong_received = true;
 
     // For Toplevel Move
     my_surface* moving_surface = nullptr;
+    my_surface* new_client_surface = nullptr;
     bool move_grab_active = false;
     double grab_start_x = 0.0;
     double grab_start_y = 0.0;
@@ -94,12 +111,15 @@ struct my_surface
     shm_buffer* committed_buffer = nullptr; // store latest committed buffer
 
     // geometry we will use for hit-testing and configure
-    int32_t x = 100, y = 20;   // top-left position on the compositor output
+    int32_t x = 0, y = 0;   // top-left position on the compositor output
     int32_t width = 0, height = 0; // size the compositor gave via xdg_toplevel_send_configure
     bool configured = false;     
     bool is_xdg_toplevel = false;             // true when xdg_toplevel created for this surface
     bool visible = false;
     bool is_maximized = false;
+
+    int window_geom_x, window_geom_y; // offset inside buffer
+    int window_geom_w, window_geom_h;
 
     // Restore for Maximize -> Minimize
     int32_t restore_x = 0;
