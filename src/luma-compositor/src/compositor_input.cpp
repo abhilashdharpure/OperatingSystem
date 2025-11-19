@@ -21,8 +21,6 @@ void CompositorInput::Initialize(LumaCompositor* compositor)
     std::thread(evdev_input_loop, this, compositor).detach();
 }
 
-
-
 static my_surface* hit_test_surface(LumaCompositor* comp, int32_t x, int32_t y)
 {
     // std::cout << "[Input] Start hit_test_surface, x= "<<x<<", y ="<<y << std::endl;
@@ -392,12 +390,6 @@ void CompositorInput::SendMouseMoveEvent(LumaCompositor* compositor, double gx, 
         {
             double sx = gx - surface->x;
             double sy = gy - surface->y;
-
-            // double sx = gx;
-            // double sy = gy;
-
-            // double sx = gx - surface->x - surface->window_geom_x;
-            // double sy = gy - surface->y - surface->window_geom_y;
 
             for (auto* ptr : g_pointers)
             {
