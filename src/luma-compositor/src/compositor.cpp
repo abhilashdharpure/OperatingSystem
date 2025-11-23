@@ -557,44 +557,46 @@ void handle_resize_motion(LumaCompositor *comp)
 }
 
 
-static bool pointer_handle_motion(LumaCompositor* comp, double sx, double sy)
+static void pointer_handle_motion(LumaCompositor* comp)
+{
+    if(comp != nullptr)
+    {
+        my_surface* surf = comp->moving_surface;
+        if(surf != nullptr)
+        {
+            int dx = comp->cursor_x - comp->grab_start_x;
+            int dy = comp->cursor_y - comp->grab_start_y;
+
+            surf->x = comp->window_start_x + dx;
+            surf->y = comp->window_start_y + dy;
+        }
+        comp->needs_repaint = true;
+        compositor_repaint(comp);
+    }
+}
+
+static void handle_mouse_move(LumaCompositor* comp, double sx, double sy)
 {
     if(comp != nullptr)
     {
         if (comp->move_grab_active && comp->moving_surface)
         {
-            my_surface* surf = comp->moving_surface;
-            if(surf != nullptr)
-            {
-                int dx = comp->cursor_x - comp->grab_start_x;
-                int dy = comp->cursor_y - comp->grab_start_y;
-
-                surf->x = comp->window_start_x + dx;
-                surf->y = comp->window_start_y + dy;
-            }
-            comp->needs_repaint = true;
-            compositor_repaint(comp);
-            //return true;
+            pointer_handle_motion(comp);
         }
         else if(comp->resize_grab_active && comp->resizing_surface)
         {
             handle_resize_motion(comp);
         }
         else if (sx >= 0 && sy >= 0 && sx < comp->output_width && sy < comp->output_height)
-        // if (sx >= 0 && sy >= 0 && sx < comp->output_width && sy < comp->output_height)
         {
-            // if(comp->is_pong_received)
-            {
-                uint32_t time = SDL_GetTicks();
-                compositorInput.SendMouseMoveEvent(comp, sx, sy, time);
-                // SendPing(comp);
-                //comp->needs_repaint = true;
-                //compositor_repaint(comp);   // for cursor
-            }
+            uint32_t time = SDL_GetTicks();
+            compositorInput.SendMouseMoveEvent(comp, sx, sy, time);
+
+            // for update cursor live
+            comp->needs_repaint = true;
+            compositor_repaint(comp);
         }
     }
-    
-    return false;
 }
 
 static const struct wl_keyboard_interface keyboard_impl = {
@@ -2194,8 +2196,7 @@ static void sdl_renderer_thread(int win_w, int win_h, LumaCompositor* comp)
                 comp->cursor_x = sx;
                 comp->cursor_y = sy;
 
-                pointer_handle_motion(comp, sx, sy);
-
+                handle_mouse_move(comp, sx, sy);
             }
             else if (ev.type == SDL_MOUSEBUTTONDOWN || ev.type == SDL_MOUSEBUTTONUP)
             {
