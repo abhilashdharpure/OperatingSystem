@@ -5,6 +5,7 @@
 #include <xkbcommon/xkbcommon.h>
 #include <sys/time.h>
 #include "compositor_helper.h"
+#include <algorithm>
 
 static constexpr int SCREEN_WIDTH_TEMP = 1920;
 static constexpr int SCREEN_HEIGHT_TEMP = 1080;
@@ -271,7 +272,8 @@ void CompositorInput::evdev_input_loop(CompositorInput* input, LumaCompositor* c
                 else
                 {
                     // std::cout << "[Keuboard] Key Clicked"<<std::endl;
- 
+                    std::scoped_lock lk(compositor->kbd_mutex); 
+
                     // who is focused?
                     if (!compositor->focused_surface)
                     {
@@ -298,7 +300,7 @@ void CompositorInput::evdev_input_loop(CompositorInput* input, LumaCompositor* c
 
                         uint32_t serial = wl_display_next_serial(compositor->display);
                         wl_resource* focused_kbd = get_focused_keyboard(compositor);
-
+                        std::cout<<"focused_kbd = "<<focused_kbd<<std::endl;
                         if (focused_kbd)
                         {
                             wl_keyboard_send_modifiers(focused_kbd, serial, depressed, latched, locked, group);
@@ -332,16 +334,40 @@ void CompositorInput::evdev_input_loop(CompositorInput* input, LumaCompositor* c
 
 void CompositorInput::AddKeyboardEvent(wl_resource* keyboard_res)
 {
-    std::cout << "[Input] AddKeyboardEvent " << std::endl;                    
+    std::cout << "[Input] AddKeyboardEvent " << std::endl;      
     g_keyboards.push_back(keyboard_res);
 
 }
 
+void CompositorInput::RemoveKeyboardEvent(wl_resource* keyboard_res)
+{
+    std::cout << "[Input] RemoveKeyboardEvent " << std::endl;
+    g_keyboards.erase(std::remove(g_keyboards.begin(), g_keyboards.end(), keyboard_res),g_keyboards.end());
+    // auto it = g_keyboards.find(keyboard_res);
+
+    // if(it != g_keyboards.end())
+    // {
+    //     g_keyboards.erase(it);
+    // }
+}
+
 void CompositorInput::AddKeyMouseEvent(wl_resource* mouse_res)
 {
-    std::cout << "[Input] AddKeyMouseEvent " << std::endl;                    
-
+    std::cout << "[Input] AddKeyMouseEvent " << std::endl;            
     g_pointers.push_back(mouse_res);
+}
+
+void CompositorInput::RemoveKeyMouseEvent(wl_resource* mouse_res)
+{
+    std::cout << "[Input] RemoveKeyMouseEvent " << std::endl;
+    g_pointers.erase(std::remove(g_pointers.begin(), g_pointers.end(), mouse_res),g_pointers.end());
+
+    // auto it = g_pointers.find(mouse_res);
+
+    // if(it != g_pointers.end())
+    // {
+    //     g_pointers.erase(it);
+    // }
 }
 
 void CompositorInput::SendKeyboardEnterEvent(LumaCompositor* compositor, wl_resource* focused_surface)

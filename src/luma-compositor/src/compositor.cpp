@@ -187,6 +187,9 @@ void UpdateFrameBuffer(LumaCompositor* compositor, my_surface* surf)
 {
     if (!compositor || !surf) return;
 
+    if (!surf) return;
+    if (surf->dead) return;  // extra guard
+
     // Pin the committed buffer safely (Wayland thread sets committed_buffer under surf->buffer_mutex)
     shm_buffer* buf = nullptr;
     {
@@ -428,15 +431,36 @@ void compositor_repaint(LumaCompositor* comp)
         // 1. Clear framebuffer (ARGB)
         memset(comp_framebuffer.data(), 0x00, W * H * 4);
 
+        std::vector<my_surface*> snapshot;
+
+        {   // take snapshot under lock
+            std::scoped_lock lk(comp->surfaces_mutex);
+            snapshot = comp->surfaces; // shallow copy of pointers
+        }
+
         // 2. Composite all surfaces in stacking order (back → front)
-        for (my_surface* surf : comp->surfaces)   // comp->surfaces is ordered
+        // for (my_surface* surf : comp->surfaces)   // comp->surfaces is ordered
+        for (my_surface* surf : snapshot)   // comp->surfaces is ordered
         {
             if (!surf->mapped)   // mapped only after first commit
             {
                 continue;
             }
 
+            // If surface was marked dead since snapshot, drop pin and continue
+            if (surf->dead) {
+                if (surf->refcount.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+                    delete surf; // last user — clean up
+                }
+                continue;
+            }
+
             UpdateFrameBuffer(comp, surf);
+
+             // unpin surface
+            if (surf->refcount.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+                if (surf->dead) delete surf;
+            }
         }
 
         // Send wl_surface.frame done callbacks
@@ -450,6 +474,8 @@ void compositor_repaint(LumaCompositor* comp)
                 surf->pending_frame_callback = nullptr;
             }
         }
+
+
 
         // // draw cursor as last surface (topmost)
         DrawCursor(comp);
@@ -605,27 +631,48 @@ static const struct wl_keyboard_interface keyboard_impl = {
     },
 };
 
-wl_resource* seat_get_pointer(LumaSeat* seat, wl_client* client)
-{
-    std::cout << "[LumaCompositor] seat_get_pointer\n";
+// wl_resource* seat_get_pointer(LumaSeat* seat, wl_client* client)
+// {
+//     std::cout << "[LumaCompositor] seat_get_pointer method\n";
 
-    wl_resource* resource;
-    wl_list_for_each(resource, &seat->pointers, link)
-    {
-        if (wl_resource_get_client(resource) == client)
-        {
-            return resource;
-        }
-    }
-    return nullptr;
-}
+//     wl_resource* resource;
+//     wl_list_for_each(resource, &seat->pointers, link)
+//     {
+//         if (wl_resource_get_client(resource) == client)
+//         {
+//             return resource;
+//         }
+//     }
+//     return nullptr;
+// }
 
 static void keyboard_resource_destroy(struct wl_resource *resource)
 {
-    std::cout << "[LumaCompositor] keyboard_resource_destroy\n";
+    std::cout << "[LumaCompositor] keyboard_resource_destroy, resource= "<<resource<<std::endl;
+    LumaSeat* seat = (LumaSeat*)wl_resource_get_user_data(resource);
+
 
     // nothing stored as user_data currently
     wl_resource_set_user_data(resource, nullptr);
+
+    if(seat != nullptr)
+    {
+        LumaCompositor* compositor = seat->compositor;
+
+        wl_list_remove(wl_resource_get_link(compositor->keyboard_resource));
+        // Also clear compositor-side pointer if it was the focused one
+        // Acquire the mutex before modifying
+        if(compositor != nullptr)
+        {
+            std::scoped_lock lk(compositor->kbd_mutex); // adapt to your object layout
+            if (compositor->keyboard_resource == resource)
+            {
+                compositorInput.RemoveKeyboardEvent(resource);
+                compositor->keyboard_resource = nullptr;
+            }
+        }
+    }
+
 }
 
 void safe_send_keyboard_enter(LumaCompositor* compositor,
@@ -660,7 +707,7 @@ static void seat_get_keyboard(struct wl_client *client, struct wl_resource *seat
     LumaSeat* seat = (LumaSeat*)wl_resource_get_user_data(seat_res);
     wl_resource* keyboard_res = wl_resource_create(client, &wl_keyboard_interface, 1, id);
 
-    wl_resource_set_implementation(keyboard_res, &keyboard_impl, nullptr, keyboard_resource_destroy);
+    wl_resource_set_implementation(keyboard_res, &keyboard_impl, seat, keyboard_resource_destroy);
     wl_list_insert(&seat->keyboards, wl_resource_get_link(keyboard_res));
 
     send_keymap_to_client(keyboard_res);
@@ -724,9 +771,16 @@ static const struct wl_pointer_interface pointer_impl = {
 static void pointer_resource_destroy(struct wl_resource *resource)
 {
     std::cout << "[LumaCompositor] pointer_resource_destroy\n";
+    // LumaSeat* seat = (LumaSeat*)wl_resource_get_user_data(resource);
 
     // nothing stored as user_data currently
     wl_resource_set_user_data(resource, nullptr);
+
+    // if(seat != nullptr)
+    // {
+    //     wl_list_remove(wl_resource_get_link(seat->pointer_res));
+    // }
+    compositorInput.RemoveKeyMouseEvent(resource);
 }
 
 
@@ -1129,11 +1183,114 @@ static void surface_commit(wl_client* client, wl_resource* surface_res)
     comp->needs_repaint = true;
 }
 
+void clear_surface_from_framebuffer(LumaCompositor* comp, my_surface* surf)
+{
+    std::scoped_lock lk(comp_fb_mutex);
+    uint8_t* fb = reinterpret_cast<uint8_t*>(comp_framebuffer.data());
+
+    int FBW = comp->output_width;
+    int FBH = comp->output_height;
+
+    int x0 = std::max(0, surf->x);
+    int y0 = std::max(0, surf->y);
+    int x1 = std::min(FBW, surf->x + surf->width);
+    int y1 = std::min(FBH, surf->y + surf->height);
+    for (int y=y0; y<y1; ++y) {
+        uint8_t* row = fb + (y * FBW + x0) * 4;
+        memset(row, 0, (x1 - x0) * 4);
+    }
+}
+
+static void surface_resource_destroy(struct wl_resource *resource)
+{
+    std::cout << "[LumaCompositor] surface_resource_destroy\n";
+
+    // my_surface* surf = static_cast<my_surface*>(wl_resource_get_user_data(resource));
+    // if (!surf) 
+    // { 
+    //     std::cerr << "[DEBUG] surf NULL in xdg handler\n";
+    //     return; 
+    // }
+    // // Prevent double free
+    // wl_resource_set_user_data(resource, nullptr);
+
+    // surface_destroy();
+
+    my_surface* surf = static_cast<my_surface*>(wl_resource_get_user_data(resource));
+    if (!surf) return;
+
+    std::cout << "[LumaCompositor] surface_destroy_cb\n";
+
+    // remove from list under compositor lock
+    {
+        std::scoped_lock lk(surf->compositor->surfaces_mutex);
+        auto &vec = surf->compositor->surfaces;
+        auto it = std::find(vec.begin(), vec.end(), surf);
+        if (it != vec.end()) vec.erase(it);
+    }
+    clear_surface_from_framebuffer(surf->compositor, surf);
+    // mark dead so renderer will skip/pin logic knows
+    surf->dead = true;
+
+    // If no one is using it, free now; otherwise postpone deletion until refcount==0
+    if (surf->refcount.load(std::memory_order_acquire) == 0)
+    {
+        // free buffers already handled elsewhere; free surf safely
+        delete surf;
+    } 
+    else
+    {
+        // else buffer/resource destroy handlers and renderer will check and delete later
+    }
+
+    // clear wl_resource user data
+    wl_resource_set_user_data(resource, nullptr);
+
+
+
+    // Clean up safely
+    delete surf;
+}
+
+
 static void surface_destroy(wl_client* /*client*/, wl_resource* resource)
 {
     std::cout << "[LumaCompositor] surface_destroy \n";
 
-    wl_resource_destroy(resource);
+    surface_resource_destroy(resource);
+
+    // wl_resource_destroy(resource);
+
+
+    // my_surface* surf = static_cast<my_surface*>(wl_resource_get_user_data(resource));
+    // if (!surf) return;
+
+    // std::cout << "[LumaCompositor] surface_destroy_cb\n";
+
+    // // remove from list under compositor lock
+    // {
+    //     std::scoped_lock lk(surf->compositor->surfaces_mutex);
+    //     auto &vec = surf->compositor->surfaces;
+    //     auto it = std::find(vec.begin(), vec.end(), surf);
+    //     if (it != vec.end()) vec.erase(it);
+    // }
+    // clear_surface_from_framebuffer(surf->compositor, surf);
+    // // mark dead so renderer will skip/pin logic knows
+    // surf->dead = true;
+
+    // // If no one is using it, free now; otherwise postpone deletion until refcount==0
+    // if (surf->refcount.load(std::memory_order_acquire) == 0)
+    // {
+    //     // free buffers already handled elsewhere; free surf safely
+    //     delete surf;
+    // } 
+    // else
+    // {
+    //     // else buffer/resource destroy handlers and renderer will check and delete later
+    // }
+
+    // // clear wl_resource user data
+    // wl_resource_set_user_data(resource, nullptr);
 }
 
 static void surface_damage(wl_client*, wl_resource*, int32_t, int32_t, int32_t, int32_t)
@@ -1198,22 +1355,6 @@ static const struct wl_surface_interface surface_impl = {
     .offset = surface_offset
 };
 
-static void surface_resource_destroy(struct wl_resource *resource)
-{
-    std::cout << "[LumaCompositor] surface_resource_destroy\n";
-
-    my_surface* surf = static_cast<my_surface*>(wl_resource_get_user_data(resource));
-    if (!surf) 
-    { 
-        std::cerr << "[DEBUG] surf NULL in xdg handler\n";
-        return; 
-    }
-    // Prevent double free
-    wl_resource_set_user_data(resource, nullptr);
-
-    // Clean up safely
-    delete surf;
-}
 
 
 // --------------------------- xdg_surface ---------------------------

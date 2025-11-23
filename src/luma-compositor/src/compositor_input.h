@@ -19,7 +19,9 @@ public:
     void Initialize(LumaCompositor* compositor);
 
     void AddKeyboardEvent(wl_resource* keyboard_res);
+    void RemoveKeyboardEvent(wl_resource* keyboard_res);
     void AddKeyMouseEvent(wl_resource* mouse_res);
+    void RemoveKeyMouseEvent(wl_resource* mouse_res);
     void SendKeyboardEnterEvent(LumaCompositor* compositor, wl_resource* focused_surface);
     void SendKeyboardLeaveEvent(LumaCompositor* compositor, wl_resource* prev);
     void SendMouseMoveEvent(LumaCompositor* compositor, double gx, double gy, uint32_t time_ms);
