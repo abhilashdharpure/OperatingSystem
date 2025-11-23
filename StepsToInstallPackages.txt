@@ -118,7 +118,7 @@ WAYLAND_DEBUG=1 weston-terminal
 
 # Remove previous wayland 
 ls -l /run/user/1000/ | grep luma-0 
- rm -f /run/user/$(id -u)/luma-0 /run/user/$(id -u)/luma-0*
+rm -f /run/user/$(id -u)/luma-0 /run/user/$(id -u)/luma-0*
 rm -rf /run/user/1000/luma-0*
 
 

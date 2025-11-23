@@ -3,6 +3,8 @@
 #include <wayland-server.h>
 #include <list>
 #include <vector>
+#include <mutex>
+#include <atomic>
 
 // Forward declarations
 struct my_output;
@@ -11,17 +13,25 @@ struct my_surface;
 struct shm_buffer;
 
 
-enum class toplevel_edges
-{
-    NONE = 0,
-    TOP = 1,
-    BOTTOM = 2,
-    LEFT = 4,
-    RIGHT = 8,
-    TOP_LEFT = 5,
-    TOP_RIGHT = 9,
-    BOTTOM_RIGHT = 10,
-    BOTTOM_LEFT = 6
+// enum class toplevel_edges
+// {
+//     NONE = 0,
+//     TOP = 1,
+//     BOTTOM = 2,
+//     LEFT = 4,
+//     RIGHT = 8,
+//     TOP_LEFT = 5,
+//     TOP_RIGHT = 9,
+//     BOTTOM_RIGHT = 10,
+//     BOTTOM_LEFT = 6
+// };
+
+enum class toplevel_edges : uint32_t {
+    NONE  = 0,
+    TOP   = 1 << 0,
+    BOTTOM= 1 << 1,
+    LEFT  = 1 << 2,
+    RIGHT = 1 << 3,
 };
 
 
@@ -72,7 +82,6 @@ struct LumaCompositor {
 
     // For Toplevel Move
     my_surface* moving_surface = nullptr;
-    my_surface* new_client_surface = nullptr;
     bool move_grab_active = false;
     double grab_start_x = 0.0;
     double grab_start_y = 0.0;
@@ -96,6 +105,8 @@ struct LumaCompositor {
     struct xkb_context* xkb_ctx = nullptr;
     struct xkb_keymap* keymap = nullptr;
     struct xkb_state* xkb_state = nullptr;
+    // std::mutex fb_mutex; 
+
 };
 
 struct my_surface
@@ -118,17 +129,30 @@ struct my_surface
     bool is_xdg_toplevel = false;             // true when xdg_toplevel created for this surface
     bool visible = false;
     bool is_maximized = false;
+    bool isKeyboardFocused = false;
 
     int window_geom_x, window_geom_y; // offset inside buffer
     int window_geom_w, window_geom_h;
-
+    int min_width = 200;
+    int min_height = 200;
+    int max_width = 1500;
+    int max_height = 1000;
     // Restore for Maximize -> Minimize
     int32_t restore_x = 0;
     int32_t restore_y = 0;
     int32_t restore_width = 0;
     int32_t restore_height = 0;
 
+    int pending_x = 0, pending_y = 0;
+    int pending_width = 0, pending_height = 0;
+
     bool mapped = false;
+    bool pending_configured = false;
+    uint32_t outstanding_configure_serial = 0;
+    
+    // std::mutex surf_mutex; 
+    std::mutex buffer_mutex;
+
 };
 
 struct my_output {
@@ -144,8 +168,11 @@ struct my_output {
 
 struct shm_pool_data {
     int fd;
-    size_t size;
-    void* data;
+    void* data = nullptr;
+    size_t size = 0;
+    std::mutex pool_mutex;
+    std::vector<shm_buffer*> buffers; // all buffers created from this pool
+    bool pending_unmap = false
 };
 
 struct shm_buffer {
@@ -158,6 +185,10 @@ struct shm_buffer {
     uint32_t format = 0;
 
     my_surface* owner_surface = nullptr;
+
+    std::atomic<int> refcount{0};
+    std::atomic<bool> pending_destroy{false};
+    shm_pool_data* pool = nullptr;
 };
 
 struct LumaSeat {

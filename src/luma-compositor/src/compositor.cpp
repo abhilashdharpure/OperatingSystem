@@ -26,6 +26,7 @@
 #include <xkbcommon/xkbcommon.h>
 #include <chrono>
 #include <algorithm>
+#include <climits>
 
 CompositorInput compositorInput;
 SDL_Window* window;
@@ -149,80 +150,405 @@ static inline void blend_pixel(uint8_t* dst, const uint8_t* src)
     dst[3] = 255;
 }
 
+// Helper to append a state value into a wl_array
+static void push_state(struct wl_array *states, uint32_t value) {
+    uint32_t *s = (uint32_t *)wl_array_add(states, sizeof(uint32_t));
+    if (s) {
+        *s = value;
+    }
+}
+
+void send_toplevel_configure(struct wl_resource *xdg_toplevel, int w, int h,
+                             bool activated, bool resizing, bool maximized, bool fullscreen)
+{
+    std::cout<<"[LumaCompositor]  send_toplevel_configure"<<std::endl;
+
+    if(xdg_toplevel == nullptr)
+    {
+        std::cout<<"[LumaCompositor]  ERROR send_toplevel_configure, xdg_toplevel is NULL"<<std::endl;
+        return;
+    }
+    struct wl_array states;
+    wl_array_init(&states);
+
+    if (activated)   push_state(&states, XDG_TOPLEVEL_STATE_ACTIVATED);
+    if (resizing)    push_state(&states, XDG_TOPLEVEL_STATE_RESIZING);
+    if (maximized)   push_state(&states, XDG_TOPLEVEL_STATE_MAXIMIZED);
+    if (fullscreen)  push_state(&states, XDG_TOPLEVEL_STATE_FULLSCREEN);
+
+    xdg_toplevel_send_configure(xdg_toplevel, w, h, &states);
+    wl_array_release(&states);
+}
+
+
 // Assumes 4 bytes per pixel (ARGB8888)
+// void UpdateFrameBuffer(LumaCompositor* compositor, my_surface* surf)
+// {
+//     if (!surf || !surf->committed_buffer)
+//     {
+//         return;
+//     } 
+
+//     shm_buffer* buf = surf->committed_buffer;
+//     if (!buf->data)
+//     {
+//         return;
+//     }
+
+//     uint8_t* src_base = reinterpret_cast<uint8_t*>(buf->data);
+//     uint8_t* dst_base = reinterpret_cast<uint8_t*>(comp_framebuffer.data());
+
+//     const int FBW = compositor->output_width;
+//     const int FBH = compositor->output_height;
+
+//     // surface position on framebuffer
+//     int dst_x = surf->x;
+//     int dst_y = surf->y;
+//     std::cout<<"surf->x = "<<surf->x<<", surf->y = "<<surf->y<<std::endl;
+
+//     // buffer size (the client's buffer pixels)
+//     int buf_w = buf->width;
+//     int buf_h = buf->height;
+//     int buf_stride = buf->stride; // bytes per row
+
+//     // If surface entirely outside framebuffer, nothing to copy
+//     if (((dst_x + buf_w) <= 0) || ((dst_y + buf_h) <= 0) || (dst_x >= FBW) || (dst_y >= FBH))
+//     {
+//         return; 
+//     }
+
+//     // Compute src start inside buffer and dst start inside framebuffer
+//     int src_x = 0;
+//     int src_y = 0;
+
+//     if (dst_x < 0)
+//     {
+//         src_x = -dst_x; dst_x = 0;
+//     }
+
+//     if (dst_y < 0)
+//     { 
+//         src_y = -dst_y;
+//         dst_y = 0;
+//     }
+
+//     // How many pixels to copy horizontally & vertically
+//     int copy_w = std::min(buf_w - src_x, FBW - dst_x);
+//     int copy_h = std::min(buf_h - src_y, FBH - dst_y);
+
+//     if ((copy_w <= 0) || (copy_h <= 0))
+//     {
+//         return;
+//     }
+
+//     // if(dst_x == 0)
+//     // {
+//     //     dst_x = 50;
+//     // }
+//     // if(dst_y < 0)
+//     // {
+//     //     dst_y = dst_y + 50;
+//     // }
+
+
+//     std::cout<<"dst_x = "<<dst_x<<", dst_y = "<<dst_y<<std::endl;
+//     std::cout<<"buf_w = "<<buf_w<<", buf_h = "<<buf_h<<", buf_stride = "<<buf_stride<<std::endl;
+
+//     std::cout<<"src_x = "<<src_x<<", src_y = "<<src_y<<std::endl;
+//     std::cout<<"copy_w = "<<copy_w<<", copy_h = "<<copy_h<<std::endl;
+
+//     // For each row copy exactly copy_w * 4 bytes, using buffer stride for source.
+//     for (int row = 0; row < copy_h; ++row)
+//     {
+//         // if(dst_x != 50) std::cout<<"UpdateFrameBuffer row = "<<row<<std::endl;
+
+//         uint8_t* srow = src_base + (src_y + row) * buf_stride + (src_x * 4);
+//         uint8_t* drow = dst_base + (dst_y + row) * FBW * 4 + (dst_x * 4);
+//         memcpy(drow, srow, copy_w * 4);
+
+
+//         // uint8_t* srow = src_base + (src_y + row) * buf->stride + src_x * 4;
+//         // uint8_t* drow = dst_base + (dst_y + row) * FBW * 4 + dst_x * 4;
+
+//         // memcpy(drow, srow, copy_w * 4);
+//     }
+// }
+
+// void UpdateFrameBuffer(LumaCompositor* compositor, my_surface* surf)
+// {
+//     if (!surf) return;
+
+//     // Take a local reference to the committed buffer under lock
+//     shm_buffer* buf = nullptr;
+//     {
+//         std::scoped_lock lk(surf->buffer_mutex);     // add this mutex if you don't have one
+//         buf = surf->committed_buffer;
+//         if (!buf) return;
+//         // Optional: if you maintain refcounts, bump here
+//     }
+
+//     // Basic validations
+//     if (!buf->data || buf->size == 0 || buf->stride <= 0 || buf->width <= 0 || buf->height <= 0) {
+//         return;
+//     }
+
+//     uint8_t* src_base = reinterpret_cast<uint8_t*>(buf->data);
+//     uint8_t* dst_base = reinterpret_cast<uint8_t*>(comp_framebuffer.data());
+
+//     const int FBW = compositor->output_width;
+//     const int FBH = compositor->output_height;
+//     const size_t fb_stride_bytes = static_cast<size_t>(FBW) * 4u;
+
+//     // surface position on framebuffer (top-left of surface including decoration)
+//     int dst_x = surf->x;
+//     int dst_y = surf->y;
+
+//     // buffer pixel dims and stride (bytes per row)
+//     int buf_w = buf->width;
+//     int buf_h = buf->height;
+//     int buf_stride = buf->stride; // bytes per row
+//     size_t mapped_size = buf->size; // number of bytes in mapping
+
+//     // Quick reject if entirely off-screen
+//     if (((dst_x + buf_w) <= 0) || ((dst_y + buf_h) <= 0) || (dst_x >= FBW) || (dst_y >= FBH)) {
+//         return;
+//     }
+
+//     // Compute initial source offsets inside buffer if surface is partially off-screen
+//     int src_x = 0;
+//     int src_y = 0;
+//     if (dst_x < 0) { src_x = -dst_x; dst_x = 0; }
+//     if (dst_y < 0) { src_y = -dst_y; dst_y = 0; }
+
+//     // clamp copy width/height to both buffer and framebuffer
+//     int copy_w = std::min(buf_w - src_x, FBW - dst_x);
+//     int copy_h = std::min(buf_h - src_y, FBH - dst_y);
+
+//     if (copy_w <= 0 || copy_h <= 0) return;
+
+//     // compute bytes per row to copy
+//     size_t copy_bytes = static_cast<size_t>(copy_w) * 4u;
+
+//     // basic sanity: copy_bytes must not exceed buf_stride and must fit in framebuffer row
+//     if (copy_bytes > static_cast<size_t>(buf_stride)) {
+//         // This is abnormal (client claims stride smaller than pixels to copy). Clamp.
+//         copy_bytes = static_cast<size_t>(buf_stride);
+//         copy_w = static_cast<int>(copy_bytes / 4u);
+//     }
+//     if (copy_bytes > fb_stride_bytes - static_cast<size_t>(dst_x) * 4u) {
+//         // Clamp to framebuffer row width
+//         size_t avail = fb_stride_bytes - static_cast<size_t>(dst_x) * 4u;
+//         copy_bytes = avail;
+//         copy_w = static_cast<int>(copy_bytes / 4u);
+//     }
+
+//     // Bounds of the mapping
+//     uintptr_t map_start = reinterpret_cast<uintptr_t>(src_base);
+//     uintptr_t map_end = map_start + mapped_size;
+//     uintptr_t fb_start = reinterpret_cast<uintptr_t>(dst_base);
+//     uintptr_t fb_end = fb_start + static_cast<size_t>(FBW) * static_cast<size_t>(FBH) * 4u;
+
+//     // Row copy loop with per-row bounds validation
+//     for (int row = 0; row < copy_h; ++row)
+//     {
+//         uintptr_t srow_addr = map_start + static_cast<uintptr_t>((src_y + row) * buf_stride + src_x * 4);
+//         uintptr_t srow_end = srow_addr + copy_bytes;
+//         if (srow_addr < map_start || srow_end > map_end) {
+//             std::cerr << "[UpdateFrameBuffer] source row out-of-bounds row=" << row
+//                       << " srow_addr=0x" << std::hex << srow_addr << std::dec << "\n";
+//             break;
+//         }
+
+//         uintptr_t drow_addr = fb_start + static_cast<uintptr_t>((dst_y + row) * FBW * 4 + dst_x * 4);
+//         uintptr_t drow_end = drow_addr + copy_bytes;
+//         if (drow_addr < fb_start || drow_end > fb_end) {
+//             std::cerr << "[UpdateFrameBuffer] dest row out-of-bounds row=" << row << "\n";
+//             break;
+//         }
+
+//         uint8_t* srow = reinterpret_cast<uint8_t*>(srow_addr);
+//         uint8_t* drow = reinterpret_cast<uint8_t*>(drow_addr);
+
+//         std::cout << "[UF] row=" << row
+//           << " srow=0x" << std::hex << srow_addr
+//           << " srow_end=0x" << srow_end
+//           << " map=[0x" << map_start << "-0x" << map_end << "]"
+//           << " copy=" << std::dec << (copy_w * 4)
+//           << " buf_size=" << buf->size
+//           << std::endl;
+//         memcpy(drow, srow, copy_bytes);
+//     }
+
+//     // We finished reading the buffer; tell client it can reuse it (optional policy)
+//     if (buf->resource) {
+//         wl_buffer_send_release(buf->resource);
+//     }
+
+//     // If you want to drop the committed buffer now so you don't hold mapping:
+//     {
+//         // std::scoped_lock lk(surf->buffer_mutex);
+//         if (surf->committed_buffer == buf) {
+//             surf->committed_buffer = nullptr;
+//         }
+//     }
+// }
+
 void UpdateFrameBuffer(LumaCompositor* compositor, my_surface* surf)
 {
-    if (!surf || !surf->committed_buffer)
-    {
-        return;
-    } 
+    if (!compositor || !surf) return;
 
-    shm_buffer* buf = surf->committed_buffer;
-    if (!buf->data)
+    // Pin the committed buffer safely (Wayland thread sets committed_buffer under surf->buffer_mutex)
+    shm_buffer* buf = nullptr;
     {
+        std::scoped_lock lk(surf->buffer_mutex);
+        buf = surf->committed_buffer;
+        if (!buf) return;
+        // Prevent destroy/unmap while we read
+        buf->refcount.fetch_add(1, std::memory_order_acq_rel);
+    }
+
+    // Pin framebuffer pointer & size under compositor lock to avoid concurrent reallocation
+    uint8_t* dst_base = nullptr;
+    size_t fb_size_bytes = 0;
+    int FBW = compositor->output_width;
+    int FBH = compositor->output_height;
+    {
+        // std::scoped_lock lk(comp_fb_mutex);
+        // Make sure your compositor stores framebuffer in this field; adapt if you use a global.
+        dst_base = reinterpret_cast<uint8_t*>(comp_framebuffer.data());
+        fb_size_bytes = static_cast<size_t>(FBW) * static_cast<size_t>(FBH) * 4u;
+    }
+    if (!dst_base || FBW <= 0 || FBH <= 0) {
+        // Unpin buffer and exit
+        if (buf->refcount.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+            if (buf->pending_destroy.load(std::memory_order_acquire)) {
+                delete buf;
+            }
+        }
+        return;
+    }
+
+    // Validate source mapping
+    if (!buf->data || buf->size == 0 || buf->stride <= 0 || buf->width <= 0 || buf->height <= 0) {
+        if (buf->refcount.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+            if (buf->pending_destroy.load(std::memory_order_acquire)) {
+                delete buf;
+            }
+        }
         return;
     }
 
     uint8_t* src_base = reinterpret_cast<uint8_t*>(buf->data);
-    uint8_t* dst_base = reinterpret_cast<uint8_t*>(comp_framebuffer.data());
 
-    const int FBW = compositor->output_width;
-    const int FBH = compositor->output_height;
+    // Surface top-left on the framebuffer (including decorations/geometry)
+    int dst_x = surf->x;
+    int dst_y = surf->y;
 
-    // surface position on framebuffer
-    int dst_x = surf->x; // Check this why 32 is need to subtract
-    int dst_y = surf->y; // Check this why 32 is need to subtract
-
-
-    // buffer size (the client's buffer pixels)
+    // Buffer dims/stride
     int buf_w = buf->width;
     int buf_h = buf->height;
     int buf_stride = buf->stride; // bytes per row
+    size_t mapped_size = buf->size;
 
-    // If surface entirely outside framebuffer, nothing to copy
-    if (((dst_x + buf_w) <= 0) || ((dst_y + buf_h) <= 0) || (dst_x >= FBW) || (dst_y >= FBH))
-    {
-        return; 
-    }
-
-    // Compute src start inside buffer and dst start inside framebuffer
-    int src_x = 0;
-    int src_y = 0;
-
-    if (dst_x < 0)
-    {
-        src_x = -dst_x; dst_x = 0;
-    }
-
-    if (dst_y < 0)
-    { 
-        src_y = -dst_y;
-        dst_y = 0;
-    }
-
-    // How many pixels to copy horizontally & vertically
-    int copy_w = std::min(buf_w - src_x, FBW - dst_x);
-    int copy_h = std::min(buf_h - src_y, FBH - dst_y);
-
-    if ((copy_w <= 0) || (copy_h <= 0))
-    {
+    // Quick reject if fully off-screen
+    if (((dst_x + buf_w) <= 0) || ((dst_y + buf_h) <= 0) || (dst_x >= FBW) || (dst_y >= FBH)) {
+        if (buf->refcount.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+            if (buf->pending_destroy.load(std::memory_order_acquire)) {
+                delete buf;
+            }
+        }
         return;
     }
 
-    // For each row copy exactly copy_w * 4 bytes, using buffer stride for source.
+    // Compute source origin inside buffer (clients may use non-zero geometry/gx/gy; if you have that, add here)
+    int src_x = 0;
+    int src_y = 0;
+    if (dst_x < 0) { src_x = -dst_x; dst_x = 0; }
+    if (dst_y < 0) { src_y = -dst_y; dst_y = 0; }
+
+    // Clamp copy region to both buffer and framebuffer
+    int copy_w = std::min(buf_w - src_x, FBW - dst_x);
+    int copy_h = std::min(buf_h - src_y, FBH - dst_y);
+
+    if (copy_w <= 0 || copy_h <= 0) {
+        if (buf->refcount.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+            if (buf->pending_destroy.load(std::memory_order_acquire)) {
+                delete buf;
+            }
+        }
+        return;
+    }
+
+    // bytes to copy per row (use this value for memcpy), ensure it does not exceed stride
+    size_t copy_bytes = static_cast<size_t>(copy_w) * 4u;
+    if (copy_bytes > static_cast<size_t>(buf_stride)) {
+        // Defensive clamp: should not happen if buffer params are sane
+        copy_bytes = static_cast<size_t>(buf_stride);
+        copy_w = static_cast<int>(copy_bytes / 4u);
+    }
+
+    // Compute map & framebuffer bounds once
+    uintptr_t map_start = reinterpret_cast<uintptr_t>(src_base);
+    uintptr_t map_end = map_start + mapped_size;
+    uintptr_t fb_start = reinterpret_cast<uintptr_t>(dst_base);
+    uintptr_t fb_end = fb_start + fb_size_bytes;
+
+    // Row-copy loop with per-row sanity checks (prevents crashes)
     for (int row = 0; row < copy_h; ++row)
     {
-        uint8_t* srow = src_base + (src_y + row) * buf_stride + src_x * 4;
-        uint8_t* drow = dst_base + (dst_y + row) * FBW * 4 + dst_x * 4;
-        memcpy(drow, srow, copy_w * 4);
+        // Source row byte addresses
+        uintptr_t srow_addr = map_start + static_cast<uintptr_t>((src_y + row) * buf_stride + src_x * 4);
+        uintptr_t srow_end = srow_addr + copy_bytes;
+
+        // Destination row byte addresses
+        uintptr_t drow_addr = fb_start + static_cast<uintptr_t>((dst_y + row) * FBW * 4 + dst_x * 4);
+        uintptr_t drow_end = drow_addr + copy_bytes;
+
+        // Debugging prints (uncomment if needed)
+        // std::cout << "[UF] row="<<row<<" srow=0x"<<std::hex<<srow_addr<<" srow_end=0x"<<srow_end<<" map=[0x"<<map_start<<"-0x"<<map_end<<"] "
+        //           << "drow=0x"<<drow_addr<<" drow_end=0x"<<drow_end<<" copy="<<std::dec<<copy_bytes<<"\n";
+
+        // Validate source inside mapping and destination inside framebuffer
+        if (srow_addr < map_start || srow_end > map_end) {
+            std::cout << "[UpdateFrameBuffer] source out-of-bounds at row="<<row<<", skipping remaining rows\n";
+            break; // or continue, depending on policy
+        }
+        if (drow_addr < fb_start || drow_end > fb_end) {
+            std::cout << "[UpdateFrameBuffer] dest out-of-bounds at row="<<row<<", skipping remaining rows\n";
+            break;
+        }
+
+        uint8_t* srow = reinterpret_cast<uint8_t*>(srow_addr);
+        uint8_t* drow = reinterpret_cast<uint8_t*>(drow_addr);
+
+        // Safe copy
+        memcpy(drow, srow, copy_bytes);
     }
+
+    // Finished reading buffer: tell client it can reuse it
+    if (buf->resource) {
+        wl_buffer_send_release(buf->resource);
+    }
+
+    // Unpin buffer (decrement refcount) and free if pending
+    if (buf->refcount.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+        if (buf->pending_destroy.load(std::memory_order_acquire)) {
+            // If you track pools & per-buffer ownership, free wrapper now.
+            delete buf;
+        }
+    }
+
+    // Note: we intentionally do NOT munmap the pool here. Pool unmapping must be
+    // handled in the pool-destroy path once all buffers referencing it have refcount==0.
 }
+
+
 
 void DrawCursor(LumaCompositor* comp)
 {
     if (!comp->cursor_surface)
     {
-        std::cout << "[LumaCompositor] ERROR DrawCursor cursor_surface is NUll" << std::endl;
+        //std::cout << "[LumaCompositor] ERROR DrawCursor cursor_surface is NUll" << std::endl;
         return;
     }
 
@@ -343,6 +669,115 @@ void compositor_repaint(LumaCompositor* comp)
     fb_flush(comp);
 }
 
+inline int clamp_int(int v, int lo, int hi) {
+    if (v < lo) return lo;
+    if (v > hi) return hi;
+    return v;
+}
+
+inline bool has_edge(toplevel_edges v, toplevel_edges e) {
+    return (static_cast<uint32_t>(v) & static_cast<uint32_t>(e)) != 0;
+}
+
+void handle_resize_motion(LumaCompositor *comp)
+{
+    if (!comp->resize_grab_active || !comp->resizing_surface)
+    {
+        return;
+    }
+
+    my_surface *surf = comp->resizing_surface;
+    auto edges = comp->resize_edges;
+
+    int dx = comp->cursor_x - comp->grab_start_x;
+    int dy = comp->cursor_y - comp->grab_start_y;
+
+    // Start from initial geometry
+    int new_x = comp->window_start_x;
+    int new_y = comp->window_start_y;
+    int new_w = comp->window_start_w;
+    int new_h = comp->window_start_h;
+
+    // vertical adjustments
+    if (has_edge(edges, toplevel_edges::TOP))
+    {
+        // dragging top edge: moving top down increases dy -> reduce height, move y down
+        new_h = comp->window_start_h - dy;
+        new_y = comp->window_start_y + dy;
+        std::cout<<"Resizing TOP................................................................."<<std::endl;
+
+    }
+    else if (has_edge(edges, toplevel_edges::BOTTOM))
+    {
+        // dragging bottom edge: moving cursor down increases dy -> increase height
+        new_h = comp->window_start_h + dy;
+    }
+
+    new_h = new_h - (2 * surf->window_geom_y) + 1;
+
+    // horizontal adjustments
+    if (has_edge(edges, toplevel_edges::LEFT)) {
+        // dragging left edge: moving cursor right increases dx -> reduce width, move x right
+        new_w = comp->window_start_w - dx;
+        new_x = comp->window_start_x + dx;
+    } else if (has_edge(edges, toplevel_edges::RIGHT)) {
+        // dragging right edge
+        new_w = comp->window_start_w + dx;
+    }
+
+
+    new_w = new_w - (2 * surf->window_geom_x) + 1;
+
+    // Clamp to client's min/max
+    new_w = clamp_int(new_w, surf->min_width, surf->max_width);
+    new_h = clamp_int(new_h, surf->min_height, surf->max_height);
+
+    // Optionally enforce an absolute minimum to avoid degenerate sizes
+    const int ABS_MIN = 32;
+    new_w = clamp_int(new_w, ABS_MIN, INT_MAX);
+    new_h = clamp_int(new_h, ABS_MIN, INT_MAX);
+
+
+    // Update pending on surface
+    bool changed = false;
+    if (surf->pending_width != new_w) { surf->pending_width = new_w; changed = true; }
+    if (surf->pending_height != new_h) { surf->pending_height = new_h; changed = true; }
+    if (surf->pending_x != new_x) { surf->pending_x = new_x; changed = true; }
+    if (surf->pending_y != new_y) { surf->pending_y = new_y; changed = true; }
+
+    // Only send configure if something changed
+    // if (changed && !surf->pending_configured)
+    if (changed)
+    {
+
+
+
+        std::cout<<"Resizing,  width = "<<surf->pending_width<<", height = "<<surf->pending_height<<", new_x = "<<new_x<<", new_y = "<<new_y<<", new_w = "<<new_w<<", new_h = "<<new_h<<std::endl;
+        // send configure(width, height) -- width first!
+        send_toplevel_configure(surf->toplevel_res,
+                                surf->pending_width,
+                                surf->pending_height,
+                                /*activated=*/true,
+                                /*resizing=*/true,
+                                /*maximized=*/false,
+                                /*fullscreen=*/false);
+
+
+
+        uint32_t serial = wl_display_next_serial(comp->display);
+        std::cout << "[SEND CONFIGURE] serial="<<serial<<" w="<<surf->pending_width<<" h="<<surf->pending_height<<"\n";
+        xdg_surface_send_configure(surf->xdg_surface_res, serial);
+        wl_display_flush_clients(comp->display);
+
+        // surf->configured= true;
+        // surf->pending_configured = true;
+        surf->outstanding_configure_serial = serial;
+        // comp->needs_repaint = true;
+        // compositor_repaint(comp);
+    }
+}
+
+
 static bool pointer_handle_motion(LumaCompositor* comp, double sx, double sy)
 {
     if(comp != nullptr)
@@ -355,38 +790,31 @@ static bool pointer_handle_motion(LumaCompositor* comp, double sx, double sy)
                 int dx = comp->cursor_x - comp->grab_start_x;
                 int dy = comp->cursor_y - comp->grab_start_y;
 
-                // surf->x = comp->window_start_x + dx;
-                // surf->y = comp->window_start_y + dy;
-
-                comp->moving_surface->x = comp->window_start_x + dx;
-                comp->moving_surface->y = comp->window_start_y + dy;
+                surf->x = comp->window_start_x + dx;
+                surf->y = comp->window_start_y + dy;
             }
             comp->needs_repaint = true;
             compositor_repaint(comp);
-            return true;
+            //return true;
         }
         else if(comp->resize_grab_active && comp->resizing_surface)
         {
-            if(comp->resize_edges == toplevel_edges::TOP)
-            {
-
-            }
+            handle_resize_motion(comp);
         }
+
+        
         else if (sx >= 0 && sy >= 0 && sx < comp->output_width && sy < comp->output_height)
+        // if (sx >= 0 && sy >= 0 && sx < comp->output_width && sy < comp->output_height)
         {
             // if(comp->is_pong_received)
             {
                 uint32_t time = SDL_GetTicks();
                 compositorInput.SendMouseMoveEvent(comp, sx, sy, time);
                 // SendPing(comp);
-                compositor_repaint(comp);   // for cursor
+                //comp->needs_repaint = true;
+                //compositor_repaint(comp);   // for cursor
             }
         }
-        // else
-        // {
-        //     comp->needs_repaint = true;
-        //     compositor_repaint(comp);   // for cursor
-        // }
     }
     
     return false;
@@ -422,7 +850,6 @@ void safe_send_keyboard_enter(LumaCompositor* compositor,
                               struct wl_resource* focused_surface,
                               struct wl_display* display)
 {
-    std::cout << "[LumaCompositor] safe_send_keyboard_enter\n";
 
     if (!compositor->keyboard_resource || !focused_surface || !display)
     {
@@ -434,11 +861,17 @@ void safe_send_keyboard_enter(LumaCompositor* compositor,
         return;
     }
 
+    // if(compositor->move_grab_active || compositor->resize_grab_active)
+    // {
+    //     return;
+    // }
+
     wl_client* focused_client = wl_resource_get_client(focused_surface);
     if (!focused_client)
     {
         return;
     }
+    std::cout << "[LumaCompositor] safe_send_keyboard_enter\n";
 
     compositorInput.SendKeyboardEnterEvent(compositor, focused_surface);
 }
@@ -463,7 +896,7 @@ static void seat_get_keyboard(struct wl_client *client, struct wl_resource *seat
 static void wl_pointer_interface_set_cursor(struct wl_client* client, struct wl_resource* resource, uint32_t serial,
                      struct wl_resource* surface, int32_t hotspot_x, int32_t hotspot_y)
 {
-    std::cout << "[LumaCompositor] wl_pointer_interface_set_cursor, hotspot_x = "<<hotspot_x<<", hotspot_y = "<<hotspot_y<<std::endl;
+    // std::cout << "[LumaCompositor] wl_pointer_interface_set_cursor, hotspot_x = "<<hotspot_x<<", hotspot_y = "<<hotspot_y<<std::endl;
 
     LumaSeat* seat = (LumaSeat*)wl_resource_get_user_data(resource);
 
@@ -512,6 +945,15 @@ static const struct wl_pointer_interface pointer_impl = {
     .release = wl_pointer_interface_release,
 };
 
+static void pointer_resource_destroy(struct wl_resource *resource)
+{
+    std::cout << "[LumaCompositor] pointer_resource_destroy\n";
+
+    // nothing stored as user_data currently
+    wl_resource_set_user_data(resource, nullptr);
+}
+
+
 static void seat_get_pointer(struct wl_client *client, struct wl_resource *seat_res, uint32_t id)
 {
     std::cout << "[LumaCompositor] seat_get_pointer\n";
@@ -519,7 +961,7 @@ static void seat_get_pointer(struct wl_client *client, struct wl_resource *seat_
     uint32_t ver = std::min<uint32_t>(wl_resource_get_version(seat_res), wl_pointer_interface.version);
 
     wl_resource* pointer_res = wl_resource_create(client, &wl_pointer_interface, ver, id);
-    wl_resource_set_implementation(pointer_res, &pointer_impl, seat, nullptr);
+    wl_resource_set_implementation(pointer_res, &pointer_impl, seat, pointer_resource_destroy);
     // g_pointers.push_back(pointer_res);
     seat->pointer_res = pointer_res;
     compositorInput.AddKeyMouseEvent(pointer_res);
@@ -573,6 +1015,8 @@ static void buffer_resource_destroy(struct wl_resource* resource)
 
     if (buf->owner_surface)
     {
+        std::cout << "[LumaCompositor] buffer_resource_destroy, buffer_res set to NULL\n";
+
         buf->owner_surface->buffer_res = nullptr;
     }
 
@@ -580,6 +1024,8 @@ static void buffer_resource_destroy(struct wl_resource* resource)
     {
         munmap(buf->data, buf->size);
     }
+
+    std::cout << "[LumaCompositor] buffer_resource_destroy, delete buf\n";
 
     delete buf;
 
@@ -615,7 +1061,7 @@ static void shm_pool_resize(struct wl_client* client, struct wl_resource* resour
         return;
     }
 
-    std::cout << "[LumaCompositor] wl_shm_pool_resize: remapped new size " << new_size << std::endl;
+    //std::cout << "[LumaCompositor] wl_shm_pool_resize: remapped new size " << new_size << std::endl;
 }
 
 
@@ -631,8 +1077,15 @@ static void shm_pool_create_buffer(struct wl_client *client, struct wl_resource 
                                    uint32_t id, int32_t offset, int32_t width, int32_t height,
                                    int32_t stride, uint32_t format)
 {
-    std::cout << "[LumaCompositor] shm_pool_create_buffer\n";
-
+    // std::cout << "[LumaCompositor] shm_pool_create_buffer\n";
+std::cout << "[LumaCompositor] shm_pool_create_buffer callback:"
+          << " id=" << id
+          << " offset=" << offset
+          << " width=" << width
+          << " height=" << height
+          << " stride=" << stride
+          << " format=" << format
+          << std::endl;
     // Create wl_buffer resource
     uint32_t ver = std::min<uint32_t>(wl_resource_get_version(pool_res), wl_buffer_interface.version);
     wl_resource *buf_res = wl_resource_create(client, &wl_buffer_interface, ver, id);
@@ -699,7 +1152,9 @@ static void shm_create_pool(struct wl_client* client, struct wl_resource* resour
 {
     std::cout << "[LumaCompositor] shm_create_pool\n";
 
-   auto pool_res = wl_resource_create(client, &wl_shm_pool_interface, wl_resource_get_version(resource), id);
+    uint32_t ver = std::min<uint32_t>(wl_resource_get_version(resource), wl_shm_pool_interface.version);
+
+   auto pool_res = wl_resource_create(client, &wl_shm_pool_interface, ver, id);
     if (!pool_res)
     {
         wl_client_post_no_memory(client);
@@ -732,9 +1187,9 @@ static const struct wl_shm_interface shm_impl = {
 };
 
 // ------------------ wl_surface ------------------
-static void surface_attach(wl_client* /*client*/, wl_resource* surface_res, wl_resource* buffer, int32_t /*x*/, int32_t /*y*/)
+static void surface_attach(wl_client* /*client*/, wl_resource* surface_res, wl_resource* buffer, int32_t x, int32_t y)
 {
-    // std::cout << "[LumaCompositor] surface_attach\n";
+    // std::cout << "[LumaCompositor] surface_attach, x = "<<x<<", y = "<<y<<std::endl;
 
     my_surface* surf = static_cast<my_surface*>(wl_resource_get_user_data(surface_res));
 
@@ -749,6 +1204,7 @@ static void surface_attach(wl_client* /*client*/, wl_resource* surface_res, wl_r
     if (buf)
     {
         buf->owner_surface = surf;
+        std::cout<<"surface_attach: buf_w = "<<buf->width<<", buf_h = "<<buf->height<<std::endl;
     }
     surf->buffer_res = buffer; // just track it
 }
@@ -766,9 +1222,11 @@ static void surface_commit(wl_client* client, wl_resource* surface_res)
     surf->mapped = true;
 
     // Nothing to render yet if no buffer is attached
-    if (!surf->buffer_res) {
+    if (!surf->buffer_res)
+    {
         // If client requested frame callback → send it immediately
-        if (surf->pending_frame_callback) {
+        if (surf->pending_frame_callback)
+        {
             uint32_t time = get_current_time_ms();
             wl_callback_send_done(surf->pending_frame_callback, time);
             wl_resource_destroy(surf->pending_frame_callback);
@@ -777,46 +1235,78 @@ static void surface_commit(wl_client* client, wl_resource* surface_res)
         return;
     }
 
-    // // For cursor:
-    // if (surf->wl == comp->pointer_focused_surface)
-    // {
-    //     comp->cursor_buffer = comp->cursor_pending_buffer;
-
-    //     // Extract cursor size
-    //     shm_buffer *shm = get_shm_buffer(comp->cursor_buffer);
-    //     comp->cursor_w = shm->width;
-    //     comp->cursor_h = shm->height;
-
-    //     comp->cursor_pending_buffer = NULL;
-    // }
-
-    //----------------------------------------------------------
-    // DO NOT BLIT / DRAW PIXELS HERE!
-    // Just mark that compositor needs a repaint.
-    //----------------------------------------------------------
-
-
-    if (surf->buffer_res)
     {
-        shm_buffer* buf = static_cast<shm_buffer*>(
-            wl_resource_get_user_data(surf->buffer_res)
-        );
+        std::scoped_lock lk(surf->buffer_mutex);
 
-        // Save buffer so compositor_repaint() can draw it
-        surf->committed_buffer = buf;
-    }
+        shm_buffer* buf = static_cast<shm_buffer*>(wl_resource_get_user_data(surf->buffer_res));
+        if (surf->buffer_res)
+        {
+            // Save buffer so compositor_repaint() can draw it
+            surf->committed_buffer = buf;
+            // buf->refcount.fetch_add(1, std::memory_order_acq_rel);
+            std::cout<<"surface_commit: buf_w = "<<surf->committed_buffer->width<<", buf_h = "<<surf->committed_buffer->height<<std::endl;
+        }
+
+        surf->width  = buf->width;
+        surf->height = buf->height;
+
+        // If we previously sent a configure with requested size and the client
+        // now committed a buffer that matches that requested size, apply pending geometry.
+        if (surf->configured)
+        {
+            // If client honored the requested size, adopt pending_x/pending_y.
+            if (surf->width == surf->pending_width && surf->height == surf->pending_height)
+            {
+                surf->x = surf->pending_x;
+                surf->y = surf->pending_y;
+                surf->configured = false;
+            }
+            else
+            {
+                // Policy choice: accept the client's chosen size and apply pending position anyway,
+                // or wait for a matching buffer. Most compositors accept the client's buffer size.
+                // Accepting client's size:
+                surf->x = surf->pending_x;
+                surf->y = surf->pending_y;
+                surf->configured = false;
+                // If you want stricter behaviour, set pending_configure remain true
+                // until widths match.
+            }
+        }
+        // std::cout << "[LumaCompositor] surface_commit... surf = "<<surf<<std::endl;
+        // std::cout << "[LumaCompositor] surface_commit... comp->moving_surface = "<<comp->moving_surface<<std::endl;
+        // std::cout << "[LumaCompositor] surface_commit... comp->resizing_surface = "<<comp->resizing_surface<<std::endl;
 
 
-    //----------------------------------------------------------
-    // Release old buffer now that we have committed it
-    //----------------------------------------------------------
-    bool is_cursor = (surf == comp->cursor_surface);
-    if (!is_cursor)
-    {
-        wl_buffer_send_release(surf->buffer_res);
-        surf->buffer_res = nullptr;
-    }
+        // bool isMovingSurface = (surf == comp->moving_surface);
+        // if (isMovingSurface)
+        // {
+        //     // std::cout << "[LumaCompositor] surface_commit... Moving Surface\n";
+        // }
 
+        // bool isResizeSurface = (surf == comp->resizing_surface);
+        // if (isResizeSurface)
+        // {
+        //     // std::cout << "[LumaCompositor] surface_commit... Resize Surface\n";
+        // }
+
+        //----------------------------------------------------------
+        // Release old buffer now that we have committed it
+        //----------------------------------------------------------
+        bool is_cursor = (surf == comp->cursor_surface);
+        // if (!is_cursor && !isResizeSurface)
+        if (!is_cursor)
+        {
+            std::cout << "[LumaCompositor] surface_commit... wl_buffer_send_release\n";
+
+            wl_buffer_send_release(surf->buffer_res);
+            // decrease refcount on the old one (we no longer hold it)
+            // surf->committed_buffer->refcount.fetch_sub(1, std::memory_order_acq_rel);
+            surf->buffer_res = nullptr;
+        }
+    }// mutex
+
+    // surf->pending_configured = false;
     comp->needs_repaint = true;
 
     //----------------------------------------------------------
@@ -824,6 +1314,100 @@ static void surface_commit(wl_client* client, wl_resource* surface_res)
     // compositor_repaint(comp); //will send frame done.
     //----------------------------------------------------------
 }
+
+// static void surface_commit(wl_client* client, wl_resource* surface_res)
+// {
+//     std::cout<<"surface_commit Start"<<std::endl;
+//     my_surface* surf = static_cast<my_surface*>(wl_resource_get_user_data(surface_res));
+//     if (!surf) return;
+
+//     LumaCompositor* comp = surf->compositor;
+//     if (!comp) return;
+
+//     // Mark mapped on first commit
+//     surf->mapped = true;
+
+//     // If nothing attached, still honor frame callback immediately
+//     if (!surf->buffer_res)
+//     {
+//         if (surf->pending_frame_callback)
+//         {
+//             uint32_t time = get_current_time_ms();
+//             wl_callback_send_done(surf->pending_frame_callback, time);
+//             wl_resource_destroy(surf->pending_frame_callback);
+//             surf->pending_frame_callback = nullptr;
+//         }
+//         return;
+//     }
+
+//     // Get the buffer wrapper for the attached buffer (may be nullptr for non-shm buffers)
+//     shm_buffer* new_buf = static_cast<shm_buffer*>(wl_resource_get_user_data(surf->buffer_res));
+
+//     shm_buffer* old_buf = nullptr;
+
+//     {   // scope lock to update committed_buffer atomically
+//         std::scoped_lock lk(surf->buffer_mutex);
+
+//         // Remember previous committed buffer so we can release it after adopting new one
+//         old_buf = surf->committed_buffer;
+
+//         if (new_buf)
+//         {
+//             // Adopt the new buffer for compositor use and pin it
+//             surf->committed_buffer = new_buf;
+//             new_buf->refcount.fetch_add(1, std::memory_order_acq_rel);
+
+//             // update surface pixel dimensions from the buffer
+//             surf->width  = new_buf->width;
+//             surf->height = new_buf->height;
+
+//             std::cout << "surface_commit: buf_w = " << surf->committed_buffer->width
+//                       << ", buf_h = " << surf->committed_buffer->height << std::endl;
+//         }
+//         else
+//         {
+//             // Attached buffer is not a shm buffer (dmabuf or unsupported) — clear sizes
+//             // Optionally handle dmabuf path here.
+//             surf->width = 0;
+//             surf->height = 0;
+//         }
+
+//         // Clear the attach slot — we've moved the attached buffer into committed_buffer
+//         surf->buffer_res = nullptr;
+//     } // unlock surf->buffer_mutex
+
+//     // If there was a previous committed buffer, release/unref it now (we no longer need it)
+//     if (old_buf && old_buf != new_buf)
+//     {
+//         // Tell client it can reuse old buffer
+//         if (old_buf->resource)
+//         {
+//             std::cout<<"surface_commit Release old buffer"<<std::endl;
+
+//             wl_buffer_send_release(old_buf->resource);
+//         }
+
+//         // drop our reference to the old buffer
+//         if (old_buf->refcount.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+//             // last reference dropped — if you mark pending_destroy in destroy path, free now
+//             if (old_buf->pending_destroy.load(std::memory_order_acquire))
+//                 delete old_buf;
+//         }
+//     }
+
+//     // If you had any pending configure handling (positioning), apply it:
+//     if (surf->configured)
+//     {
+//         // adopt pending pos regardless of exact buffer dims (policy choice)
+//         surf->x = surf->pending_x;
+//         surf->y = surf->pending_y;
+//         surf->configured = false;
+//     }
+
+//     // Request repaint (renderer will call UpdateFrameBuffer and eventually call wl_buffer_send_release on current buffer)
+//     comp->needs_repaint = true;
+// }
+
 
 static void surface_destroy(wl_client* /*client*/, wl_resource* resource)
 {
@@ -914,28 +1498,6 @@ static void surface_resource_destroy(struct wl_resource *resource)
 
 // --------------------------- xdg_surface ---------------------------
 
-// Helper to append a state value into a wl_array
-static void push_state(struct wl_array *states, uint32_t value) {
-    uint32_t *s = (uint32_t *)wl_array_add(states, sizeof(uint32_t));
-    if (s) {
-        *s = value;
-    }
-}
-
-void send_toplevel_configure(struct wl_resource *xdg_toplevel, int w, int h,
-                             bool activated, bool resizing, bool maximized, bool fullscreen)
-{
-    struct wl_array states;
-    wl_array_init(&states);
-
-    if (activated)   push_state(&states, XDG_TOPLEVEL_STATE_ACTIVATED);
-    if (resizing)    push_state(&states, XDG_TOPLEVEL_STATE_RESIZING);
-    if (maximized)   push_state(&states, XDG_TOPLEVEL_STATE_MAXIMIZED);
-    if (fullscreen)  push_state(&states, XDG_TOPLEVEL_STATE_FULLSCREEN);
-
-    xdg_toplevel_send_configure(xdg_toplevel, w, h, &states);
-    wl_array_release(&states);
-}
 
 void compositor_maximize(my_surface *surf, struct wl_display *display,
                          int work_w, int work_h)
@@ -1065,6 +1627,9 @@ static void xdg_toplevel_move(struct wl_client* client, struct wl_resource* reso
         comp->move_grab_active = true;
         comp->needs_repaint = true;
         comp->move_grab_serial = serial;
+
+        // wl_resource* prev = comp->focused_surface;
+        // compositorInput.SendKeyboardLeaveEvent(comp, prev);
     }
     else
     {
@@ -1074,8 +1639,6 @@ static void xdg_toplevel_move(struct wl_client* client, struct wl_resource* reso
 
 static void xdg_toplevel_resize(struct wl_client* client, struct wl_resource* resource, struct wl_resource* seat_res, uint32_t serial, uint32_t edges)
 {
-    std::cout << "[LumaCompositor] xdg_toplevel_resize\n";
-
     std::cout << "[LumaCompositor] xdg_toplevel_resize called, edges=" << edges << "\n";
 
     my_surface *surface = static_cast<my_surface*>(wl_resource_get_user_data(resource));
@@ -1099,6 +1662,18 @@ static void xdg_toplevel_resize(struct wl_client* client, struct wl_resource* re
     comp->grab_start_y = comp->cursor_y;
     comp->window_start_w = surface->width;
     comp->window_start_h = surface->height;
+    comp->window_start_x = surface->x;
+    comp->window_start_y = surface->y;
+    // initialize pending to current actual values
+    surface->pending_x = surface->x;
+    surface->pending_y = surface->y;
+    surface->pending_width = surface->width;
+    surface->pending_height = surface->height;
+    surface->pending_configured = false;
+
+
+    // wl_resource* prev = comp->focused_surface;
+    // compositorInput.SendKeyboardLeaveEvent(comp, prev);
 }
 
 static void xdg_toplevel_set_max_size(struct wl_client*, struct wl_resource*, int32_t, int32_t)
@@ -1273,7 +1848,7 @@ static void xdg_surface_get_toplevel(struct wl_client* client, struct wl_resourc
     surf->is_xdg_toplevel = true;
     surf->xdg_surface_res = resource; 
 
-    send_toplevel_configure(surf->toplevel_res, 1000, 600, /*activated=*/true,
+    send_toplevel_configure(surf->toplevel_res, 500, 300, /*activated=*/true,
                         /*resizing=*/false, /*maximized=*/false, /*fullscreen=*/false);
 
     uint32_t serial = wl_display_next_serial(wl_client_get_display(client));
@@ -1290,15 +1865,17 @@ static void xdg_surface_get_popup(struct wl_client*, struct wl_resource*, uint32
 
 static void xdg_surface_set_window_geometry(struct wl_client*, struct wl_resource* resource, int32_t x, int32_t y, int32_t width, int32_t height)
 {
-    std::cout << "[LumaCompositor] xdg_surface_set_window_geometry...\n";
+    // std::cout << "[LumaCompositor] xdg_surface_set_window_geometry...\n";
     my_surface* surface = (my_surface*)wl_resource_get_user_data(resource);
 
     if(surface != nullptr)
     {
-        surface->x = x;
-        surface->y = y;
+        // surface->x = x;
+        // surface->y = y;
         surface->width = width + (2*x);
         surface->height = height + (2*y);
+        // surface->pending_x = x;
+        // surface->pending_y = y;
 
         surface->window_geom_x = x;
         surface->window_geom_y = y;
@@ -1331,12 +1908,30 @@ static void xdg_surface_ack_configure(struct wl_client*, struct wl_resource* res
 
     surface->configured = true;
     comp->focused_surface = surface->resource;
-    std::cout << "[LumaCompositor] xdg_surface_ack_configure comp->focused_surface= "<<comp->focused_surface<<std::endl;
+    // std::cout << "[LumaCompositor] xdg_surface_ack_configure comp->focused_surface= "<<comp->focused_surface<<std::endl;
+
+
+
+    std::cout << "[RECV ACK_CONFIGURE] serial="<<serial<<"\n";
+    // if (surface->pending_configured && serial == surface->outstanding_configure_serial)
+    // {
+    //     surface->pending_configured = false;
+    //     // client should now commit a buffer of requested size
+    // } 
+    // else
+    // {
+    //     std::cout << "[ACK_MISMATCH] got serial "<<serial
+    //               <<" expected "<<surface->outstanding_configure_serial<<"\n";
+    // }
 
     // Send keyboard enter
-    if (comp->keyboard_resource) {
+    if (comp->keyboard_resource && !surface->isKeyboardFocused) 
+    {
         safe_send_keyboard_enter(comp, comp->focused_surface, comp->display);
+        surface->isKeyboardFocused = true;
     }
+    // surface->pending_configured = false;
+
 }
 
 static const struct xdg_surface_interface xdg_surface_impl = {
@@ -1567,6 +2162,16 @@ static void compositor_create_surface(struct wl_client* client, struct wl_resour
     }
 
     my_surface* surf = new my_surface();
+    int surfaceX = 50;
+    int surfaceY = 50;
+
+    surf->x = surfaceX;
+    surf->y = surfaceY;
+    surf->pending_x = surfaceX;
+    surf->pending_y = surfaceY;
+
+
+
     comp->surfaces.push_back(surf);
     surf->resource = surface_res;
     surf->compositor = comp;
@@ -1871,37 +2476,7 @@ static void sdl_renderer_thread(int win_w, int win_h, LumaCompositor* comp)
                 comp->cursor_x = sx;
                 comp->cursor_y = sy;
 
-                // Move Toplevel
-                if(pointer_handle_motion(comp, sx, sy))
-                {
-
-                }
-
-                
-                // std::cout<<"Mouse grab_active = "<< comp->move_grab_active << ", comp->moving_surface = "<< comp->moving_surface<<std::endl;
-
-
-                // if (comp->move_grab_active && comp->moving_surface)
-                // {
-                //     int dx = comp->cursor_x - comp->grab_start_x;
-                //     int dy = comp->cursor_y - comp->grab_start_y;
-
-                //     comp->moving_surface->x = comp->window_start_x + dx;
-                //     comp->moving_surface->y = comp->window_start_y + dy;
-
-                //     comp->needs_repaint = true;
-                //     // Repaint with updated position
-                //     compositor_repaint(comp);
-                // }
-                // else if (sx >= 0 && sy >= 0 && sx < comp->output_width && sy < comp->output_height)
-                // {
-                //     // if(comp->is_pong_received)
-                //     {
-                //         uint32_t time = SDL_GetTicks();
-                //         compositorInput.SendMouseMoveEvent(comp, sx, sy, time);
-                //         // SendPing(comp);
-                //     }
-                // }
+                pointer_handle_motion(comp, sx, sy);
 
             }
             else if (ev.type == SDL_MOUSEBUTTONDOWN || ev.type == SDL_MOUSEBUTTONUP)
@@ -1934,7 +2509,6 @@ static void sdl_renderer_thread(int win_w, int win_h, LumaCompositor* comp)
 
                         if(itr != comp->surfaces.end())
                         {
-                            std::cout<<"Update to Surface list *****************************************"<<std::endl;
                             (*itr)->x = comp->moving_surface->x;
                             (*itr)->y = comp->moving_surface->y;
 
@@ -1942,11 +2516,14 @@ static void sdl_renderer_thread(int win_w, int win_h, LumaCompositor* comp)
                             comp->focus_y = comp->moving_surface->y;
                         }
 
-                        // comp->new_client_surface = comp->moving_surface;
                         comp->moving_surface = nullptr;
 
                         // final repaint to ensure the surface appears at the final position
                         std::cout<<"Move Stopped *****************************************"<<std::endl;
+                        // Send keyboard enter
+                        // if (comp->keyboard_resource) {
+                        //     safe_send_keyboard_enter(comp, comp->focused_surface, comp->display);
+                        // }
                         comp->needs_repaint = true;
                         compositor_repaint(comp);
 
@@ -1956,16 +2533,22 @@ static void sdl_renderer_thread(int win_w, int win_h, LumaCompositor* comp)
                     {
                         comp->resize_grab_active = false;
                         comp->resizing_surface = nullptr;
-
+                        comp->resize_edges = toplevel_edges::NONE;
                         std::cout<<"Resize Stopped *****************************************"<<std::endl;
+
+
+                        // // Send keyboard enter
+                        // if (comp->keyboard_resource) {
+                        //     safe_send_keyboard_enter(comp, comp->focused_surface, comp->display);
+                        // }
+
                         comp->needs_repaint = true;
                         compositor_repaint(comp);
                     }
-
-
                 }
                 
                 // if(comp->is_pong_received)
+                // if (!comp->resize_grab_active && !comp->move_grab_active)
                 {
                     compositorInput.SendButtonEvent(comp, SDL_GetTicks(), button, state);
                     // SendPing(comp);
