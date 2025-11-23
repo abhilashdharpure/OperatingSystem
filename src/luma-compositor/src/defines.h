@@ -172,7 +172,7 @@ struct shm_pool_data {
     size_t size = 0;
     std::mutex pool_mutex;
     std::vector<shm_buffer*> buffers; // all buffers created from this pool
-    bool pending_unmap = false
+    bool pending_unmap = false;
 };
 
 struct shm_buffer {

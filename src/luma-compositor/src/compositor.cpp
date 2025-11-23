@@ -1018,18 +1018,38 @@ static void buffer_resource_destroy(struct wl_resource* resource)
         std::cout << "[LumaCompositor] buffer_resource_destroy, buffer_res set to NULL\n";
 
         buf->owner_surface->buffer_res = nullptr;
+        buf->owner_surface = nullptr;
     }
 
-    if (buf->data && buf->size)
-    {
-        munmap(buf->data, buf->size);
+    // if (buf->data && buf->size)
+    // {
+    //     munmap(buf->data, buf->size);
+    // }
+
+        // Remove from pool->buffers list (so pool knows it's gone)
+    if (buf->pool) {
+        std::scoped_lock lk(buf->pool->pool_mutex);
+        auto &vec = buf->pool->buffers;
+        auto it = std::find(vec.begin(), vec.end(), buf);
+        if (it != vec.end()) vec.erase(it);
+    }
+
+        // If compositor/renderer currently using it, postpone deletion
+    int refs = buf->refcount.load(std::memory_order_acquire);
+    if (refs > 0) {
+        std::cout << "[LumaCompositor] buffer_resource_destroy: refs="<<refs<<", postponing delete\n";
+        buf->pending_destroy.store(true, std::memory_order_release);
+        // clear resource user_data to avoid further use
+        wl_resource_set_user_data(resource, nullptr);
+        buf->resource = nullptr;
+        return;
     }
 
     std::cout << "[LumaCompositor] buffer_resource_destroy, delete buf\n";
 
+    wl_resource_set_user_data(resource, nullptr);
     delete buf;
 
-    wl_resource_set_user_data(resource, nullptr);
 }
 
 static void buffer_destroy_request(struct wl_client* client, struct wl_resource* resource)
@@ -1065,12 +1085,40 @@ static void shm_pool_resize(struct wl_client* client, struct wl_resource* resour
 }
 
 
-static void shm_pool_destroy_req(struct wl_client* client, struct wl_resource* resource)
+static void shm_pool_destroy_req(struct wl_client* client, struct wl_resource* pool_res)
 {
     std::cout << "[LumaCompositor] shm_pool_destroy_req\n";
+    auto *pool = static_cast<shm_pool_data*>(wl_resource_get_user_data(pool_res));
+    if (!pool) return;
 
-    (void)client;
-    wl_resource_destroy(resource);
+    std::scoped_lock lk(pool->pool_mutex);
+    pool->pending_unmap = true;
+
+    bool any_live = false;
+    for (shm_buffer* b : pool->buffers) {
+        if (!b) continue;
+        int refs = b->refcount.load(std::memory_order_acquire);
+        if (refs > 0) {
+            any_live = true;
+            b->pending_destroy.store(true, std::memory_order_release);
+        }
+    }
+
+    if (!any_live) {
+        // safe to unmap now
+        if (pool->data && pool->data != MAP_FAILED) {
+            std::cout << "[LumaCompositor] shm_pool_destroy: unmapping pool data\n";
+            munmap(pool->data, pool->size);
+            pool->data = nullptr;
+        }
+        wl_resource_set_user_data(pool_res, nullptr);
+        delete pool;
+    } else {
+        // keep pool alive; it will be unmapped when last buffer is freed (see maybe_cleanup_pool below)
+        std::cout << "[LumaCompositor] shm_pool_destroy: deferring unmap, live buffers remain\n";
+    }
+    
+
 }
 
 static void shm_pool_create_buffer(struct wl_client *client, struct wl_resource *pool_res,
@@ -1105,7 +1153,7 @@ std::cout << "[LumaCompositor] shm_pool_create_buffer callback:"
     }
 
     // basic bounds check
-    size_t needed = (size_t)stride * (size_t)height;
+    size_t needed = static_cast<size_t>(stride) * static_cast<size_t>(height);
     if ((size_t)offset + needed > pool->size)
     {
         std::cerr << "[LumaCompositor] shm_pool_create_buffer: out-of-bounds\n";
@@ -1123,7 +1171,16 @@ std::cout << "[LumaCompositor] shm_pool_create_buffer callback:"
     buf->height = height;
     buf->stride = stride;
     buf->format = format;
+    buf->refcount.store(0);
+    buf->pending_destroy.store(false);
+    buf->pool = pool;
+    buf->owner_surface = nullptr;
 
+    // register wrapper with pool so pool knows about live buffers
+    {
+        std::scoped_lock lk(pool->pool_mutex);
+        pool->buffers.push_back(buf);
+    }
     wl_resource_set_implementation(buf_res, &buffer_impl, buf, buffer_resource_destroy);
 
     std::cout << "[LumaCompositor] End shm_pool_create_buffer width = "<<width<<", height = "<<height<<std::endl;
