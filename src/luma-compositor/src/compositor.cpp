@@ -363,7 +363,7 @@ void DrawCursor(LumaCompositor* comp)
     if((buf == nullptr) || (buf->data == nullptr))
     {
         std::cout << "[LumaCompositor] ERROR: DrawCursor buf is NULL "<<std::endl;
-
+        return;
     }
 
     uint8_t* src8 = reinterpret_cast<uint8_t*>(buf->data);
@@ -651,28 +651,28 @@ static void keyboard_resource_destroy(struct wl_resource *resource)
     std::cout << "[LumaCompositor] keyboard_resource_destroy, resource= "<<resource<<std::endl;
     LumaSeat* seat = (LumaSeat*)wl_resource_get_user_data(resource);
 
-
-    // nothing stored as user_data currently
-    wl_resource_set_user_data(resource, nullptr);
-
     if(seat != nullptr)
     {
         LumaCompositor* compositor = seat->compositor;
-
-        wl_list_remove(wl_resource_get_link(compositor->keyboard_resource));
-        // Also clear compositor-side pointer if it was the focused one
-        // Acquire the mutex before modifying
         if(compositor != nullptr)
         {
-            std::scoped_lock lk(compositor->kbd_mutex); // adapt to your object layout
-            if (compositor->keyboard_resource == resource)
+            if(compositor->keyboard_resource != nullptr)
             {
-                compositorInput.RemoveKeyboardEvent(resource);
-                compositor->keyboard_resource = nullptr;
+                std::scoped_lock lk(compositor->kbd_mutex); // adapt to your object layout
+                wl_list_remove(wl_resource_get_link(compositor->keyboard_resource));
+                // Also clear compositor-side pointer if it was the focused one
+                // Acquire the mutex before modifying
+
+                if (compositor->keyboard_resource == resource)
+                {
+                    compositorInput.RemoveKeyboardEvent(resource);
+                    compositor->keyboard_resource = nullptr;
+                }
             }
         }
     }
-
+    // nothing stored as user_data currently
+    wl_resource_set_user_data(resource, nullptr);
 }
 
 void safe_send_keyboard_enter(LumaCompositor* compositor,
@@ -1174,7 +1174,7 @@ static void surface_commit(wl_client* client, wl_resource* surface_res)
 
             wl_buffer_send_release(surf->buffer_res);
             // decrease refcount on the old one (we no longer hold it)
-            // surf->committed_buffer->refcount.fetch_sub(1, std::memory_order_acq_rel);
+            surf->committed_buffer->refcount.fetch_sub(1, std::memory_order_acq_rel);
             surf->buffer_res = nullptr;
         }
     }// mutex
@@ -1249,7 +1249,7 @@ static void surface_resource_destroy(struct wl_resource *resource)
 
 
     // Clean up safely
-    delete surf;
+    // delete surf;
 }
 
 
@@ -1258,39 +1258,6 @@ static void surface_destroy(wl_client* /*client*/, wl_resource* resource)
     std::cout << "[LumaCompositor] surface_destroy \n";
 
     surface_resource_destroy(resource);
-
-    // wl_resource_destroy(resource);
-
-
-    // my_surface* surf = static_cast<my_surface*>(wl_resource_get_user_data(resource));
-    // if (!surf) return;
-
-    // std::cout << "[LumaCompositor] surface_destroy_cb\n";
-
-    // // remove from list under compositor lock
-    // {
-    //     std::scoped_lock lk(surf->compositor->surfaces_mutex);
-    //     auto &vec = surf->compositor->surfaces;
-    //     auto it = std::find(vec.begin(), vec.end(), surf);
-    //     if (it != vec.end()) vec.erase(it);
-    // }
-    // clear_surface_from_framebuffer(surf->compositor, surf);
-    // // mark dead so renderer will skip/pin logic knows
-    // surf->dead = true;
-
-    // // If no one is using it, free now; otherwise postpone deletion until refcount==0
-    // if (surf->refcount.load(std::memory_order_acquire) == 0)
-    // {
-    //     // free buffers already handled elsewhere; free surf safely
-    //     delete surf;
-    // } 
-    // else
-    // {
-    //     // else buffer/resource destroy handlers and renderer will check and delete later
-    // }
-
-    // // clear wl_resource user data
-    // wl_resource_set_user_data(resource, nullptr);
 }
 
 static void surface_damage(wl_client*, wl_resource*, int32_t, int32_t, int32_t, int32_t)

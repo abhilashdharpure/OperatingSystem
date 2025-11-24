@@ -45,12 +45,12 @@ static my_surface* hit_test_surface(LumaCompositor* comp, int32_t x, int32_t y)
         // test against recorded geometry
         if (x >= s->x && x < s->x + s->width && y >= s->y && y < s->y + s->height)
         {
-            // std::cout << "[Input] Inside **********" << std::endl;
+            // std::cout << "[Input] Inside **********, X ="<<s->x << std::endl;
             return s;
         }
         else
         {
-            // std::cout << "[Input] Outside " << std::endl;
+            // std::cout << "[Input] Outside X = "<<s->x << std::endl;
         }
     }
     return nullptr;
@@ -343,12 +343,6 @@ void CompositorInput::RemoveKeyboardEvent(wl_resource* keyboard_res)
 {
     std::cout << "[Input] RemoveKeyboardEvent " << std::endl;
     g_keyboards.erase(std::remove(g_keyboards.begin(), g_keyboards.end(), keyboard_res),g_keyboards.end());
-    // auto it = g_keyboards.find(keyboard_res);
-
-    // if(it != g_keyboards.end())
-    // {
-    //     g_keyboards.erase(it);
-    // }
 }
 
 void CompositorInput::AddKeyMouseEvent(wl_resource* mouse_res)
@@ -361,13 +355,6 @@ void CompositorInput::RemoveKeyMouseEvent(wl_resource* mouse_res)
 {
     std::cout << "[Input] RemoveKeyMouseEvent " << std::endl;
     g_pointers.erase(std::remove(g_pointers.begin(), g_pointers.end(), mouse_res),g_pointers.end());
-
-    // auto it = g_pointers.find(mouse_res);
-
-    // if(it != g_pointers.end())
-    // {
-    //     g_pointers.erase(it);
-    // }
 }
 
 void CompositorInput::SendKeyboardEnterEvent(LumaCompositor* compositor, wl_resource* focused_surface)
