@@ -195,15 +195,16 @@ struct shm_buffer {
     shm_pool_data* pool = nullptr;
 };
 
-struct LumaSeat {
+struct LumaSeat
+{
     wl_global* seat_global;
     wl_list keyboards; // linked list of wl_resources
     wl_list pointers;
     wl_display* display;
 
-    wl_resource *pointer_res; 
-    wl_resource *pointer_focus_surface; // wl_surface the pointer is over
-    uint32_t last_pointer_serial;
+    wl_resource *focused_keyboard_surface = nullptr;
+    wl_resource *focused_pointer_surface = nullptr;
+
     bool grab_active;
     int grab_offset_x, grab_offset_y;
 

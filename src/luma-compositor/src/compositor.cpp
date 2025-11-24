@@ -665,7 +665,6 @@ static void keyboard_resource_destroy(struct wl_resource *resource)
 
                 if (compositor->keyboard_resource == resource)
                 {
-                    compositorInput.RemoveKeyboardEvent(resource);
                     compositor->keyboard_resource = nullptr;
                 }
             }
@@ -711,7 +710,6 @@ static void seat_get_keyboard(struct wl_client *client, struct wl_resource *seat
     wl_list_insert(&seat->keyboards, wl_resource_get_link(keyboard_res));
 
     send_keymap_to_client(keyboard_res);
-    compositorInput.AddKeyboardEvent(keyboard_res);
 
     LumaCompositor* compositor = seat->compositor;
     compositor->keyboard_resource = keyboard_res;
@@ -780,7 +778,6 @@ static void pointer_resource_destroy(struct wl_resource *resource)
     // {
     //     wl_list_remove(wl_resource_get_link(seat->pointer_res));
     // }
-    compositorInput.RemoveKeyMouseEvent(resource);
 }
 
 
@@ -793,8 +790,7 @@ static void seat_get_pointer(struct wl_client *client, struct wl_resource *seat_
     wl_resource* pointer_res = wl_resource_create(client, &wl_pointer_interface, ver, id);
     wl_resource_set_implementation(pointer_res, &pointer_impl, seat, pointer_resource_destroy);
     // g_pointers.push_back(pointer_res);
-    seat->pointer_res = pointer_res;
-    compositorInput.AddKeyMouseEvent(pointer_res);
+    wl_list_insert(&seat->pointers, wl_resource_get_link(pointer_res));
 }
 
 static void seat_get_touch(struct wl_client* client,
