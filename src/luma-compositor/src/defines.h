@@ -55,6 +55,7 @@ struct LumaCompositor {
     wl_resource* focused_surface = nullptr; // wl_surface resource that's keyboard focused
     wl_resource* pointer_focused_surface = nullptr; // wl_surface resource that pointer currently over
     wl_resource *keyboard_resource = nullptr;
+    wl_resource *pointer_resource = nullptr;
     std::mutex kbd_mutex;
     std::mutex surfaces_mutex;
     wl_resource* wm_base_resource= nullptr;
@@ -144,6 +145,8 @@ struct my_surface
     int32_t restore_y = 0;
     int32_t restore_width = 0;
     int32_t restore_height = 0;
+    int32_t restore_goemetry_x = 0;
+    int32_t restore_goemetry_y = 0;
 
     int pending_x = 0, pending_y = 0;
     int pending_width = 0, pending_height = 0;

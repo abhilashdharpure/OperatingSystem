@@ -324,15 +324,14 @@ void UpdateFrameBuffer(LumaCompositor* compositor, my_surface* surf)
     }
 
     // Unpin buffer (decrement refcount) and free if pending
-    if (buf->refcount.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-        if (buf->pending_destroy.load(std::memory_order_acquire)) {
+    if (buf->refcount.fetch_sub(1, std::memory_order_acq_rel) == 1)
+    {
+        if (buf->pending_destroy.load(std::memory_order_acquire))
+        {
             // If you track pools & per-buffer ownership, free wrapper now.
             delete buf;
         }
     }
-
-    // Note: we intentionally do NOT munmap the pool here. Pool unmapping must be
-    // handled in the pool-destroy path once all buffers referencing it have refcount==0.
 }
 
 
@@ -354,7 +353,7 @@ void DrawCursor(LumaCompositor* comp)
 
     if (surface->buffer_res == nullptr)
     {
-        std::cout << "[LumaCompositor] ERROR DrawCursor surface->buffer_res is NUll" << std::endl;
+        // std::cout << "[LumaCompositor] ERROR DrawCursor surface->buffer_res is NUll" << std::endl;
         return;
     }
 
@@ -561,8 +560,11 @@ void handle_resize_motion(LumaCompositor *comp)
     if (surf->pending_y != new_y) { surf->pending_y = new_y; changed = true; }
 
     // Only send configure if something changed
+    // if (changed && surf->pending_configured == false)
     if (changed)
     {
+        surf->pending_configured = true;
+
         // std::cout<<"Resizing,  width = "<<surf->pending_width<<", height = "<<surf->pending_height<<", new_x = "<<new_x<<", new_y = "<<new_y<<", new_w = "<<new_w<<", new_h = "<<new_h<<std::endl;
         send_toplevel_configure(surf->toplevel_res,
                                 surf->pending_width,
@@ -571,8 +573,6 @@ void handle_resize_motion(LumaCompositor *comp)
                                 /*resizing=*/true,
                                 /*maximized=*/false,
                                 /*fullscreen=*/false);
-
-
 
         uint32_t serial = wl_display_next_serial(comp->display);
         xdg_surface_send_configure(surf->xdg_surface_res, serial);
@@ -769,15 +769,15 @@ static const struct wl_pointer_interface pointer_impl = {
 static void pointer_resource_destroy(struct wl_resource *resource)
 {
     std::cout << "[LumaCompositor] pointer_resource_destroy\n";
-    // LumaSeat* seat = (LumaSeat*)wl_resource_get_user_data(resource);
+    LumaSeat* seat = (LumaSeat*)wl_resource_get_user_data(resource);
 
     // nothing stored as user_data currently
     wl_resource_set_user_data(resource, nullptr);
 
-    // if(seat != nullptr)
-    // {
-    //     wl_list_remove(wl_resource_get_link(seat->pointer_res));
-    // }
+    if(seat != nullptr)
+    {
+        wl_list_remove(wl_resource_get_link(seat->compositor->pointer_resource));
+    }
 }
 
 
@@ -791,6 +791,11 @@ static void seat_get_pointer(struct wl_client *client, struct wl_resource *seat_
     wl_resource_set_implementation(pointer_res, &pointer_impl, seat, pointer_resource_destroy);
     // g_pointers.push_back(pointer_res);
     wl_list_insert(&seat->pointers, wl_resource_get_link(pointer_res));
+
+    if((seat != nullptr) && (seat->compositor != nullptr))
+    {
+        seat->compositor->pointer_resource = pointer_res;
+    }
 }
 
 static void seat_get_touch(struct wl_client* client,
@@ -1028,7 +1033,10 @@ static void shm_pool_destroy(struct wl_resource* resource)
     auto *pool = static_cast<shm_pool_data*>(wl_resource_get_user_data(resource));
     if (!pool) return;
     // If you mmap'ed pool->data, munmap here:
-    if (pool->data && pool->data != MAP_FAILED) munmap(pool->data, pool->size);
+    if (pool->data && pool->data != MAP_FAILED)
+    {
+        munmap(pool->data, pool->size);
+    }
     delete pool;
 }
 
@@ -1154,6 +1162,7 @@ static void surface_commit(wl_client* client, wl_resource* surface_res)
                 surf->x = surf->pending_x;
                 surf->y = surf->pending_y;
                 surf->configured = false;
+
                 // If you want stricter behaviour, set pending_configure remain true
                 // until widths match.
             }
@@ -1169,13 +1178,14 @@ static void surface_commit(wl_client* client, wl_resource* surface_res)
             std::cout << "[LumaCompositor] surface_commit... wl_buffer_send_release\n";
 
             wl_buffer_send_release(surf->buffer_res);
+
             // decrease refcount on the old one (we no longer hold it)
             surf->committed_buffer->refcount.fetch_sub(1, std::memory_order_acq_rel);
             surf->buffer_res = nullptr;
         }
     }// mutex
 
-    // surf->pending_configured = false;
+    surf->pending_configured = false;
     comp->needs_repaint = true;
 }
 
@@ -1493,7 +1503,6 @@ static void xdg_toplevel_resize(struct wl_client* client, struct wl_resource* re
     surface->pending_y = surface->y;
     surface->pending_width = surface->width;
     surface->pending_height = surface->height;
-    surface->pending_configured = false;
 
 
     // wl_resource* prev = comp->focused_surface;
@@ -1531,6 +1540,11 @@ static void xdg_toplevel_set_maximized(struct wl_client* client, struct wl_resou
     surf->restore_y = surf->y;
     surf->restore_width = surf->width;
     surf->restore_height = surf->height;
+    surf->pending_width = surf->width;
+    surf->pending_height = surf->height;
+    surf->restore_goemetry_x = surf->window_geom_x;
+    surf->restore_goemetry_y = surf->window_geom_y;
+    std::cout<<"xdg_toplevel_set_maximized: surf->width = "<<surf->width<<", surf->height = "<<surf->height<<std::endl;
 
     // set maximized geometry
     surf->is_maximized = true;
@@ -1538,7 +1552,8 @@ static void xdg_toplevel_set_maximized(struct wl_client* client, struct wl_resou
     surf->y = 0;
     surf->width = comp->output_width;
     surf->height = comp->output_height;
-
+    surf->pending_x = 0;
+    surf->pending_y = 0;
     std::cout << "[LumaCompositor] xdg_toplevel_set_maximized\n";
 
     // Tell the client it is now maximized via configure (include maximized state)
@@ -1551,6 +1566,8 @@ static void xdg_toplevel_set_maximized(struct wl_client* client, struct wl_resou
     xdg_surface_send_configure(surf->xdg_surface_res, serial);
 
     wl_display_flush_clients(comp->display);
+
+    comp->needs_repaint = true;
 }
 
 static void xdg_toplevel_unset_maximized(struct wl_client* client, struct wl_resource* resource)
@@ -1573,10 +1590,15 @@ static void xdg_toplevel_unset_maximized(struct wl_client* client, struct wl_res
     surf->y = surf->restore_y;
     surf->width = surf->restore_width;
     surf->height = surf->restore_height;
+    surf->pending_x = surf->restore_x;
+    surf->pending_y = surf->restore_y;
+    surf->pending_width = surf->width;
+    surf->pending_height = surf->height;
 
-    std::cout << "[LumaCompositor] xdg_toplevel_unset_maximized\n";
+    int new_w = surf->width - (2 * surf->restore_goemetry_x) + 1;
+    int new_h = surf->height - (2 * surf->restore_goemetry_y) + 1;
 
-    send_toplevel_configure(surf->toplevel_res, surf->width, surf->height,
+    send_toplevel_configure(surf->toplevel_res, new_w, new_h,
                             /*activated=*/true, /*resizing=*/false,
                             /*maximized=*/false, /*fullscreen=*/false);
 
@@ -1584,6 +1606,7 @@ static void xdg_toplevel_unset_maximized(struct wl_client* client, struct wl_res
     xdg_surface_send_configure(surf->xdg_surface_res, serial);
 
     wl_display_flush_clients(comp->display);
+    comp->needs_repaint = true;
 }
 
 static void xdg_toplevel_set_fullscreen(struct wl_client*, struct wl_resource*, struct wl_resource*) 

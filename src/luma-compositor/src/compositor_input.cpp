@@ -60,7 +60,7 @@ static wl_resource* get_keyboard_for_surface_client(LumaCompositor* comp, wl_res
     {
         return nullptr;
     }
-
+    std::scoped_lock lk(comp->kbd_mutex); 
     wl_client* surface_client = wl_resource_get_client(surface_res);
 
     struct wl_resource *kbd_res;
@@ -451,6 +451,6 @@ void CompositorInput::SendButtonEvent(LumaCompositor* compositor, uint32_t time_
         wl_display_flush_clients(compositor->display);
 
         compositor->last_press_serial = serial;
-        // handle_pointer_button(this, compositor, (int)compositor->cursor_x, (int)compositor->cursor_y, button, state);
+        handle_pointer_button(this, compositor, (int)compositor->cursor_x, (int)compositor->cursor_y, button, state);
     }
 }
