@@ -160,6 +160,8 @@ struct my_surface
     bool dead = false; 
     bool isCursor = false;
 
+    std::string clientName;
+
 };
 
 struct my_output {

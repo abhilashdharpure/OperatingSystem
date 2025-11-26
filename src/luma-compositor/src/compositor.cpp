@@ -797,7 +797,7 @@ static void seat_get_keyboard(struct wl_client *client, struct wl_resource *seat
 static void wl_pointer_interface_set_cursor(struct wl_client* client, struct wl_resource* resource, uint32_t serial,
                      struct wl_resource* surface, int32_t hotspot_x, int32_t hotspot_y)
 {
-    std::cout << "[LumaCompositor] wl_pointer_interface_set_cursor, hotspot_x = "<<hotspot_x<<", hotspot_y = "<<hotspot_y<<std::endl;
+    // std::cout << "[LumaCompositor] wl_pointer_interface_set_cursor, hotspot_x = "<<hotspot_x<<", hotspot_y = "<<hotspot_y<<std::endl;
 
     LumaSeat* seat = (LumaSeat*)wl_resource_get_user_data(resource);
 
@@ -816,8 +816,6 @@ static void wl_pointer_interface_set_cursor(struct wl_client* client, struct wl_
 
     if(surface == nullptr)
     {
-        std::cout << "[LumaCompositor] ERROR: wl_pointer_interface_set_cursor surface is NULL "<<std::endl;
-
         if (compositor->cursor_surface)
         {
             compositor->cursor_surface->isCursor = false;
@@ -838,7 +836,6 @@ static void wl_pointer_interface_set_cursor(struct wl_client* client, struct wl_
     // Clear previous cursor surface if different
     if (compositor->cursor_surface && compositor->cursor_surface != surf)
     {
-        std::cout << "[LumaCompositor] ERROR: 2nd cursor found "<<std::endl;
         compositor->cursor_surface->isCursor = false;
     }
 
@@ -2114,6 +2111,9 @@ static void compositor_create_surface(struct wl_client* client, struct wl_resour
     surf->pending_x = surfaceX;
     surf->pending_y = surfaceY;
 
+    static int clientNo = 1;
+    surf->clientName = "Client_" + std::to_string(clientNo);
+    clientNo++;
 
 
     comp->surfaces.push_back(surf);
