@@ -101,7 +101,6 @@ struct LumaCompositor {
 
     // Cursor surca
     my_surface* cursor_surface = nullptr;
-    bool is_cursor_surface = false;
     double cursor_hot_x = 0.0;
     double cursor_hot_y = 0.0;
 
@@ -159,6 +158,7 @@ struct my_surface
     std::mutex buffer_mutex;
     std::atomic<int> refcount{0};
     bool dead = false; 
+    bool isCursor = false;
 
 };
 

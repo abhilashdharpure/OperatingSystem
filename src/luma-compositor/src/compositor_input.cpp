@@ -136,6 +136,11 @@ void handle_pointer_motion(LumaCompositor* comp, int x, int y)
 
     if(surface != nullptr)
     {
+        // Surface is for cursor, do not send enter/leave
+        if(surface->isCursor)
+        {
+            return;
+        }
         wl_resource *new_surface = surface->resource;
 
         if (new_surface != prev_surface)

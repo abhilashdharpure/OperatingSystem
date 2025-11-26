@@ -190,6 +190,12 @@ void UpdateFrameBuffer(LumaCompositor* compositor, my_surface* surf)
     if (!surf) return;
     if (surf->dead) return;  // extra guard
 
+    // Do not drow surface for cursor, elase two cursor will show.
+    if(surf->isCursor)
+    {
+        return;
+    }
+
     // Pin the committed buffer safely (Wayland thread sets committed_buffer under surf->buffer_mutex)
     shm_buffer* buf = nullptr;
     {
@@ -334,80 +340,145 @@ void UpdateFrameBuffer(LumaCompositor* compositor, my_surface* surf)
     }
 }
 
-
-
 void DrawCursor(LumaCompositor* comp)
 {
-    if (!comp->cursor_surface)
-    {
-        //std::cout << "[LumaCompositor] ERROR DrawCursor cursor_surface is NUll" << std::endl;
-        return;
-    }
+    if (!comp) return;
 
     my_surface* surface = comp->cursor_surface;
-    if (surface == nullptr)
+    if (!surface) return;
+    if (surface->dead) return; // guard if you track dead surfaces
+
+    // Pin the committed/cursor buffer safely
+    shm_buffer* buf = nullptr;
     {
-        std::cout << "[LumaCompositor] ERROR DrawCursor surface is NUll" << std::endl;
+        std::scoped_lock lk(surface->buffer_mutex);
+        buf = surface->committed_buffer;   // or surface->cursor_buffer if you store separately
+        if (!buf) return;
+        buf->refcount.fetch_add(1, std::memory_order_acq_rel);
+    }
+
+    // Pin framebuffer pointer & size (avoid races if framebuffer can reallocate)
+    uint8_t* dst_base = reinterpret_cast<uint8_t*>(comp_framebuffer.data());
+    int FBW = comp->output_width;
+    int FBH = comp->output_height;
+    size_t fb_size_bytes = static_cast<size_t>(FBW) * static_cast<size_t>(FBH) * 4u;
+
+    // Basic sanity checks
+    if (!dst_base || FBW <= 0 || FBH <= 0) {
+        if (buf->refcount.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+            if (buf->pending_destroy.load(std::memory_order_acquire)) delete buf;
+        }
         return;
     }
 
-    if (surface->buffer_res == nullptr)
-    {
-        // std::cout << "[LumaCompositor] ERROR DrawCursor surface->buffer_res is NUll" << std::endl;
+    // Validate source mapping and geometry
+    if (!buf->data || buf->size == 0 || buf->stride <= 0 || buf->width <= 0 || buf->height <= 0) {
+        if (buf->refcount.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+            if (buf->pending_destroy.load(std::memory_order_acquire)) delete buf;
+        }
         return;
     }
 
-    // shm_buffer* buf = comp->cursor_buffer;
-    shm_buffer* buf = static_cast<shm_buffer*>(wl_resource_get_user_data(surface->buffer_res));
-    if((buf == nullptr) || (buf->data == nullptr))
-    {
-        std::cout << "[LumaCompositor] ERROR: DrawCursor buf is NULL "<<std::endl;
-        return;
-    }
+    uint8_t* src_base_raw = reinterpret_cast<uint8_t*>(buf->data);
+    uintptr_t map_start = reinterpret_cast<uintptr_t>(src_base_raw);
+    uintptr_t map_end = map_start + buf->size;
 
-    uint8_t* src8 = reinterpret_cast<uint8_t*>(buf->data);
-    uint8_t* dst8 = reinterpret_cast<uint8_t*>(comp_framebuffer.data());
-
-    int W = comp->output_width;
-    int H = comp->output_height;
-
-    // Draw cursor at (mouse - hotspot)
+    // Cursor position and hotspot (draw at mouse - hotspot)
     int dst_x = comp->cursor_x - comp->cursor_hot_x;
     int dst_y = comp->cursor_y - comp->cursor_hot_y;
 
-    int copy_w = buf->width;
-    int copy_h = buf->height;
+    int buf_w = buf->width;
+    int buf_h = buf->height;
+    int buf_stride = buf->stride;
 
-    // Clip to screen bounds
-    if (dst_x < 0) {
-        copy_w += dst_x;
-        src8 -= dst_x * 4;
-        dst_x = 0;
-    }
-    if (dst_y < 0) {
-        copy_h += dst_y;
-        src8 -= dst_y * buf->stride;
-        dst_y = 0;
-    }
-
-    if (dst_x + copy_w > W) copy_w = W - dst_x;
-    if (dst_y + copy_h > H) copy_h = H - dst_y;
-
-    if (copy_w <= 0 || copy_h <= 0)
+    // Quick reject if fully off-screen
+    if (((dst_x + buf_w) <= 0) || ((dst_y + buf_h) <= 0) || (dst_x >= FBW) || (dst_y >= FBH)) {
+        if (buf->refcount.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+            if (buf->pending_destroy.load(std::memory_order_acquire)) delete buf;
+        }
         return;
+    }
 
-    for (int y = 0; y < copy_h; ++y)
-    {
-        uint8_t* srow = src8 + y * buf->stride;
-        uint8_t* drow = dst8 + (dst_y + y) * W * 4 + dst_x * 4;
+    // Compute source origin inside buffer (do not mutate src_base_raw)
+    int src_x = 0;
+    int src_y = 0;
+    if (dst_x < 0) { src_x = -dst_x; dst_x = 0; }
+    if (dst_y < 0) { src_y = -dst_y; dst_y = 0; }
 
-        for (int x = 0; x < copy_w; ++x)
-        {
+    // Clamp copy region to buffer and framebuffer
+    int copy_w = std::min(buf_w - src_x, FBW - dst_x);
+    int copy_h = std::min(buf_h - src_y, FBH - dst_y);
+
+    if (copy_w <= 0 || copy_h <= 0) {
+        if (buf->refcount.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+            if (buf->pending_destroy.load(std::memory_order_acquire)) delete buf;
+        }
+        return;
+    }
+
+    // Bytes to process per row
+    size_t copy_bytes = static_cast<size_t>(copy_w) * 4u;
+    if (copy_bytes > static_cast<size_t>(buf_stride)) {
+        // Defensive clamp (shouldn't normally happen)
+        copy_bytes = static_cast<size_t>(buf_stride);
+        copy_w = static_cast<int>(copy_bytes / 4u);
+    }
+
+    uintptr_t fb_start = reinterpret_cast<uintptr_t>(dst_base);
+    uintptr_t fb_end = fb_start + fb_size_bytes;
+
+    // Compute the base pointer inside the mapping (with src_x/src_y offsets)
+    uintptr_t src_base = map_start + static_cast<uintptr_t>(src_y) * buf_stride + static_cast<uintptr_t>(src_x) * 4u;
+
+    // Validate first row base (quick check)
+    if (src_base < map_start || (src_base + (copy_h - 1) * static_cast<uintptr_t>(buf_stride) + copy_bytes) > map_end) {
+        // mapping doesn't contain entire requested region -> skip drawing to avoid crash
+        std::cout << "[DrawCursor] source mapping too small, skipping cursor draw\n";
+        if (buf->refcount.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+            if (buf->pending_destroy.load(std::memory_order_acquire)) delete buf;
+        }
+        return;
+    }
+
+    // Per-row blend loop (with safety checks)
+    for (int row = 0; row < copy_h; ++row) {
+        uintptr_t srow_addr = src_base + static_cast<uintptr_t>(row) * buf_stride;
+        uintptr_t srow_end = srow_addr + copy_bytes;
+
+        uintptr_t drow_addr = fb_start + static_cast<uintptr_t>((dst_y + row) * FBW * 4 + dst_x * 4);
+        uintptr_t drow_end = drow_addr + copy_bytes;
+
+        // Validate addresses (should pass if earlier checks were OK)
+        if (srow_addr < map_start || srow_end > map_end) {
+            std::cout << "[DrawCursor] source out-of-bounds at row=" << row << ", aborting\n";
+            break;
+        }
+        if (drow_addr < fb_start || drow_end > fb_end) {
+            std::cout << "[DrawCursor] dest out-of-bounds at row=" << row << ", aborting\n";
+            break;
+        }
+
+        uint8_t* srow = reinterpret_cast<uint8_t*>(srow_addr);
+        uint8_t* drow = reinterpret_cast<uint8_t*>(drow_addr);
+
+        // Per-pixel blend (cursor needs alpha)
+        for (int x = 0; x < copy_w; ++x) {
             blend_pixel(drow + x*4, srow + x*4);
         }
     }
-}
 
+    // Release buffer to client if applicable
+    if (buf->resource) {
+        wl_buffer_send_release(buf->resource);
+    }
+
+    // Unpin buffer and free if pending
+    if (buf->refcount.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+        if (buf->pending_destroy.load(std::memory_order_acquire)) {
+            delete buf;
+        }
+    }
+}
 
 void compositor_repaint(LumaCompositor* comp)
 {
@@ -474,10 +545,12 @@ void compositor_repaint(LumaCompositor* comp)
             }
         }
 
-
-
         // // draw cursor as last surface (topmost)
-        DrawCursor(comp);
+        if (comp->cursor_surface &&
+            comp->cursor_surface->buffer_res != nullptr)
+        {
+            DrawCursor(comp);
+        }
     }
 
     // Push to output backend (your SDL renderer or kernel fb)
@@ -502,6 +575,12 @@ void handle_resize_motion(LumaCompositor *comp)
     }
 
     my_surface *surf = comp->resizing_surface;
+
+    if(surf->xdg_surface_res == nullptr)
+    {   
+        return;
+    }
+
     auto edges = comp->resize_edges;
 
     int dx = comp->cursor_x - comp->grab_start_x;
@@ -718,7 +797,7 @@ static void seat_get_keyboard(struct wl_client *client, struct wl_resource *seat
 static void wl_pointer_interface_set_cursor(struct wl_client* client, struct wl_resource* resource, uint32_t serial,
                      struct wl_resource* surface, int32_t hotspot_x, int32_t hotspot_y)
 {
-    // std::cout << "[LumaCompositor] wl_pointer_interface_set_cursor, hotspot_x = "<<hotspot_x<<", hotspot_y = "<<hotspot_y<<std::endl;
+    std::cout << "[LumaCompositor] wl_pointer_interface_set_cursor, hotspot_x = "<<hotspot_x<<", hotspot_y = "<<hotspot_y<<std::endl;
 
     LumaSeat* seat = (LumaSeat*)wl_resource_get_user_data(resource);
 
@@ -738,6 +817,13 @@ static void wl_pointer_interface_set_cursor(struct wl_client* client, struct wl_
     if(surface == nullptr)
     {
         std::cout << "[LumaCompositor] ERROR: wl_pointer_interface_set_cursor surface is NULL "<<std::endl;
+
+        if (compositor->cursor_surface)
+        {
+            compositor->cursor_surface->isCursor = false;
+            compositor->cursor_surface = nullptr;
+            compositor->needs_repaint = true;
+        }
         return;
     }
 
@@ -748,10 +834,18 @@ static void wl_pointer_interface_set_cursor(struct wl_client* client, struct wl_
         return;
 
     }
+
+    // Clear previous cursor surface if different
+    if (compositor->cursor_surface && compositor->cursor_surface != surf)
+    {
+        std::cout << "[LumaCompositor] ERROR: 2nd cursor found "<<std::endl;
+        compositor->cursor_surface->isCursor = false;
+    }
+
     compositor->cursor_surface = surf;
     compositor->cursor_hot_x = hotspot_x;
     compositor->cursor_hot_y = hotspot_y;
-    compositor->is_cursor_surface = true;
+    compositor->cursor_surface->isCursor = true;
     compositor->needs_repaint = true;
 }
 
@@ -967,7 +1061,7 @@ std::cout << "[LumaCompositor] shm_pool_create_buffer callback:"
           << " stride=" << stride
           << " format=" << format
           << std::endl;
-    // Create wl_buffer resource
+
     uint32_t ver = std::min<uint32_t>(wl_resource_get_version(pool_res), wl_buffer_interface.version);
     wl_resource *buf_res = wl_resource_create(client, &wl_buffer_interface, ver, id);
     if (!buf_res)
@@ -1013,15 +1107,15 @@ std::cout << "[LumaCompositor] shm_pool_create_buffer callback:"
     {
         std::scoped_lock lk(pool->pool_mutex);
         pool->buffers.push_back(buf);
+        std::cout << "[LumaCompositor] End shm_pool_create_buffer pool->buffers. Size == "<<pool->buffers.size()<<std::endl;
     }
     wl_resource_set_implementation(buf_res, &buffer_impl, buf, buffer_resource_destroy);
 
     std::cout << "[LumaCompositor] End shm_pool_create_buffer width = "<<width<<", height = "<<height<<std::endl;
-
 }
 
 static const struct wl_shm_pool_interface shm_pool_impl = {
-    .create_buffer = shm_pool_create_buffer, // we'll fill later
+    .create_buffer = shm_pool_create_buffer,
     .destroy = shm_pool_destroy_req,
     .resize = shm_pool_resize,
 };
@@ -1186,7 +1280,10 @@ static void surface_commit(wl_client* client, wl_resource* surface_res)
     }// mutex
 
     surf->pending_configured = false;
+    // wl_display_flush_clients(comp->display);
+
     comp->needs_repaint = true;
+    // compositor_repaint(comp);
 }
 
 void clear_surface_from_framebuffer(LumaCompositor* comp, my_surface* surf)
