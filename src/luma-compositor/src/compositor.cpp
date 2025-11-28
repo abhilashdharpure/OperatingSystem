@@ -124,8 +124,14 @@ void fb_flush(LumaCompositor *comp)
     SDL_RenderPresent(renderer);
 }
 
-static inline void blend_pixel(uint8_t* dst, const uint8_t* src)
+static inline void blend_pixel(uint8_t* dst, const uint8_t* src, const uint8_t* map_start, const uint8_t* map_end)
 {
+    // Ensure src pixel lies fully within mapping
+    if (src < map_start || src + 3 >= map_end)
+    {
+        return;
+    }
+
     uint8_t sa = src[3];
     if (sa == 0) {
         return; // fully transparent → skip
@@ -192,11 +198,21 @@ void UpdateFrameBuffer(LumaCompositor* comp, my_surface* surface, bool isCursor)
 
     // Pin the committed/cursor buffer safely
     shm_buffer* buf = nullptr;
+    uint8_t* data = nullptr;
+    size_t size = 0;
+    int stride = 0, width = 0, height = 0;
     {
         std::scoped_lock lk(surface->buffer_mutex);
         buf = surface->committed_buffer;   // or surface->cursor_buffer if you store separately
         if (!buf) return;
         buf->refcount.fetch_add(1, std::memory_order_acq_rel);
+
+        // Snapshot
+        data   = static_cast<uint8_t*>(buf->data);
+        size   = buf->size;
+        stride = buf->stride;
+        width  = buf->width;
+        height = buf->height;
     }
 
     // Pin framebuffer pointer & size (avoid races if framebuffer can reallocate)
@@ -219,7 +235,7 @@ void UpdateFrameBuffer(LumaCompositor* comp, my_surface* surface, bool isCursor)
     }
 
     // Validate source mapping and geometry
-    if (!buf->data || buf->size == 0 || buf->stride <= 0 || buf->width <= 0 || buf->height <= 0)
+    if (!data || size== 0 || stride <= 0 || width <= 0 || height <= 0)
     {
         if (buf->refcount.fetch_sub(1, std::memory_order_acq_rel) == 1)
         {
@@ -231,9 +247,8 @@ void UpdateFrameBuffer(LumaCompositor* comp, my_surface* surface, bool isCursor)
         return;
     }
 
-    uint8_t* src_base_raw = reinterpret_cast<uint8_t*>(buf->data);
-    uintptr_t map_start = reinterpret_cast<uintptr_t>(src_base_raw);
-    uintptr_t map_end = map_start + buf->size;
+    uintptr_t map_start = reinterpret_cast<uintptr_t>(data);
+    uintptr_t map_end = map_start + size;
 
     // Cursor position and hotspot (draw at mouse - hotspot)
     int dst_x = 0;
@@ -250,12 +265,8 @@ void UpdateFrameBuffer(LumaCompositor* comp, my_surface* surface, bool isCursor)
         dst_y = surface->y;
     }
 
-    int buf_w = buf->width;
-    int buf_h = buf->height;
-    int buf_stride = buf->stride;
-
     // Quick reject if fully off-screen
-    if (((dst_x + buf_w) <= 0) || ((dst_y + buf_h) <= 0) || (dst_x >= FBW) || (dst_y >= FBH))
+    if (((dst_x + width) <= 0) || ((dst_y + height) <= 0) || (dst_x >= FBW) || (dst_y >= FBH))
     {
         if (buf->refcount.fetch_sub(1, std::memory_order_acq_rel) == 1)
         {
@@ -284,8 +295,8 @@ void UpdateFrameBuffer(LumaCompositor* comp, my_surface* surface, bool isCursor)
     }
 
     // Clamp copy region to buffer and framebuffer
-    int copy_w = std::min(buf_w - src_x, FBW - dst_x);
-    int copy_h = std::min(buf_h - src_y, FBH - dst_y);
+    int copy_w = std::min(width - src_x, FBW - dst_x);
+    int copy_h = std::min(height - src_y, FBH - dst_y);
 
     if (copy_w <= 0 || copy_h <= 0)
     {
@@ -301,10 +312,10 @@ void UpdateFrameBuffer(LumaCompositor* comp, my_surface* surface, bool isCursor)
 
     // Bytes to process per row
     size_t copy_bytes = static_cast<size_t>(copy_w) * 4u;
-    if (copy_bytes > static_cast<size_t>(buf_stride))
+    if (copy_bytes > static_cast<size_t>(stride))
     {
         // Defensive clamp (shouldn't normally happen)
-        copy_bytes = static_cast<size_t>(buf_stride);
+        copy_bytes = static_cast<size_t>(stride);
         copy_w = static_cast<int>(copy_bytes / 4u);
     }
 
@@ -312,10 +323,10 @@ void UpdateFrameBuffer(LumaCompositor* comp, my_surface* surface, bool isCursor)
     uintptr_t fb_end = fb_start + fb_size_bytes;
 
     // Compute the base pointer inside the mapping (with src_x/src_y offsets)
-    uintptr_t src_base = map_start + static_cast<uintptr_t>(src_y) * buf_stride + static_cast<uintptr_t>(src_x) * 4u;
+    uintptr_t src_base = map_start + static_cast<uintptr_t>(src_y) * static_cast<uintptr_t>(stride) + static_cast<uintptr_t>(src_x) * 4u;
 
     // Validate first row base (quick check)
-    if (src_base < map_start || (src_base + (copy_h - 1) * static_cast<uintptr_t>(buf_stride) + copy_bytes) > map_end)
+    if (src_base < map_start || (src_base + (copy_h - 1) * static_cast<uintptr_t>(stride) + copy_bytes) > map_end)
     {
         // mapping doesn't contain entire requested region -> skip drawing to avoid crash
         std::cout << "[Draw Cursor] source mapping too small, skipping cursor draw\n";
@@ -332,7 +343,7 @@ void UpdateFrameBuffer(LumaCompositor* comp, my_surface* surface, bool isCursor)
     // Per-row blend loop (with safety checks)
     for (int row = 0; row < copy_h; ++row)
     {
-        uintptr_t srow_addr = src_base + static_cast<uintptr_t>(row) * buf_stride;
+        uintptr_t srow_addr = src_base + static_cast<uintptr_t>(row) * stride;
         uintptr_t srow_end = srow_addr + copy_bytes;
 
         uintptr_t drow_addr = fb_start + static_cast<uintptr_t>((dst_y + row) * FBW * 4 + dst_x * 4);
@@ -354,18 +365,19 @@ void UpdateFrameBuffer(LumaCompositor* comp, my_surface* surface, bool isCursor)
         uint8_t* srow = reinterpret_cast<uint8_t*>(srow_addr);
         uint8_t* drow = reinterpret_cast<uint8_t*>(drow_addr);
 
-        // Per-pixel blend (cursor needs alpha)
+        // Per-pixel blend
         for (int x = 0; x < copy_w; ++x)
         {
-            blend_pixel(drow + x*4, srow + x*4);
+            blend_pixel((drow + (x*4)), (srow + (x*4)), data, (data + size));
         }
     }
 
-    // Release buffer to client if applicable
-    if (buf->resource)
-    {
-        wl_buffer_send_release(buf->resource);
-    }
+    // // Release buffer to client if applicable
+    // if (buf->resource)
+    // {
+    //     std::cout << "[LumaCompositor] wl_buffer_send_release\n";
+    //     wl_buffer_send_release(buf->resource);
+    // }
 
     // Unpin buffer and free if pending
     if (buf->refcount.fetch_sub(1, std::memory_order_acq_rel) == 1)
@@ -411,7 +423,6 @@ void compositor_repaint(LumaCompositor* comp)
     {
         std::lock_guard<std::mutex> lock(comp_fb_mutex);
 
-
         int W = comp->output_width;
         int H = comp->output_height;
 
@@ -426,7 +437,6 @@ void compositor_repaint(LumaCompositor* comp)
         }
 
         // 2. Composite all surfaces in stacking order (back → front)
-        // for (my_surface* surf : comp->surfaces)   // comp->surfaces is ordered
         for (my_surface* surf : snapshot)   // comp->surfaces is ordered
         {
             if (!surf->mapped)   // mapped only after first commit
@@ -435,8 +445,10 @@ void compositor_repaint(LumaCompositor* comp)
             }
 
             // If surface was marked dead since snapshot, drop pin and continue
-            if (surf->dead) {
-                if (surf->refcount.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+            if (surf->dead)
+            {
+                if (surf->refcount.fetch_sub(1, std::memory_order_acq_rel) == 1)
+                {
                     delete surf; // last user — clean up
                 }
                 continue;
@@ -445,8 +457,12 @@ void compositor_repaint(LumaCompositor* comp)
             UpdateFrameBuffer(comp, surf, false);
 
              // unpin surface
-            if (surf->refcount.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-                if (surf->dead) delete surf;
+            if (surf->refcount.fetch_sub(1, std::memory_order_acq_rel) == 1)
+            {
+                if (surf->dead)
+                {
+                    delete surf;
+                }
             }
         }
 
@@ -671,28 +687,28 @@ static void keyboard_resource_destroy(struct wl_resource *resource)
 }
 
 void safe_send_keyboard_enter(LumaCompositor* compositor,
-                              struct wl_resource* focused_surface,
+                              struct wl_resource* keyboard_focused_surface,
                               struct wl_display* display)
 {
 
-    if (!compositor->keyboard_resource || !focused_surface || !display)
+    if (!compositor->keyboard_resource || !keyboard_focused_surface || !display)
     {
         return;
     }
 
-    if (!focused_surface || !display)
+    if (!keyboard_focused_surface || !display)
     {
         return;
     }
 
-    wl_client* focused_client = wl_resource_get_client(focused_surface);
+    wl_client* focused_client = wl_resource_get_client(keyboard_focused_surface);
     if (!focused_client)
     {
         return;
     }
     std::cout << "[LumaCompositor] safe_send_keyboard_enter\n";
 
-    compositorInput.SendKeyboardEnterEvent(compositor, focused_surface);
+    compositorInput.SendKeyboardEnterEvent(compositor, keyboard_focused_surface);
 }
 
 static void seat_get_keyboard(struct wl_client *client, struct wl_resource *seat_res, uint32_t id)
@@ -1390,8 +1406,8 @@ void compositor_fullscreen(my_surface *surf, struct wl_display *display,
 
 void compositor_minimize(my_surface *surf, LumaCompositor *comp)
 {
-    if (comp->focused_surface == surf->resource)
-        comp->focused_surface = NULL; // and send wl_keyboard.leave if needed
+    if (comp->keyboard_focused_surface == surf->resource)
+        comp->keyboard_focused_surface = NULL; // and send wl_keyboard.leave if needed
 
     surf->visible = false; // your scene-graph flag; skip it in rendering
 }
@@ -1486,7 +1502,7 @@ static void xdg_toplevel_move(struct wl_client* client, struct wl_resource* reso
 
         raise_surface(comp, surface);
 
-        // wl_resource* prev = comp->focused_surface;
+        // wl_resource* prev = comp->keyboard_focused_surface;
         // compositorInput.SendKeyboardLeaveEvent(comp, prev);
     }
     else
@@ -1530,7 +1546,7 @@ static void xdg_toplevel_resize(struct wl_client* client, struct wl_resource* re
 
     raise_surface(comp, surface);
 
-    // wl_resource* prev = comp->focused_surface;
+    // wl_resource* prev = comp->keyboard_focused_surface;
     // compositorInput.SendKeyboardLeaveEvent(comp, prev);
 }
 
@@ -1779,8 +1795,8 @@ static void xdg_surface_ack_configure(struct wl_client*, struct wl_resource* res
     LumaCompositor* comp = surface->compositor;
 
     surface->configured = true;
-    comp->focused_surface = surface->resource;
-    // std::cout << "[LumaCompositor] xdg_surface_ack_configure comp->focused_surface= "<<comp->focused_surface<<std::endl;
+    comp->keyboard_focused_surface = surface->resource;
+    // std::cout << "[LumaCompositor] xdg_surface_ack_configure comp->keyboard_focused_surface= "<<comp->keyboard_focused_surface<<std::endl;
 
 
 
@@ -1799,7 +1815,7 @@ static void xdg_surface_ack_configure(struct wl_client*, struct wl_resource* res
     // Send keyboard enter
     if (comp->keyboard_resource && !surface->isKeyboardFocused) 
     {
-        safe_send_keyboard_enter(comp, comp->focused_surface, comp->display);
+        safe_send_keyboard_enter(comp, comp->keyboard_focused_surface, comp->display);
         surface->isKeyboardFocused = true;
     }
     // surface->pending_configured = false;
@@ -2396,7 +2412,7 @@ static void sdl_renderer_thread(int win_w, int win_h, LumaCompositor* comp)
                         std::cout<<"Move Stopped *****************************************"<<std::endl;
                         // Send keyboard enter
                         // if (comp->keyboard_resource) {
-                        //     safe_send_keyboard_enter(comp, comp->focused_surface, comp->display);
+                        //     safe_send_keyboard_enter(comp, comp->keyboard_focused_surface, comp->display);
                         // }
                         comp->needs_repaint = true;
                         compositor_repaint(comp);
@@ -2413,7 +2429,7 @@ static void sdl_renderer_thread(int win_w, int win_h, LumaCompositor* comp)
 
                         // // Send keyboard enter
                         // if (comp->keyboard_resource) {
-                        //     safe_send_keyboard_enter(comp, comp->focused_surface, comp->display);
+                        //     safe_send_keyboard_enter(comp, comp->keyboard_focused_surface, comp->display);
                         // }
 
                         comp->needs_repaint = true;

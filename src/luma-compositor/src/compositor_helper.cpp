@@ -2,12 +2,12 @@
 
 wl_resource* get_focused_keyboard(LumaCompositor* compositor)
 {
-    if (!compositor->focused_surface)
+    if (!compositor->keyboard_focused_surface)
     {
         return nullptr;
     }
 
-    wl_client* focused_client = wl_resource_get_client(compositor->focused_surface);
+    wl_client* focused_client = wl_resource_get_client(compositor->keyboard_focused_surface);
 
     wl_resource* keyboard_res;
     wl_list_for_each(keyboard_res, &compositor->seat->keyboards, link)

@@ -26,7 +26,8 @@ struct shm_buffer;
 //     BOTTOM_LEFT = 6
 // };
 
-enum class toplevel_edges : uint32_t {
+enum class toplevel_edges : uint32_t
+{
     NONE  = 0,
     TOP   = 1 << 0,
     BOTTOM= 1 << 1,
@@ -35,7 +36,8 @@ enum class toplevel_edges : uint32_t {
 };
 
 
-struct LumaCompositor {
+struct LumaCompositor
+{
     wl_display* display;
     wl_event_loop* loop;
 
@@ -52,7 +54,7 @@ struct LumaCompositor {
     std::vector<my_surface*> surfaces;
 
     // focus tracking
-    wl_resource* focused_surface = nullptr; // wl_surface resource that's keyboard focused
+    wl_resource* keyboard_focused_surface = nullptr; // wl_surface resource that's keyboard focused
     wl_resource* pointer_focused_surface = nullptr; // wl_surface resource that pointer currently over
     wl_resource *keyboard_resource = nullptr;
     wl_resource *pointer_resource = nullptr;
