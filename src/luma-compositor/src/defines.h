@@ -59,8 +59,6 @@ struct LumaCompositor {
     std::mutex kbd_mutex;
     std::mutex surfaces_mutex;
     wl_resource* wm_base_resource= nullptr;
-    wl_resource* cursor_pending_buffer = nullptr;
-
 
     LumaSeat* seat;
     

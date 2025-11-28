@@ -153,18 +153,16 @@ void handle_pointer_motion(LumaCompositor* comp, int x, int y)
 
                 if(!comp->mouse_pressed)
                 {
-                    uint32_t serial = wl_display_next_serial(comp->display);
-
-                    double sx = x - surface->x;
-                    double sy = y - surface->y;
-
                     wl_resource* focused_pointer = get_focused_pointer(comp);
                     if(focused_pointer)
-                    {
+                    {   
+                        double sx = x - surface->x;
+                        double sy = y - surface->y;
+
                         std::cout << "[Input] handle_pointer_motion Entering new surface : "<< surface->clientName<<" , x = "<<x<<", y ="<<y <<", sx = "<< sx<<", sy = "<<sy<< std::endl;
-                        wl_pointer_send_enter(focused_pointer, serial, new_surface,
-                                            wl_fixed_from_double(sx),
-                                            wl_fixed_from_double(sy));
+                        
+                        uint32_t serial = wl_display_next_serial(comp->display);
+                        wl_pointer_send_enter(focused_pointer, serial, new_surface, wl_fixed_from_double(sx), wl_fixed_from_double(sy));
                         wl_pointer_send_frame(focused_pointer);
                         wl_display_flush_clients(comp->display);
                     }
@@ -176,8 +174,6 @@ void handle_pointer_motion(LumaCompositor* comp, int x, int y)
     {
         if(!comp->mouse_pressed)
         {
-            uint32_t serial = wl_display_next_serial(comp->display);
-
             wl_resource* focused_pointer = get_focused_pointer(comp);
             if(focused_pointer)
             {
@@ -185,6 +181,7 @@ void handle_pointer_motion(LumaCompositor* comp, int x, int y)
                 if (prev_surface)
                 {
                     std::cout << "[Input] handle_pointer_motion Leaving new surface" << std::endl;
+                    uint32_t serial = wl_display_next_serial(comp->display);
                     wl_pointer_send_leave(focused_pointer, serial, prev_surface);
                     wl_pointer_send_frame(focused_pointer);
                     wl_display_flush_clients(comp->display);
