@@ -6,7 +6,7 @@ static int gfx_height;
 static int gfx_pitch;
 static uint32_t* gfx_buffer;
 
-void gfx_init(void)
+void fb_graphics_init(void)
 {
     gfx_width  = fb.width;
     gfx_height = fb.height;

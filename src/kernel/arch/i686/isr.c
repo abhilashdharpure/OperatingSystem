@@ -53,11 +53,21 @@ void i686_ISR_Initialize()
     for (int i = 0; i < 256; i++)
         i686_IDT_EnableGate(i);
 
-    i686_IDT_DisableGate(0x80);
+    // i686_IDT_DisableGate(0x80);
 }
 
 void __attribute__((cdecl)) i686_ISR_Handler(Registers* regs)
 {
+
+    // log_info(MODULE, "i686_ISR_Handler interrupt = %d!", regs->interrupt);
+
+    if (regs->interrupt == 0x80) {
+        log_info(MODULE, "i686_ISR_Handler interrupt (0x80) = %d!", regs->interrupt);
+
+        i686_syscall_handler(regs);
+        return;
+    }
+
     if (g_ISRHandlers[regs->interrupt] != NULL)
         g_ISRHandlers[regs->interrupt](regs);
 

@@ -28,3 +28,8 @@ void fb_backbuffer_flush(void)
     memcpy((void*)fb_dev.framebuffer, backbuffer,
            fb_dev.width * fb_dev.height * sizeof(uint32_t));
 }
+
+uint32_t* fb_backbuffer_get_buffer()
+{
+    return backbuffer;
+}

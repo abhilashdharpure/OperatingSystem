@@ -1,0 +1,43 @@
+#include "syscall_install.h"
+#include "arch/i686/isr.h"
+#include "arch/i686/idt.h"
+#include "arch/i686/gdt.h"
+#include "debug.h"
+
+// #include "arch/i686/isrs_gen.c"
+
+void i686_syscall_handler(Registers* regs); // implemented below in syscall.c
+
+// void i686_syscall_install(void)
+// {
+//     // Ensure vector 0x80 is enabled
+//     i686_IDT_EnableGate(0x80);
+
+//     // Register our syscall handler
+//     i686_ISR_RegisterHandler(0x80, i686_syscall_handler);
+
+//     dump_syscall_idt_entry();
+
+//     log_info("SYSCALL", "syscall vector 0x80 installed");
+// }
+void i686_syscall_install(void)
+{
+    // i686_IDT_SetGate(
+    //     0x80,
+    //     i686_ISR80,
+    //     i686_GDT_CODE_SEGMENT,
+    //     IDT_FLAG_PRESENT |
+    //     IDT_FLAG_RING3 |
+    //     IDT_FLAG_GATE_32BIT_INT
+    // );
+
+    i686_IDT_EnableGate(0x80);  // optional - sets Present bit again
+
+    i686_ISR_RegisterHandler(0x80, i686_syscall_handler);
+
+    dump_syscall_idt_entry();
+
+
+
+    log_info("SYSCALL", "syscall vector 0x80 installed");
+}

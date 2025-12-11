@@ -3,7 +3,7 @@
 #include "color.h"
 
 // Initialize graphics abstraction
-void gfx_init(void);
+void fb_graphics_init(void);
 
 // Basic pixel operations
 void gfx_put_pixel(int x, int y, uint32_t color);

@@ -1,5 +1,5 @@
 #include "input_manager.h"
-#include "util/string.h"
+#include "string.h"
 #include "debug.h"
 #include "arch/i686/events/input_event.h"
 

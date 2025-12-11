@@ -43,8 +43,20 @@ objects = [
     obj_crtn
 ]
 
-kernel = env.Program('kernel.elf', objects)
+# init_src = env.File('#image/rootfs/bin/init')  # project-root relative
+# init_blob = env.Command(
+#     target='init_blob.o',
+#     source=init_src,
+#     action='objcopy -I binary -O elf32-i386 -B i386 $SOURCE $TARGET'
+# )
 
+# env.Depends(init_blob, init_src)
+# objects.append(init_blob)
+
+
+
+
+kernel = env.Program('kernel.elf', objects)
 kernel_stripped = env.Command('kernel-stripped.elf', kernel, '$STRIP -o $TARGET $SOURCE')
 env.Default(kernel_stripped)
 

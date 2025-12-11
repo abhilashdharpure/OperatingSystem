@@ -1,0 +1,251 @@
+# SConstruct - minimal user-space build for /bin/init
+import os
+
+# Toolchain paths
+TOOLCHAIN = "../../toolchain/i686-elf/bin"
+CC = os.path.join(TOOLCHAIN, "i686-elf-gcc")
+LD = os.path.join(TOOLCHAIN, "i686-elf-ld")
+OBJCOPY = os.path.join(TOOLCHAIN, "i686-elf-objcopy")
+
+# Source and build dirs
+SRC = "src"
+BUILD_DIR = "build/user"
+os.makedirs(BUILD_DIR, exist_ok=True)
+
+# Source files
+SOURCE_C = os.path.join(SRC, "main.c")
+SOURCE_ASM = os.path.join(SRC, "user_syscall.asm")
+
+# Output files
+OBJECT_C = os.path.join(BUILD_DIR, "main.o")
+OBJECT_ASM = os.path.join(BUILD_DIR, "user_syscall.o")
+ELF_FILE = os.path.join(BUILD_DIR, "init.elf")
+BIN_FILE = os.path.join(BUILD_DIR, "init")
+
+# Compiler flags
+CFLAGS = "-m32 -ffreestanding -nostdlib -fno-pie -fno-stack-protector -Wall -Wextra"
+
+# Linker script or direct entry base
+USER_BASE = "0x08048000"  # <-- User-space base address
+LINKER_SCRIPT = os.path.join(SRC, "link.ld")  # optional, can still use your linker script
+
+env = Environment()
+
+# Compile main.c -> main.o
+main_obj = env.Command(
+    OBJECT_C,
+    SOURCE_C,
+    f"{CC} {CFLAGS} -c $SOURCE -o $TARGET"
+)
+
+# Assemble user_syscall.asm -> user_syscall.o
+asm_obj = env.Command(
+    OBJECT_ASM,
+    SOURCE_ASM,
+    f"nasm -f elf32 -o $TARGET $SOURCE"
+)
+
+# Link ELF at fixed user-space base
+elf = env.Command(
+    ELF_FILE,
+    [main_obj, asm_obj],
+    f"{LD} -m elf_i386 -Ttext={USER_BASE} -o $TARGET $SOURCES"
+)
+
+# Convert ELF -> flat binary
+bin_file = env.Command(
+    BIN_FILE,
+    elf,
+    f"{OBJCOPY} -O binary $SOURCE $TARGET"
+)
+
+# Default target
+Default(bin_file)
+
+print(f"Build complete. User binary -> {BIN_FILE}")
+
+
+
+
+
+
+
+
+# # SConstruct - user space build (/bin/init)
+
+# import os
+
+# # Toolchain paths
+# TOOLCHAIN = "../../toolchain/i686-elf/bin"
+# CC = os.path.join(TOOLCHAIN, "i686-elf-gcc")
+# LD = os.path.join(TOOLCHAIN, "i686-elf-ld")
+# OBJCOPY = os.path.join(TOOLCHAIN, "i686-elf-objcopy")
+
+# # Project paths
+# SRC = "src"
+# BUILD_DIR = "build/user"
+
+# os.makedirs(BUILD_DIR, exist_ok=True)
+
+# # Files
+# MAIN_C       = os.path.join(SRC, "main.c")
+# SC_SYSCALL   = os.path.join(SRC, "user_syscall.asm")
+# MAIN_O       = os.path.join(BUILD_DIR, "main.o")
+# SYSCALL_O    = os.path.join(BUILD_DIR, "user_syscall.o")
+# ELF_FILE     = os.path.join(BUILD_DIR, "init.elf")
+# BIN_FILE     = os.path.join(BUILD_DIR, "init")
+# LINKER_SCRIPT = os.path.join(SRC, "link.ld")
+
+# # C compiler flags
+# CFLAGS = "-m32 -ffreestanding -nostdlib -fno-pie -fno-stack-protector -Wall -Wextra"
+
+# env = Environment()
+
+# #
+# # --- Build Assembly (.asm → .o) using NASM ---
+# #
+# env['NASM'] = "nasm"
+# env['NASMFLAGS'] = "-f elf32"
+
+# syscall_obj = env.Command(
+#     SYSCALL_O,
+#     SC_SYSCALL,
+#     f"{env['NASM']} {env['NASMFLAGS']} -o $TARGET $SOURCE"
+# )
+
+# #
+# # --- Build main.c (.c → .o) ---
+# #
+# main_obj = env.Command(
+#     MAIN_O,
+#     MAIN_C,
+#     f"{CC} {CFLAGS} -c $SOURCE -o $TARGET"
+# )
+
+# #
+# # --- Link all user objects into init.elf ---
+# #
+# elf = env.Command(
+#     ELF_FILE,
+#     [main_obj, syscall_obj],
+#     f"{LD} -m elf_i386 -T {LINKER_SCRIPT} -o $TARGET $SOURCES"
+# )
+
+# #
+# # --- Convert ELF → flat binary ---
+# #
+# bin_file = env.Command(
+#     BIN_FILE,
+#     elf,
+#     f"{OBJCOPY} -O binary $SOURCE $TARGET"
+# )
+
+# Default(bin_file)
+
+# print(f"Build complete. User binary → {BIN_FILE}")
+
+
+
+# # SConstruct - minimal user-space build for /bin/init
+
+# import os
+
+# # Toolchain paths
+# TOOLCHAIN = "../../toolchain/i686-elf/bin"
+# CC = os.path.join(TOOLCHAIN, "i686-elf-gcc")
+# LD = os.path.join(TOOLCHAIN, "i686-elf-ld")
+# OBJCOPY = os.path.join(TOOLCHAIN, "i686-elf-objcopy")
+
+# # Source and build dirs
+# SRC = "src"
+# BUILD_DIR = "build/user"
+# os.makedirs(BUILD_DIR, exist_ok=True)
+
+# # Source file
+# SOURCE_FILE = os.path.join(SRC, "main.c")
+# OBJECT_FILE = os.path.join(BUILD_DIR, "main.o")
+# ELF_FILE = os.path.join(BUILD_DIR, "init.elf")
+# BIN_FILE = os.path.join(BUILD_DIR, "init")
+
+# # Compiler flags
+# CFLAGS = "-m32 -ffreestanding -nostdlib -fno-pie -fno-stack-protector -Wall -Wextra"
+
+# # Linker script
+# LINKER_SCRIPT = os.path.join(SRC, "link.ld")
+
+# env = Environment()
+
+# # Compile main.c -> main.o
+# main_obj = env.Command(
+#     OBJECT_FILE,
+#     SOURCE_FILE,
+#     f"{CC} {CFLAGS} -c $SOURCE -o $TARGET"
+# )
+
+# # Link main.o -> init.elf using ld + linker script
+# elf = env.Command(
+#     ELF_FILE,
+#     main_obj,
+#     f"{LD} -m elf_i386 -T {LINKER_SCRIPT} -o $TARGET $SOURCE"
+# )
+
+# # Optional: convert ELF -> flat binary (if needed)
+# bin_file = env.Command(
+#     BIN_FILE,
+#     elf,
+#     f"{OBJCOPY} -O binary $SOURCE $TARGET"
+# )
+
+# # Default target
+# Default(bin_file)
+
+# print(f"Build complete. Binary will be at: {BIN_FILE}")
+
+
+
+
+
+
+# # SConstruct - minimal user-space build for /bin/init
+
+# import os
+
+# # Toolchain settings
+# CC = "../../toolchain/i686-elf/bin/i686-elf-gcc"
+# LD = "../../toolchain/i686-elf/bin/i686-elf-ld"
+# CFLAGS = "-ffreestanding -m32 -O2 -Wall -Wextra"
+
+# # Source and build dirs
+# src_dir = "src"
+# build_dir = "build/user"
+# os.makedirs(build_dir, exist_ok=True)
+
+# # Source and output files
+# source_file = os.path.join(src_dir, "main.c")
+# elf_file = os.path.join(build_dir, "init.elf")
+# binary_file = os.path.join(build_dir, "init")
+
+# # Environment
+# env = Environment(CC=CC, LINK=LD)
+
+# # Compile object
+# obj = env.Object(source_file, CFLAGS=CFLAGS)
+
+# # Link with ld directly
+# elf = env.Command(
+#     target=elf_file,
+#     source=obj,
+#     action=f"{LD} -m elf_i386 -Ttext 0x08048000 -o $TARGET $SOURCE"
+# )
+
+# # Convert ELF -> binary
+# bin_file = env.Command(
+#     target=binary_file,
+#     source=elf,
+#     action=f"../../toolchain/i686-elf/bin/i686-elf-objcopy -O binary $SOURCE $TARGET"
+# )
+
+# # Default target
+# Default(bin_file)
+
+# print("Build complete. Binary will be at:", binary_file)

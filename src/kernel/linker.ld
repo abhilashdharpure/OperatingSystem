@@ -5,6 +5,7 @@ phys = 0x00100000;
 SECTIONS
 {
     . = phys;
+    _kernel_start = .;
     
     .text               : { __text_start = .;       *(.text)    }
     .data               : { __data_start = .;       *(.data)    }
@@ -12,4 +13,5 @@ SECTIONS
     .bss                : { __bss_start = .;        *(.bss)     }
     
     __end = .;
+    _kernel_end = .;
 }

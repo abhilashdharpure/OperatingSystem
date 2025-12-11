@@ -6,3 +6,12 @@ void i686_iowait()
 {
     i686_outb(UNUSED_PORT, 0);
 }
+// uint16_t __attribute__((cdecl)) i686_inw(uint16_t port) {
+//     uint16_t val;
+//     __asm__ volatile ("inw %1, %0" : "=a"(val) : "Nd"(port));
+//     return val;
+// }
+
+// void __attribute__((cdecl)) i686_outw(uint16_t port, uint16_t value) {
+//     __asm__ volatile ("outw %0, %1" : : "a"(value), "Nd"(port));
+// }

@@ -49,6 +49,14 @@ uint64_t get_system_time_us(void)
     return (ticks_snapshot * 1000000ULL) / pit_frequency;
 }
 
+uint64_t pit_get_ticks(void)
+{
+    uint64_t t;
+    __asm__ volatile("cli"); // disable interrupts
+    t = pit_ticks;
+    __asm__ volatile("sti"); // enable interrupts
+    return t;
+}
 
 // #define PIT_FREQUENCY     1193182
 

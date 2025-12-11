@@ -38,3 +38,19 @@ crash_me:
     ; div eax
     int 0x80
     ret
+
+global i686_inw
+i686_inw:
+    [bits 32]
+    mov dx, [esp + 4]   ; port
+    xor eax, eax
+    in ax, dx           ; read 16 bits into AX
+    ret
+
+global i686_outw
+i686_outw:
+    [bits 32]
+    mov dx, [esp + 4]   ; port
+    mov ax, [esp + 8]   ; value
+    out dx, ax          ; write 16 bits
+    ret

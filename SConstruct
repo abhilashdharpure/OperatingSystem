@@ -1,3 +1,5 @@
+# SConstruct
+
 from pathlib import Path
 from SCons.Variables import *
 from SCons.Environment import *
@@ -139,23 +141,114 @@ Export('TARGET_ENVIRONMENT')
 variantDir = 'build/{0}_{1}'.format(TARGET_ENVIRONMENT['arch'], TARGET_ENVIRONMENT['config'])
 variantDirStage1 = variantDir + '/stage1_{0}'.format(TARGET_ENVIRONMENT['imageFS'])
 
-SConscript('src/libs/core/SConscript', variant_dir=variantDir + '/libs/core', duplicate=0)
 
+
+
+
+#########################################################################################################################
+# SConscript('src/libs/core/SConscript', variant_dir=variantDir + '/libs/core', duplicate=0)
+# SConscript('src/bootloader/stage1/SConscript', variant_dir=variantDirStage1, duplicate=0)
+# SConscript('src/bootloader/stage2/SConscript', variant_dir=variantDir + '/stage2', duplicate=0)
+# SConscript('src/kernel/SConscript', variant_dir=variantDir + '/kernel', duplicate=0)
+# SConscript('src/luma-compositor/SConscript', variant_dir=variantDir + '/user', duplicate=0)
+# SConscript('image/SConscript', variant_dir=variantDir, duplicate=0)
+
+# Import('image')
+# Default(image)
+
+# # Phony targets
+# PhonyTargets(HOST_ENVIRONMENT, 
+#              run=['./scripts/run.sh', HOST_ENVIRONMENT['imageType'], image[0].path],
+#              debug=['./scripts/debug.sh', HOST_ENVIRONMENT['imageType'], image[0].path],
+#              bochs=['./scripts/bochs.sh', HOST_ENVIRONMENT['imageType'], image[0].path],
+#              toolchain=['./scripts/setup_toolchain.sh', HOST_ENVIRONMENT['toolchain']])
+
+# Depends('run', image)
+# Depends('debug', image)
+# Depends('bochs', image)
+
+#########################################################################################################################
+
+
+
+# -------------------------------------------------------
+# Copy user binary into the rootfs BEFORE image is built
+# -------------------------------------------------------
+import os, shutil
+
+luma_compositor_binary = TARGET_ENVIRONMENT.Dir(variantDir + '/user').File('luma-compositor')
+rootfs_bin_dir = 'image/root/bin'
+
+def copy_user_binary_action(target, source, env):
+    os.makedirs(rootfs_bin_dir, exist_ok=True)
+    src = str(source[0])
+    dst = os.path.join(rootfs_bin_dir, "init")
+    print(f"[Copy] {src} → {dst}")
+    shutil.copy2(src, dst)
+    os.chmod(dst, 0o755)
+
+copy_user_binary = TARGET_ENVIRONMENT.Command(
+    target='copy_user_binary_done',
+    source=luma_compositor_binary,
+    action=copy_user_binary_action
+)
+
+Export('copy_user_binary')
+
+# # -------------------------------------------------------
+# # FAT32 Image creation builder (NEW IMAGE)
+# # -------------------------------------------------------
+# def build_fat32_image_action(target, source, env):
+#     img = str(target[0])
+#     script = "./scripts/create_fat32_image.sh"
+#     print(f"[FAT32] Creating image: {img}")
+#     os.system(f"bash {script} {img}")
+#     return 0
+
+# image = TARGET_ENVIRONMENT.Command(
+#     target=variantDir + "/image.img",
+#     source='copy_user_binary_done',
+#     action=build_fat32_image_action
+# )
+
+# AlwaysBuild(image)
+# Export('image')
+
+# -------------------------------------------------------
+# Kernel / bootloader / user compilation
+# -------------------------------------------------------
+SConscript('src/libs/core/SConscript', variant_dir=variantDir + '/libs/core', duplicate=0)
 SConscript('src/bootloader/stage1/SConscript', variant_dir=variantDirStage1, duplicate=0)
 SConscript('src/bootloader/stage2/SConscript', variant_dir=variantDir + '/stage2', duplicate=0)
 SConscript('src/kernel/SConscript', variant_dir=variantDir + '/kernel', duplicate=0)
+SConscript('src/luma-compositor/SConscript', variant_dir=variantDir + '/user', duplicate=0)
 SConscript('image/SConscript', variant_dir=variantDir, duplicate=0)
 
 Import('image')
+
+
+# -------------------------------------------------------
+# DO NOT import or use the old "image" target anymore!
+# -------------------------------------------------------
+
+# Use the new FAT32 image for default build target
 Default(image)
 
-# Phony targets
-PhonyTargets(HOST_ENVIRONMENT, 
-             run=['./scripts/run.sh', HOST_ENVIRONMENT['imageType'], image[0].path],
-             debug=['./scripts/debug.sh', HOST_ENVIRONMENT['imageType'], image[0].path],
-             bochs=['./scripts/bochs.sh', HOST_ENVIRONMENT['imageType'], image[0].path],
-             toolchain=['./scripts/setup_toolchain.sh', HOST_ENVIRONMENT['toolchain']])
+# # Ensure FAT32 image rebuilds when init is updated
+# # Depends(image, copy_user_binary)
+
+# -------------------------------------------------------
+# Run / Debug / Bochs use new image
+# -------------------------------------------------------
+from build_scripts.phony_targets import PhonyTargets
+PhonyTargets(
+    HOST_ENVIRONMENT,
+    run=['./scripts/run.sh', HOST_ENVIRONMENT['imageType'], image[0].path],
+    debug=['./scripts/debug.sh', HOST_ENVIRONMENT['imageType'], image[0].path],
+    bochs=['./scripts/bochs.sh', HOST_ENVIRONMENT['imageType'], image[0].path],
+    toolchain=['./scripts/setup_toolchain.sh', HOST_ENVIRONMENT['toolchain']])
 
 Depends('run', image)
 Depends('debug', image)
 Depends('bochs', image)
+

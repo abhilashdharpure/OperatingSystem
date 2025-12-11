@@ -79,7 +79,13 @@ pip install sh
 
 sudo apt update
 sudo apt install libguestfs-tools libguestfs libvirt-daemon-system libvirt-clients supermin qemu-system
+sudo apt install \
+    libguestfs-tools libguestfs-dev \
+    supermin qemu-system-x86 \
+    linux-image-generic \
+    libvirt-clients libvirt-daemon-system
 
+sudo apt install --reinstall libguestfs-appliance supermin
 
 sudo chmod +r /boot/vmlinuz-6.8.0-85-generic
 
@@ -135,3 +141,69 @@ sudo usermod -a -G video $USER
 sudo usermod -aG video $USER
 sudo chmod 666 /dev/fb0
 newgrp input
+
+## Get error for 
+ls -l /boot/vmlinuz-*
+ sudo chmod a+r /boot/vmlinuz-*
+ ls -l /boot/vmlinuz-*
+
+
+ sudo apt install python3-pip
+
+ # Command to check disk image
+cd Project/OperatingSystem
+fdisk -l build/i686_debug/image.img 
+sudo losetup --find --show build/i686_debug/image.img
+sudo fdisk -l /dev/loop35
+sudo kpartx -av /dev/loop35
+sudo mount /dev/mapper/loop35p1 /mnt
+sudo umount /mnt
+
+
+fdisk -l build/i686_debug/image.img 
+LOOP=$(sudo losetup --find --show build/i686_debug/image.img)
+sudo kpartx -av $LOOP
+sudo mount /dev/mapper/$(basename $LOOP)p1 /mnt
+ls -l /mnt/
+ls -l /mnt/bin/init
+ls -l /mnt/STAGE2.BIN
+
+dd if=build/i686_debug/image.img bs=512 count=1 status=none | hexdump -C | sed -n '1,20p'
+dd if=build/i686_debug/image.img bs=512 skip=2048 count=1 status=none | hexdump -C | sed -n '1,40p'
+
+
+LOOP=$(sudo losetup --find --show build/i686_debug/image.img)
+sudo kpartx -av $LOOP
+sudo fdisk -l $LOOP 
+
+
+sudo losetup --find --show build/i686_debug/image.img
+sudo kpartx -av /dev/loopNN
+ls -l /dev/mapper/loopNNp1
+sudo mkfs.fat -F 32 -n NBOS /dev/mapper/loopNNp1
+
+
+toolchain/i686-elf/bin/i686-elf-gcc -m32 -ffreestanding -nostdlib -nostartfiles \
+    -o build/i686_debug/user/init \
+    src/userspace/_start.S src/userspace/main.c
+
+
+// Compile user space:
+cd src/userspace/
+gcc -m32 -c init.c -o init.o -fno-pie -fno-stack-protector -nostdlib -ffreestanding
+gcc -m32 -c write.c -o write.o -fno-pie -fno-stack-protector -nostdlib -ffreestanding
+gcc -m32 -c syscall/syscall.c -o syscall.o -fno-pie -fno-stack-protector -nostdlib -ffreestanding
+gcc -m32 -c syscall/syscall_entry.S -o syscall_entry.o -fno-pie -ffreestanding
+gcc -m32 -c syscall/syscall.S -o syscall_syscall.o -fno-pie -ffreestanding
+
+ld -m elf_i386 -T user/link.ld -o init init.o write.o syscall_syscall.o
+cp init ../../image/root/bin/
+cd ../../
+
+
+cd src/userspace/
+scons
+../../toolchain/i686-elf/bin/i686-elf-readelf -h build/user/init.elf
+cp build/user/init ../../image/root/bin/
+cd ../../
+clear && scons run

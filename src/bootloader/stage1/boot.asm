@@ -63,28 +63,41 @@ section .entry
     global start
 
     start:
-        ; move partition entry from MBR to a different location so we 
-        ; don't overwrite it (which is passed through DS:SI)
+        ; ; move partition entry from MBR to a different location so we 
+        ; ; don't overwrite it (which is passed through DS:SI)
+        ; mov ax, PARTITION_ENTRY_SEGMENT
+        ; mov es, ax
+        ; mov di, PARTITION_ENTRY_OFFSET
+        ; mov cx, 16
+        ; rep movsb
+        
+        ; ; setup data segments
+        ; mov ax, 0           ; can't set ds/es directly
+        ; mov ds, ax
+        ; mov es, ax
+        
+        ; ; setup stack
+        ; mov ss, ax
+        ; mov sp, 0x7C00              ; stack grows downwards from where we are loaded in memory
+
+        ; ; some BIOSes might start us at 07C0:0000 instead of 0000:7C00, make sure we are in the
+        ; ; expected location
+        ; push es
+        ; push word .after
+        ; retf
+
+        ; DS:SI must point to the partition entry in the MBR!
+        mov ax, 0
+        mov ds, ax
+        mov si, 0x7C00 + 0x1BE     ; MBR partition entry
+
+        ; move it to safe memory
         mov ax, PARTITION_ENTRY_SEGMENT
         mov es, ax
         mov di, PARTITION_ENTRY_OFFSET
         mov cx, 16
         rep movsb
-        
-        ; setup data segments
-        mov ax, 0           ; can't set ds/es directly
-        mov ds, ax
-        mov es, ax
-        
-        ; setup stack
-        mov ss, ax
-        mov sp, 0x7C00              ; stack grows downwards from where we are loaded in memory
 
-        ; some BIOSes might start us at 07C0:0000 instead of 0000:7C00, make sure we are in the
-        ; expected location
-        push es
-        push word .after
-        retf
 
     .after:
 
@@ -354,7 +367,9 @@ section .data
     STAGE2_LOAD_OFFSET      equ 0x500
 
     PARTITION_ENTRY_SEGMENT equ 0x2000
-    PARTITION_ENTRY_OFFSET  equ 0x0
+    ; PARTITION_ENTRY_SEGMENT equ 0x7C800
+    ; PARTITION_ENTRY_OFFSET  equ 0x0800      ; Partition starts at 2048
+    PARTITION_ENTRY_OFFSET  equ 0x0      ; Partition starts at 2048
 
 
 section .data

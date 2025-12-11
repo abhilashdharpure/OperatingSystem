@@ -1,0 +1,32 @@
++--------------------------+
+|        Applications      |
+|--------------------------|
+| draw to their own buffer |
++--------------------------+
+
+          ↓ (IPC / shared memory)
+
++-------------------------------+
+| User-space Compositor         |
+|-------------------------------|
+| - receives app buffers        |
+| - does alpha blending         |
+| - z-order                     |
+| - window movement             |
+| - handles input focus         |
+| - calls kernel to flip frame  |
++-------------------------------+
+
+          ↓ (IOCTL)
+
++--------------------------+
+|  Kernel Graphics Driver  |
+|--------------------------|
+| - map fb to user space   |
+| - page flip / modeset    |
+| - vsync / interrupts     |
++--------------------------+
+
++--------------------------+
+|       Hardware GPU       |
++--------------------------+

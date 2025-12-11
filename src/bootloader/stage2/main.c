@@ -25,25 +25,32 @@ void __attribute__((cdecl)) start(uint16_t bootDrive, void* partition)
 {
     clrscr();
 
+    printf("Bootloader starting\n");
+
     DISK disk;
     if (!DISK_Initialize(&disk, bootDrive))
     {
         printf("Disk init error\r\n");
         goto end;
     }
+    printf("Bootloader DISK_Initialize,partition = %p\n", partition);
+
 
     Partition part;
     MBR_DetectPartition(&part, &disk, partition);
+    printf("Bootloader MBR_DetectPartition\n");
 
     if (!FAT_Initialize(&part))
     {
         printf("FAT init error\r\n");
         goto end;
     }
+    printf("Bootloader FAT_Initialize\n");
 
     // prepare boot params
     g_BootParams.BootDevice = bootDrive;
     Memory_Detect(&g_BootParams.Memory);
+    printf("Bootloader Memory_Detect\n");
 
     // load kernel
     KernelStart kernelEntry;
@@ -52,6 +59,7 @@ void __attribute__((cdecl)) start(uint16_t bootDrive, void* partition)
         printf("ELF read failed, booting halted!");
         goto end;
     }
+    printf("Bootloader ELF_Read for KernelStart\n");
 
     // TODO: Check the value.
     const int desiredWidth = 1024;

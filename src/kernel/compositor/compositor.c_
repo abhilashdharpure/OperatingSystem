@@ -1,7 +1,7 @@
 #include "compositor/compositor.h"
 #include "drivers/fb/fb.h"
 #include "drivers/input/input_manager.h"
-#include <util/string.h> 
+#include <string.h> 
 #include "debug.h"
 
 

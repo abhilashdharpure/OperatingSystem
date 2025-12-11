@@ -1,0 +1,9 @@
+# # SConscript for building drmfb
+# Import('env')
+# src = [
+#     'drmfb_drv.c',
+#     'drmfb_kms.c',
+#     'drmfb_gem.c'
+# ]
+# # compile into object(s); adjust flags as needed
+# env.Program(target='drmfb', source=src)

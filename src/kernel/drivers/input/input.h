@@ -2,7 +2,7 @@
 
 #include "stdint.h"
 #include "arch/i686/events/input_event.h"
-#include <util/string.h>
+#include <string.h>
 
 
 typedef struct __attribute__((packed)) {
