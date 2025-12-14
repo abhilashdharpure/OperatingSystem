@@ -28,3 +28,21 @@ void logf(const char* module, DebugLevel level, const char* fmt, ...)
 
     va_end(args);  
 }
+
+// // Early log: safe for boot
+// void logearly(const char* module, DebugLevel level, const char* fmt, ...)
+// {
+//     char buf[128];  // keep stack small
+//     va_list args;
+//     va_start(args, fmt);
+//     int len = ksnprintf(buf, sizeof(buf), fmt, args);  // or your own vsnprintf
+//     va_end(args);
+
+//     if (len > 0)
+//     {
+//         // prepend module/severity if needed
+//         for (int i = 0; buf[i]; i++)
+//             fb_putc(buf[i]);
+//         fb_putc('\n');
+//     }
+// }

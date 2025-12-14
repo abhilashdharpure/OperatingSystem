@@ -183,6 +183,18 @@ ls -l /dev/mapper/loopNNp1
 sudo mkfs.fat -F 32 -n NBOS /dev/mapper/loopNNp1
 
 
+
+
+wget https://ftp.gnu.org/gnu/gdb/gdb-14.2.tar.xz
+tar -xf gdb-14.2.tar.xz
+cd gdb-14.2
+mkdir build
+cd build
+../configure --target=i686-elf --prefix=/usr/local/gcc-i686 --disable-werror
+
+
+
+
 toolchain/i686-elf/bin/i686-elf-gcc -m32 -ffreestanding -nostdlib -nostartfiles \
     -o build/i686_debug/user/init \
     src/userspace/_start.S src/userspace/main.c
@@ -203,7 +215,31 @@ cd ../../
 
 cd src/userspace/
 scons
-../../toolchain/i686-elf/bin/i686-elf-readelf -h build/user/init.elf
+../../toolchain/i686-elf/bin/i686-elf-readelf -h build/user/init
 cp build/user/init ../../image/root/bin/
 cd ../../
 clear && scons run
+
+# Check file entry address
+readelf -h image/root/bin/init
+
+
+
+readelf -h init
+file image/root/bin/init
+
+
+[EXEC] ELF loaded entry=0x8048022
+
+
+ gdb build/i686_debug/kernel/kernel.elf
+(gdb) set architecture i386
+(gdb) target remote localhost:1234
+
+
+abhilash@Abhilash:~/Project/OperatingSystem$ ll build/i686_debug/kernel/kernel.elf 
+-rwxrwxr-x 1 abhilash abhilash 230336 Dec 13 22:00 build/i686_debug/kernel/kernel.elf*
+
+ll build/i686_debug/kernel/kernel.elf 
+-rwxrwxr-x 1 abhilash abhilash 230584 Dec 13 22:04 build/i686_debug/kernel/kernel.elf*
+abhilash@Abhilash:~/Project/OperatingSystem$ 

@@ -11,3 +11,4 @@ typedef struct {
 
 int elf_load_from_vfs(int fd, Elf32_Info *out);
 void elf_map_segments(struct Process *p, Elf32_Info *elf);
+void set_phys_to_virt_ready();

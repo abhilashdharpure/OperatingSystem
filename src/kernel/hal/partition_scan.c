@@ -75,7 +75,7 @@ static block_device_t sda1 = {
 // Register first FAT32 partition
 bool register_first_fat32_partition(void)
 {
-    log_info("PART", "register_first_fat32_partition start");
+    // log_info("PART", "register_first_fat32_partition start");
 
     block_device_t *disk = block_lookup_by_name("sda"); // the whole-disk device
     if (!disk)
@@ -101,8 +101,8 @@ bool register_first_fat32_partition(void)
     sda1.private_data = disk->private_data; // keep same ata device pointer
     register_block_device("sda1", &sda1);
 
-    log_info("PART", "Registered sda1 -> lba_base=%u (0x%x) sector_size=%u",
-             sda1.lba_base, sda1.lba_base, sda1.sector_size);
+    // log_info("PART", "Registered sda1 -> lba_base=%u (0x%x) sector_size=%u",
+    //          sda1.lba_base, sda1.lba_base, sda1.sector_size);
     return true;
 }
 
@@ -110,7 +110,7 @@ bool register_first_fat32_partition(void)
 // Utility: create a Partition struct from a registered device
 Partition make_partition_from(const char *name)
 {
-    log_info("PART", "make_partition_from name = %s", name);
+    // log_info("PART", "make_partition_from name = %s", name);
 
     Partition p = {0};
     block_device_t *dev = block_lookup_by_name(name);
@@ -120,8 +120,8 @@ Partition make_partition_from(const char *name)
         p.sector_size = dev->sector_size;
     }
 
-    log_info("PART", "make_partition_from p.lba_base = %u", p.lba_base);
-    log_info("PART", "make_partition_from p.sector_size = %u", p.sector_size);
+    // log_info("PART", "make_partition_from p.lba_base = %u", p.lba_base);
+    // log_info("PART", "make_partition_from p.sector_size = %u", p.sector_size);
 
     return p;
 }

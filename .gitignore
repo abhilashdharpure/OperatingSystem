@@ -6,3 +6,7 @@ bx_enh_dbg.ini
 .sconsign.dblite
 __pycache__/
 *.o
+image/root/bin/init
+image/root/bin/init.elf
+image/root/bin/init
+image/root/bin/init

@@ -5,23 +5,11 @@ ENTRY(_start)           /* Entry point function */
 /* Define memory layout */
 SECTIONS
 {
-    /* Place text/code at 0x08048000 */
-    . = 0x8b9080c0;
-    
-    .text : {
-        *(.text)       /* All code sections from object files */
-    }
+    . = 0x08048000;
 
-    .rodata : {
-        *(.rodata)     /* Read-only data */
-    }
-
-    .data : {
-        *(.data)       /* Initialized data */
-    }
-
-    .bss : {
-        *(.bss)        /* Zero-initialized data */
-        *(COMMON)
-    }
+    .text : { *(.text) }
+    .rodata : { *(.rodata) }
+    .data : { *(.data) }
+    .bss : { *(.bss) *(COMMON) }
 }
+ENTRY(_start)

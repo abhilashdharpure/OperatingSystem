@@ -27,7 +27,8 @@ static inline void syscall_write(const char *buf, uint32_t len)
 const char msg[] = "Hello from user space!\n";
 
 void _start() {
-    syscall_write(msg, sizeof(msg)-1);
+    // syscall_write(msg, sizeof(msg)-1);
+    asm volatile("int $0x80");
     while(1);
 }
 

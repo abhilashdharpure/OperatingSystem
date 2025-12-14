@@ -3,6 +3,37 @@
 #include "hal/vfs.h"
 #include "debug.h"
 
+// static int cursor_x = 0;
+// static int cursor_y = 0;
+// static const int CHAR_WIDTH = 8;
+// static const int CHAR_HEIGHT = 16;
+
+// extern uint8_t font8x16[256][16]; // include a simple bitmap font
+
+// void fb_putc(char c)
+// {
+//     if (c == '\n') {
+//         cursor_x = 0;
+//         cursor_y += CHAR_HEIGHT;
+//         return;
+//     }
+
+//     for (int y = 0; y < CHAR_HEIGHT; y++) {
+//         uint8_t row = font8x16[(uint8_t)c][y];
+//         for (int x = 0; x < CHAR_WIDTH; x++) {
+//             if (row & (1 << (7 - x))) {
+//                 fb_put_pixel(cursor_x + x, cursor_y + y, 0xFFFFFFFF); // white
+//             }
+//         }
+//     }
+
+//     cursor_x += CHAR_WIDTH;
+//     if (cursor_x + CHAR_WIDTH >= fb_dev.width) {
+//         cursor_x = 0;
+//         cursor_y += CHAR_HEIGHT;
+//     }
+// }
+
 
 
 VbeModeInfo fb;

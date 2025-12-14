@@ -140,18 +140,18 @@ void block_register(block_device_t *dev)
 block_device_t *block_lookup_by_name(const char *name)
 {
 
-    log_info("BLOCK", "block_lookup_by_name name = %s",name);
+    // log_info("BLOCK", "block_lookup_by_name name = %s",name);
 
     for (int i = 0; i < MAX_BLOCK_DEVICES; i++)
     {
-        if (block_devices[i] && block_devices[i]->name)
-            log_info("BLOCK", "block_lookup_by_name i = %d, name = %s", i, block_devices[i]->name);
-        else
-            log_info("BLOCK", "block_lookup_by_name i = %d, empty", i);
+        // if (block_devices[i] && block_devices[i]->name)
+        //     log_info("BLOCK", "block_lookup_by_name i = %d, name = %s", i, block_devices[i]->name);
+        // else
+        //     log_info("BLOCK", "block_lookup_by_name i = %d, empty", i);
             
         if (block_devices[i] && strcmp(block_devices[i]->name, name) == 0)
         {
-            log_info("BLOCK", "returning block_lookup_by_name name = %s",name);
+            // log_info("BLOCK", "returning block_lookup_by_name name = %s",name);
 
             return block_devices[i];
         }
@@ -164,7 +164,7 @@ block_device_t *block_lookup_by_name(const char *name)
     //     }
     // }
 
-    log_info("BLOCK", "returning NULL from block_lookup_by_name  = %s",name);
+    // log_info("BLOCK", "returning NULL from block_lookup_by_name  = %s",name);
 
     return NULL;
 }

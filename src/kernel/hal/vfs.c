@@ -87,7 +87,7 @@ static int find_mount_for(const char *path);
 
 int VFS_Open(const char *path, int flags)
 {
-    log_info("VFS", "Trying to open: %s", path);
+    // log_info("VFS", "Trying to open: %s", path);
 
     // find mounted filesystem
     int mnt = find_mount_for(path);
@@ -99,7 +99,7 @@ int VFS_Open(const char *path, int flags)
     // compute subpath relative to mountpoint
     char subpath[256];
     compute_subpath(path, vfs_table[mnt].path, subpath, sizeof(subpath));
-    log_info("VFS", "VFS_Open subpath: %s", subpath);
+    // log_info("VFS", "VFS_Open subpath: %s", subpath);
 
     // find free fd entry
     for (int fd = 0; fd < MAX_OPEN_FILES; fd++)

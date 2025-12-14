@@ -331,7 +331,7 @@ static void simple_strcpy(char *dst, const char *src, size_t max)
 // ------------------------------------------------------------
 int lookup_path(fat32_t *fs, const char *subpath, fat32_node_t *out)
 {
-    log_debug("FAT32", "lookup_path, subpath = %s", subpath);
+    // log_debug("FAT32", "lookup_path, subpath = %s", subpath);
     if (!fs || !out)
     {
         log_debug("FAT32", "lookup_path 1");
@@ -372,25 +372,25 @@ int lookup_path(fat32_t *fs, const char *subpath, fat32_node_t *out)
     uint32_t current_cluster = fs->root_cluster;
 
     char component[NAME_MAX];
-    log_debug("FAT32", "lookup_path P = %d",p);
+    // log_debug("FAT32", "lookup_path P = %d",p);
     while (*p) {
         // Extract 1 path component
         int ci = 0;
         while (*p && *p != '/' && ci < NAME_MAX-1)
         {
             component[ci] = *p++;
-            log_debug("FAT32", "lookup_path component[ci] = %c",component[ci]);
+            // log_debug("FAT32", "lookup_path component[ci] = %c",component[ci]);
             ci++;
         }
 
-        log_debug("FAT32", "lookup_path ci = %d",ci);
+        // log_debug("FAT32", "lookup_path ci = %d",ci);
 
         component[ci] = '\0';
         if (*p == '/') p++;
 
         if (ci == 0)
         {
-            log_debug("FAT32", "lookup_path Askip as ci == 0 ");
+            // log_debug("FAT32", "lookup_path Askip as ci == 0 ");
             continue; // skip empty //
         }
 
@@ -401,17 +401,17 @@ int lookup_path(fat32_t *fs, const char *subpath, fat32_node_t *out)
         int found = 0;
         uint32_t cl = current_cluster;
 
-        log_debug("FAT32", "lookup_path Before While loop cl = %d", cl);
+        // log_debug("FAT32", "lookup_path Before While loop cl = %d", cl);
 
 
         // Search clusters of directory
         while (!is_eoc(cl))
         {
-            log_debug("FAT32", "lookup_path While loop cl = %d", cl);
+            // log_debug("FAT32", "lookup_path While loop cl = %d", cl);
 
             uint32_t first_sector = fat32_cluster_to_lba(fs, cl);
 
-            log_debug("FAT32", "lookup_path first_sector = %d", first_sector);
+            // log_debug("FAT32", "lookup_path first_sector = %d", first_sector);
 
             for (uint32_t s = 0; s < fs->sectors_per_cluster; s++) {
                 uint32_t lba = first_sector + s;
@@ -464,29 +464,25 @@ search_fail:
 search_done:
         if (!found)
         {
-
-            log_debug("FAT32", "lookup_path if (!found)");
             return -1;
         }
 
         // If last component → return result
         if (*p == '\0')
         {
-            log_debug("FAT32", "lookup_path if (p==\0)");
             return 0;
         }
 
         // Must be a directory if continuing deeper
         if (!out->is_dir)
         {
-            log_debug("FAT32", "lookup_path if (!out->is_dir)");
             return -1;
         }
 
         current_cluster = out->first_cluster;
     }
 
-    log_debug("FAT32", "lookup_path end");
+    // log_debug("FAT32", "lookup_path end");
     return -1;
 }
 
@@ -681,18 +677,18 @@ static int fat32_parse_bpb(fat32_t *fs, uint32_t vbr_lba)
 // Adapt your file_operations to use subpath and private_data
 static int fat32_open(struct file *f, int flags)
 {
-    log_info("FAT32", "fat32_open");
+    // log_info("FAT32", "fat32_open");
 
     fat32_t *fs = (fat32_t*)f->private_data;
     fat32_node_t *node = (fat32_node_t*)kmalloc(sizeof(fat32_node_t));
     if (!node) return -1;
 
-    log_info("FAT32", "fat32_open f->subpath = %s" , f->subpath);
-    log_info("FAT32", "fat32_open f->subpath[0] = %c" , f->subpath[0]);
+    // log_info("FAT32", "fat32_open f->subpath = %s" , f->subpath);
+    // log_info("FAT32", "fat32_open f->subpath[0] = %c" , f->subpath[0]);
 
     if (f->subpath && f->subpath[0] != '\0')
     {
-        log_info("FAT32", "fat32_open Not Dir");
+        // log_info("FAT32", "fat32_open Not Dir");
 
         if (lookup_path(fs, f->subpath, node) != 0)
         { 
@@ -703,7 +699,7 @@ static int fat32_open(struct file *f, int flags)
     }
     else
     {
-        log_info("FAT32", "fat32_open Dir");
+        // log_info("FAT32", "fat32_open Dir");
         // open root directory
         node->fs = fs;
         node->first_cluster = fs->root_cluster;

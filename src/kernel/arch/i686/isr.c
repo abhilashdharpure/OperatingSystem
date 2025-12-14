@@ -58,8 +58,12 @@ void i686_ISR_Initialize()
 
 void __attribute__((cdecl)) i686_ISR_Handler(Registers* regs)
 {
+    if(regs->interrupt != 3 && regs->interrupt != 32)
+    {
+        log_info(MODULE, "ISR: interrupt=%d err=%x eip=%x cs=%x",
+             regs->interrupt, regs->error, regs->eip, regs->cs);
 
-    // log_info(MODULE, "i686_ISR_Handler interrupt = %d!", regs->interrupt);
+    }
 
     if (regs->interrupt == 0x80) {
         log_info(MODULE, "i686_ISR_Handler interrupt (0x80) = %d!", regs->interrupt);

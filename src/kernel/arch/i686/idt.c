@@ -26,26 +26,41 @@ IDTDescriptor g_IDTDescriptor = { sizeof(g_IDT) - 1, g_IDT };
 
 void __attribute__((cdecl)) i686_IDT_Load(IDTDescriptor* idtDescriptor);
 
+// void dump_syscall_idt_entry(void)
+// {
+//     // extern IDTEntry g_IDT[]; // visible in idt.c
+//     log_info("SYSCALL", "IDT[0x80].Flags=0x%02x BaseLo=0x%04x BaseHi=0x%04x",
+//              g_IDT[0x80].Flags,
+//              g_IDT[0x80].BaseLow,
+//              g_IDT[0x80].BaseHigh);
+
+//     log_info("SYSCALL", "Test: IDT[0x80].Flags=%u BaseLo=%u BaseHi=%u",
+//              g_IDT[0x80].Flags,
+//              g_IDT[0x80].BaseLow,
+//              g_IDT[0x80].BaseHigh);
+
+
+//     uint32_t isr_addr = (uint32_t)i686_ISR128;
+//     uint32_t idt_addr  = g_IDT[128].BaseLow | (g_IDT[128].BaseHigh << 16);
+
+//     log_info("SYSCALL", "symbol i686_ISR128 = 0x%x", isr_addr);
+//     log_info("SYSCALL", "IDT[128] addr = 0x%x flags=0x%x", idt_addr, g_IDT[128].Flags);
+// }
+
 void dump_syscall_idt_entry(void)
 {
-    // extern IDTEntry g_IDT[]; // visible in idt.c
     log_info("SYSCALL", "IDT[0x80].Flags=0x%02x BaseLo=0x%04x BaseHi=0x%04x",
              g_IDT[0x80].Flags,
              g_IDT[0x80].BaseLow,
              g_IDT[0x80].BaseHigh);
 
-    log_info("SYSCALL", "Test: IDT[0x80].Flags=%u BaseLo=%u BaseHi=%u",
-             g_IDT[0x80].Flags,
-             g_IDT[0x80].BaseLow,
-             g_IDT[0x80].BaseHigh);
-
+    uint32_t idt_addr = g_IDT[0x80].BaseLow | (g_IDT[0x80].BaseHigh << 16);
+    log_info("SYSCALL", "IDT[0x80] addr = 0x%x flags=0x%x", idt_addr, g_IDT[0x80].Flags);
 
     uint32_t isr_addr = (uint32_t)i686_ISR128;
-    uint32_t idt_addr  = g_IDT[128].BaseLow | (g_IDT[128].BaseHigh << 16);
-
     log_info("SYSCALL", "symbol i686_ISR128 = 0x%x", isr_addr);
-    log_info("SYSCALL", "IDT[128] addr = 0x%x flags=0x%x", idt_addr, g_IDT[128].Flags);
 }
+
 
 void i686_IDT_SetGate(int interrupt, void* base, uint16_t segmentDescriptor, uint8_t flags)
 {
