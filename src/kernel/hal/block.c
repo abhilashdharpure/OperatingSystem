@@ -57,7 +57,7 @@ static ata_device_t ata0_master = { .device = 0, .io_base = 0x1F0, .ctrl_base = 
 
 int register_block_device(const char *name, block_device_t *dev)
 {
-    log_info("BLOCK", "register_block_device name = %s", name);
+    // log_info("BLOCK", "register_block_device name = %s", name);
 
     for (int i = 0; i < MAX_BLOCK_DEVICES; i++) {
         if (!block_devices[i]) {
@@ -67,8 +67,9 @@ int register_block_device(const char *name, block_device_t *dev)
             return 0;
         }
     }
-    return -1;
+
     log_error("BLOCK", "register_block_device failed: registry full");
+    return -1;
 }
 
 
@@ -125,8 +126,6 @@ void block_init(void)
 
 void block_register(block_device_t *dev)
 {
-    log_info("BLOCK", "block_register start");
-
     for (int i = 0; i < MAX_BLOCK_DEVICES; i++)
     {
         if (!block_devices[i])

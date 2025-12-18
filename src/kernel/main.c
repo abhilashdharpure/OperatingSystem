@@ -41,6 +41,15 @@
 # define SEEK_CUR 1
 # define SEEK_END 2
 
+extern uint8_t _kernel_stack_bottom;
+extern uint8_t _kernel_stack_top;
+extern uint8_t _kernel_start;
+extern uint8_t _kernel_end;
+#define HIGH_HALF_STACK_TOP ((uintptr_t)&_kernel_stack_top + KERNEL_VMA)
+
+#define EARLY_IDENTITY_LIMIT (32 * 1024 * 1024) 
+#define VGA_PHYS 0xB8000
+
 extern void _init();
 
 void crash_me();
@@ -129,7 +138,7 @@ void start_userspace(BootParams* bootParams)
     debug_list_root();           // should show bin, boot, folder, etc.
     // Optional: debug_list_path("/bin");
 
-    // log_debug("Main", "calling VFS_Open");
+    // log_info("Main", "calling VFS_Open");
 
     int fd = VFS_Open("/bin/init", O_RDONLY);
     if (fd < 0) panic("Cannot start user space");
@@ -137,6 +146,9 @@ void start_userspace(BootParams* bootParams)
     size_t max_size = 65536;
     memfile_t *mf = kmalloc(sizeof(memfile_t));
     mf->data = kmalloc(max_size);
+
+
+    // log_info("Main", "calling VFS_Read");
 
     size_t total = 0;
     while (total < max_size)
@@ -148,6 +160,7 @@ void start_userspace(BootParams* bootParams)
     }
 
     mf->size = total;
+    // log_info("Main", "VFS read done, size = %u", total);
 
     // log_debug("Main", "Calling VFS_Close");
     VFS_Close(fd);
@@ -162,22 +175,57 @@ void start_userspace(BootParams* bootParams)
 
 }
 
+
 void start(BootParams* bootParams, VbeModeInfo* fb_info)
 {   
-    // log_info("Main", "Kernel Main started...");
-
-    // call global constructors
-    _init();
-    // log_info("Main", "Kernel staring HAL init...");
-
-    HAL_Initialize();
-
-
-    // log_info("Main", "Starting pmm_init!");
-
+    log_info("Main", "Kernel Started");
     pmm_init(&bootParams->Memory);
 
-    set_kernel_page_directory();
+    paging_bootstrap_identity(); // sets up kernel_page_directory
+
+    for (uintptr_t pa = 0; pa < 32 * 1024 * 1024; pa += PAGE_SIZE)
+    {
+        map_identity_page(kernel_page_directory, pa);
+    }
+
+    // Switch stack AFTER it is mapped
+    uintptr_t stack_top =
+        (((uintptr_t)&_kernel_stack_top) + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+
+    __asm__ volatile ("mov %0, %%esp" :: "r"(stack_top));
+
+
+    // map_vga
+    for (uintptr_t pa = VGA_PHYS; pa < VGA_PHYS + 0x1000; pa += PAGE_SIZE)
+    {
+        map_identity_page(kernel_page_directory, pa);
+    }
+
+    // load page directory and enable paging
+    write_cr3(kernel_page_directory_phys);
+    // log_info("Paging", "PD phys = 0x%x", kernel_page_directory_phys);
+    enable_paging();
+    // log_info("Paging", "Paging enabled successfully");
+
+
+
+    paging_map_high_half_kernel(); // map high-half
+
+    _init();         // global constructors
+    HAL_Initialize();
+
+    //     // Switch stack to high-half mapped stack
+    // uintptr_t stack_top = (uintptr_t)&_kernel_stack_top;
+
+    // __asm__ volatile("movl %0, %%esp" :: "r"(stack_top));
+
+    // log_info("Main", "Starting enable_paging!");
+    // enable_paging();
+    // log_info("Main", "After enable_paging!");
+
+    // pmm_init(&bootParams->Memory);
+
+    // set_kernel_page_directory();
 
     // log_debug("Main", "Boot device: %x", bootParams->BootDevice);
     // log_debug("Main", "Memory region count: %d", bootParams->Memory.RegionCount);
@@ -202,14 +250,14 @@ void start(BootParams* bootParams, VbeModeInfo* fb_info)
     // printf("This operating system is under construction.\n");
 
 
-    // initialize framebuffer
-    fb_init(fb_info);
-    gfx_init();            // initialize graphics layer
+    // // initialize framebuffer
+    // fb_init(fb_info);
+    // gfx_init();            // initialize graphics layer
 
-    // log_info("MAIN", "Framebuffer ready: %ux%u", fb_dev.width, fb_dev.height);
+    // // log_info("MAIN", "Framebuffer ready: %ux%u", fb_dev.width, fb_dev.height);
 
 
-    gfx_clear(COLOR_BLACK);              // clear screen
+    // gfx_clear(COLOR_BLACK);              // clear screen
 
     set_phys_to_virt_ready();
 end:
@@ -219,7 +267,7 @@ end:
     // // Launch compositor
     // compositor_main();  // infinite loop
 
-    log_info("Main", "Starting start_userspace!");
+    // log_info("Main", "Starting start_userspace!");
     start_userspace(bootParams);
 
 

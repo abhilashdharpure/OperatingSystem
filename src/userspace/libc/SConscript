@@ -1,0 +1,18 @@
+Import("env")
+
+libc_env = env.Clone()
+
+sources = [
+    "src/stdio/printf.c",
+    "src/unistd/write.c",
+    "src/unistd/exit.c",
+    "src/syscall/syscall.c",
+    # "crt/crtbegin.c",
+]
+
+
+crt0 = "crt/crt0.s"
+
+libc = libc_env.Library("libc", sources + [crt0])
+
+Export("libc")

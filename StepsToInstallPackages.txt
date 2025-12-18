@@ -243,3 +243,362 @@ abhilash@Abhilash:~/Project/OperatingSystem$ ll build/i686_debug/kernel/kernel.e
 ll build/i686_debug/kernel/kernel.elf 
 -rwxrwxr-x 1 abhilash abhilash 230584 Dec 13 22:04 build/i686_debug/kernel/kernel.elf*
 abhilash@Abhilash:~/Project/OperatingSystem$ 
+
+
+┌──────────────────────────────┐
+│   Wayland compositor (user)  │
+└───────────────▲──────────────┘
+                │ uses
+┌──────────────────────────────┐
+│      libc / libstdc++        │  ← printf, malloc, iostream, fopen, etc.
+└───────────────▲──────────────┘
+                │ calls
+┌──────────────────────────────┐
+│        Syscall ABI           │  ← write(), mmap(), fork(), poll(), etc.
+└───────────────▲──────────────┘
+                │ implemented by
+┌──────────────────────────────┐
+│            Kernel            │
+└──────────────────────────────┘
+
+
+userspace/
+│
+├── SConstruct
+│
+├── libc/
+│   ├── SConscript
+│   ├── include/
+│   │   ├── stdio.h
+│   │   ├── unistd.h
+│   │   ├── string.h
+│   │   ├── stdlib.h
+│   │   └── syscall.h
+│   │
+│   ├── src/
+│   │   ├── stdio/
+│   │   │   └── printf.c
+│   │   ├── unistd/
+│   │   │   ├── write.c
+│   │   │   ├── read.c
+│   │   │   └── exit.c
+│   │   ├── string/
+│   │   │   ├── strlen.c
+│   │   │   ├── memcpy.c
+│   │   │   └── memset.c
+│   │   ├── malloc/
+│   │   │   └── malloc.c
+│   │   └── syscall/
+│   │       └── syscall.c
+│   │
+│   └── crt/
+│       ├── crt0.s
+│       └── crtbegin.c
+│
+└── bin/
+    ├── init/
+    │   ├── SConscript
+    │   └── init.c
+    │
+    └── test/
+        ├── SConscript
+        └── test_syscall.c
+
+cd src/userspace/
+readelf -h bin/init/init 
+cp bin/init/init ../../image/root/bin/
+cd ../../
+clear && scons run
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// elf_exec.c
+#include <stdint.h>
+#include <stddef.h>
+#include <string.h>
+#include "kernel.h"      // adjust includes to your project: types, PAGE_SIZE, flags, logging, etc.
+#include "paging.h"
+#include "pmm.h"
+#include "process.h"
+#include "elf.h"         // Elf32_Ehdr, Elf32_Phdr
+#include "bootparams.h"
+
+// --- Configuration: TEMP_KVA and external kernel PD symbol ---
+#define TEMP_KVA 0xFFFFF000u
+
+extern uint32_t *kernel_page_directory; // kernel PD virtual pointer (must exist in your kernel)
+
+// Forward declarations of external functions used here (adjust prototypes if needed)
+int map_page(uint32_t *pd, uintptr_t va, uintptr_t pa, uint32_t flags);
+uint32_t pmm_alloc_page(void);
+uint32_t get_mapped_phys(uint32_t *pd, uintptr_t va);
+Process *process_create(const char *name);
+page_dir_t create_user_pd(void);
+void clone_kernel_mappings(uint32_t *user_pd);
+void log_info(const char *tag, const char *fmt, ...);
+void log_error(const char *tag, const char *fmt, ...);
+
+// --- TEMP_KVA helpers (map/unmap a physical page at TEMP_KVA) ---
+static void map_kernel_temp(uint32_t pa)
+{
+    // Map the physical page 'pa' at TEMP_KVA in the kernel page directory
+    // Use map_page with kernel_page_directory (adjust if your map_page signature differs)
+    map_page(kernel_page_directory, (uintptr_t)TEMP_KVA, (uintptr_t)pa, PAGE_PRESENT | PAGE_RW);
+    asm volatile("invlpg (%0)" :: "r"((void*)TEMP_KVA) : "memory");
+}
+
+static void unmap_kernel_temp(void)
+{
+    // Clear the PTE for TEMP_KVA in the kernel page table and invalidate TLB
+    uint32_t va = TEMP_KVA;
+    uint32_t pd_index = (va >> 22) & 0x3FF;
+    uint32_t pt_index = (va >> 12) & 0x3FF;
+
+    uint32_t pde = kernel_page_directory[pd_index];
+    if (!(pde & PAGE_PRESENT)) return;
+
+    uint32_t pt_pa = pde & 0xFFFFF000;
+    // Map the page table page to read/modify it (we assume phys_to_virt can map pt_pa)
+    // To avoid recursion, map the page table page using TEMP_KVA as well:
+    map_kernel_temp(pt_pa);
+    uint32_t *pt = (uint32_t *)TEMP_KVA;
+    pt[pt_index] = 0;
+    asm volatile("invlpg (%0)" :: "r"((void*)TEMP_KVA) : "memory");
+    // Unmap the temporary mapping of the page table page
+    // Clear the PDE entry in kernel_page_directory (we already modified pt)
+    // Now unmap TEMP_KVA mapping of pt_pa by clearing its PTE (done above) and invalidating
+    // Finally ensure TEMP_KVA is unmapped (it was cleared by pt[pt_index] = 0)
+    // No further action required here because we cleared the PTE that mapped TEMP_KVA.
+}
+
+// phys_to_virt: map the given physical page to TEMP_KVA and return TEMP_KVA pointer
+static inline uint8_t *phys_to_virt(uint32_t pa)
+{
+    map_kernel_temp(pa);
+    return (uint8_t *)TEMP_KVA;
+}
+
+// --- Robust dumper that maps each backing physical page and logs lines ---
+static void dump_user_code(Process *p, uint32_t va_start, size_t len)
+{
+    log_info("EXEC", "DUMP start 0x%x len=%u", va_start, (unsigned)len);
+
+    uint32_t va = va_start;
+    uint32_t end = va_start + (uint32_t)len;
+
+    while (va < end) {
+        uint32_t pa = get_mapped_phys(p->page_directory, va);
+        if (!pa) {
+            log_info("EXEC", "DUMP: VA=0x%x not mapped", va);
+            break;
+        }
+
+        uint8_t *kva = phys_to_virt(pa); // maps the physical page at TEMP_KVA
+        uint32_t inpage_off = va & (PAGE_SIZE - 1);
+        uint32_t to_read = PAGE_SIZE - inpage_off;
+        if (va + to_read > end) to_read = end - va;
+
+        char linebuf[128];
+        for (uint32_t off = 0; off < to_read; off += 16) {
+            uint32_t chunk = (to_read - off) > 16 ? 16 : (to_read - off);
+            int pos = snprintf(linebuf, sizeof(linebuf), "%08x: ", va + off);
+            for (uint32_t i = 0; i < chunk; ++i) {
+                uint8_t b = *(volatile uint8_t *)(kva + inpage_off + off + i);
+                pos += snprintf(linebuf + pos, sizeof(linebuf) - pos, "%02x ", b);
+            }
+            log_info("EXEC", "%s", linebuf);
+        }
+
+        unmap_kernel_temp();
+        va += to_read;
+    }
+
+    log_info("EXEC", "DUMP end");
+}
+
+// --- The exec_elf_mem function ---
+pid_t exec_elf_mem(void *data, size_t size, BootParams* bootParams)
+{
+    log_info("EXEC", "exec_elf_mem start");
+
+    if (!data || size < sizeof(Elf32_Ehdr)) {
+        log_error("EXEC", "Invalid ELF data");
+        return -1;
+    }
+
+    Elf32_Ehdr *eh = (Elf32_Ehdr*)data;
+    // Basic ELF validation (magic and class) could be added here
+    if (!eh->e_entry) {
+        log_error("EXEC", "ELF has no entry");
+        return -1;
+    }
+
+    Process *p = process_create("user");
+    if (!p) {
+        log_error("EXEC", "process_create failed");
+        return -1;
+    }
+
+    // Create a user page directory (returns physical and virtual pointers)
+    page_dir_t pd = create_user_pd();
+    if (!pd.pd_virt || !pd.pd_phys) {
+        log_error("PD", "create_user_pd failed");
+        return -1;
+    }
+
+    // Store PD in process structure: p->page_directory must be a kernel virtual pointer
+    p->page_directory = pd.pd_virt;
+    p->cr3 = pd.pd_phys;
+
+    log_info("PD", "PD phys = 0x%x virt = %p (stored in p: %p)", pd.pd_phys, pd.pd_virt, p->page_directory);
+
+    // Debug: show PDE entries before we touch them
+    log_info("VERIFY", "Before get_mapped_phys: PDE[7]=0x%x, PDE[32]=0x%x",
+             p->page_directory[7], p->page_directory[32]);
+
+    // Clone kernel mappings so user can call kernel services (if your kernel requires this)
+    clone_kernel_mappings(p->page_directory);
+
+    // Find a suitable user memory region for stack (fallback addresses used if not found)
+    MemoryRegion* user_region = NULL;
+    for (int i = 0; i < bootParams->Memory.RegionCount; i++) {
+        if (bootParams->Memory.Regions[i].Type == 1 &&
+            bootParams->Memory.Regions[i].Begin >= 0x100000) {
+            user_region = &bootParams->Memory.Regions[i];
+            break;
+        }
+    }
+    if (!user_region) {
+        log_error("EXEC", "No user memory region available");
+        return -1;
+    }
+
+    // Allocate and map user stack pages
+    const uint32_t stack_top = 0x1FE0000;
+    const uint32_t stack_bottom = stack_top - USER_STACK_SIZE;
+    for (uint32_t va = stack_bottom; va < stack_top; va += PAGE_SIZE) {
+        uint32_t pa = pmm_alloc_page();
+        if (!pa) {
+            log_error("EXEC", "Out of pages for stack!");
+            return -1;
+        }
+
+        // Zero the physical page via kernel mapping
+        uint8_t *kva = phys_to_virt(pa);
+        memset(kva, 0, PAGE_SIZE);
+        unmap_kernel_temp();
+
+        log_info("STACK", "Stack page: VA=0x%x -> PA=0x%x", va, pa);
+        if (map_page(p->page_directory, va, pa, PAGE_PRESENT | PAGE_RW | PAGE_USER) != 0) {
+            log_error("EXEC", "map_page failed for stack VA=0x%x", va);
+            return -1;
+        }
+    }
+    p->regs.esp = stack_top;
+
+    // Verify stack mapping
+    uint32_t esp_pa_dbg = get_mapped_phys(p->page_directory, p->regs.esp - 4);
+    log_info("STACK", "After map: ESP VA=0x%x -> PA=0x%x", p->regs.esp, esp_pa_dbg);
+
+    // Iterate program headers and map/copy PT_LOAD segments
+    Elf32_Phdr *ph = (Elf32_Phdr*)((uint8_t*)data + eh->e_phoff);
+    for (int i = 0; i < eh->e_phnum; i++) {
+        if (ph[i].p_type != PT_LOAD) continue;
+
+        uint32_t seg_vaddr = ph[i].p_vaddr;
+        uint32_t seg_filesz = ph[i].p_filesz;
+        uint32_t seg_memsz = ph[i].p_memsz;
+        uint32_t seg_offset = ph[i].p_offset;
+
+        uint32_t seg_start = seg_vaddr & ~(PAGE_SIZE - 1);
+        uint32_t seg_end = (seg_vaddr + seg_memsz + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+
+        for (uint32_t va = seg_start; va < seg_end; va += PAGE_SIZE) {
+            uint32_t pa = pmm_alloc_page();
+            if (!pa) {
+                log_error("EXEC", "Out of pages for ELF segment");
+                return -1;
+            }
+
+            // Map physical page into kernel and zero it
+            uint8_t *kva = phys_to_virt(pa);
+            memset(kva, 0, PAGE_SIZE);
+
+            // Map the page into the process page directory
+            if (map_page(p->page_directory, va, pa, PAGE_PRESENT | PAGE_USER | PAGE_RW) != 0) {
+                unmap_kernel_temp();
+                log_error("EXEC", "map_page failed for VA=0x%x", va);
+                return -1;
+            }
+
+            // Compute file copy offsets
+            int64_t page_file_index = (int64_t)va - (int64_t)seg_vaddr;
+            if (page_file_index < 0) {
+                // First page: segment starts inside this page
+                uint32_t inpage_offset = (uint32_t)(seg_vaddr & (PAGE_SIZE - 1));
+                uint32_t available = seg_filesz;
+                if (available > 0) {
+                    uint32_t to_copy = PAGE_SIZE - inpage_offset;
+                    if (to_copy > available) to_copy = available;
+                    memcpy(kva + inpage_offset, (uint8_t*)data + seg_offset, to_copy);
+                }
+            } else {
+                // Normal page: copy from file if bytes remain for this page
+                uint32_t file_off = seg_offset + (uint32_t)page_file_index;
+                uint32_t file_end = seg_offset + seg_filesz;
+                if (file_off < file_end) {
+                    uint32_t remaining = file_end - file_off;
+                    uint32_t to_copy = remaining > PAGE_SIZE ? PAGE_SIZE : remaining;
+                    memcpy(kva, (uint8_t*)data + file_off, to_copy);
+                }
+                // else: page is .bss only; leave zeroed
+            }
+
+            // Unmap the temporary kernel mapping for this page
+            unmap_kernel_temp();
+        }
+    }
+
+    // Set entry point
+    p->regs.eip = eh->e_entry;
+
+    // Verify mapping for EIP and ESP
+    uint32_t eip_pa = get_mapped_phys(p->page_directory, p->regs.eip);
+    uint32_t esp_pa = get_mapped_phys(p->page_directory, p->regs.esp - 4);
+    log_info("EXEC", "EIP VA=0x%x -> PA=0x%x", p->regs.eip, eip_pa);
+    log_info("EXEC", "ESP VA=0x%x -> PA=0x%x", p->regs.esp, esp_pa);
+    if (!eip_pa || !esp_pa) {
+        log_error("EXEC", "ELF pages not mapped!");
+    }
+
+    // Optional: test mappings in range for debug
+    for (uint32_t va = 0x8047000; va < 0x8049000; va += 0x1000) {
+        uint32_t pa = get_mapped_phys(p->page_directory, va);
+        log_info("TEST", "VA=0x%x -> PA=0x%x", va, pa);
+    }
+
+    // Dump first bytes for verification
+    dump_user_code(p, 0x8048000, 0x60);
+
+    log_info("EXEC", "ELF loaded entry=0x%x", eh->e_entry);
+
+    // Enter user mode (this function should switch CR3 and perform iret)
+    enter_user_mode_from_process(p);
+
+    return p->pid;
+}

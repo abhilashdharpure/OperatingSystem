@@ -3,6 +3,7 @@
 
 #include <stdarg.h>
 #include <stdbool.h>
+#include <debug.h>
 
 const unsigned SCREEN_WIDTH = 80;
 const unsigned SCREEN_HEIGHT = 25;
@@ -34,7 +35,6 @@ uint8_t VGA_getcolor(int x, int y)
 void VGA_setcursor(int x, int y)
 {
     int pos = y * SCREEN_WIDTH + x;
-
     i686_outb(0x3D4, 0x0F);
     i686_outb(0x3D5, (uint8_t)(pos & 0xFF));
     i686_outb(0x3D4, 0x0E);
@@ -44,14 +44,17 @@ void VGA_setcursor(int x, int y)
 void VGA_clrscr()
 {
     for (int y = 0; y < SCREEN_HEIGHT; y++)
+    {
         for (int x = 0; x < SCREEN_WIDTH; x++)
         {
             VGA_putchr(x, y, '\0');
             VGA_putcolor(x, y, DEFAULT_COLOR);
         }
+    }
 
     g_ScreenX = 0;
     g_ScreenY = 0;
+
     VGA_setcursor(g_ScreenX, g_ScreenY);
 }
 

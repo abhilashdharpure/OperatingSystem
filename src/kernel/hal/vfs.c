@@ -133,9 +133,7 @@ int VFS_Open(const char *path, int flags)
                 }
             }
 
-            log_info("VFS",
-                     "Opened '%s' -> fd=%d (mnt=%s, sub=%s)",
-                     path, fd, vfs_table[mnt].path, subpath);
+            // log_info("VFS", "Opened '%s' -> fd=%d (mnt=%s, sub=%s)", path, fd, vfs_table[mnt].path, subpath);
             return fd;
         }
     }

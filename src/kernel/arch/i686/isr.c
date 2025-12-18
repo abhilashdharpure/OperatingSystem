@@ -49,9 +49,23 @@ void i686_ISR_InitializeGates();
 
 void i686_ISR_Initialize()
 {
+
     i686_ISR_InitializeGates();
-    for (int i = 0; i < 256; i++)
+    log_info("Main", "i686_ISR_Initialize 2 ");
+
+    // for (int i = 0; i < 256; i++)
+    //     i686_IDT_EnableGate(i);
+
+
+    for (int i = 0; i < 32; i++)
+    {
         i686_IDT_EnableGate(i);
+    }
+    
+    i686_IDT_EnableGate(0x80);
+
+
+
 
     // i686_IDT_DisableGate(0x80);
 }
@@ -65,7 +79,53 @@ void __attribute__((cdecl)) i686_ISR_Handler(Registers* regs)
 
     }
 
+    // if (regs->interrupt == 14)
+    // {
+    //     uint32_t cr2;
+    //     __asm__ volatile("mov %%cr2, %0" : "=r"(cr2));
+
+    //     log_critical("PF",
+    //         "Page fault at eip=%x addr=%x err=%x",
+    //         regs->eip, cr2, regs->error);
+
+    //     i686_Panic(); // must halt CPU
+    // }
+
+    if (regs->interrupt == 14)
+    {
+        uint32_t cr2;
+        uint32_t cr3;
+        __asm__ volatile("mov %%cr2, %0" : "=r"(cr2));
+        __asm__ volatile("mov %%cr3, %0" : "=r"(cr3));
+
+        log_critical("PF",
+            "Page fault at eip=%x addr=%x err=%x cs=%x cr3=%x",
+            regs->eip, cr2, regs->error, regs->cs, cr3);
+
+        // Walk page tables of the *current* address space (CR3)
+        uint32_t *pd = (uint32_t*)cr3;  // low RAM identity-mapped
+
+        uint32_t pd_idx = (cr2 >> 22) & 0x3FF;
+        uint32_t pt_idx = (cr2 >> 12) & 0x3FF;
+
+        uint32_t pde = pd[pd_idx];
+        log_critical("PF", "  PDE[%u] = 0x%x", pd_idx, pde);
+
+        if (pde & 0x1) {
+            uint32_t *pt = (uint32_t*)(pde & 0xFFFFF000); // PT phys, identity mapped
+            uint32_t pte = pt[pt_idx];
+            log_critical("PF", "  PTE[%u] = 0x%x", pt_idx, pte);
+        } else {
+            log_critical("PF", "  PDE not present");
+        }
+
+        i686_Panic(); // halt
+    }
+
+
+
     if (regs->interrupt == 0x80) {
+        printf("i686_ISR_Handler (0x80)..................................................");
         log_info(MODULE, "i686_ISR_Handler interrupt (0x80) = %d!", regs->interrupt);
 
         i686_syscall_handler(regs);

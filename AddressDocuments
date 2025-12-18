@@ -1,0 +1,37 @@
+
+
+[PMM] mem->RegionCount = 5
+[PMM] Stack page: start = 0, end = 651264
+[PMM] Stack page: start = 1048576, end = 33423360
+
+
+
+[PMM] Initialized, free pages=7904
+[Main] MEM: start=0x0 length=0x9fc00 type=1
+[Main] MEM: start=0x9fc00 length=0x400 type=2
+[Main] MEM: start=0xf0000 length=0x10000 type=2
+[Main] MEM: start=0x100000 length=0x1ee0000 type=1
+[Main] MEM: start=0x1fe0000 length=0x20000 type=2
+
+
+ELF] Stack Top =0x1fd000001fe0000 stack_bottom=0x1ee0000
+
+
+
+    // [EXEC] EIP VA=0x8048000 -> PA=0x1f2c000
+    // [EXEC] ESP VA=0x1fe0000 -> PA=0x1f2f000
+    // [EXEC] get_mapped_phys pde = 32690183, pd_idx = 32
+    // [TEST] VA=0x8047000 -> PA=0x1f2e000
+    // [EXEC] get_mapped_phys pde = 32690183, pd_idx = 32
+    // [TEST] VA=0x8048000 -> PA=0x1f2c000
+
+
+    // uint32_t pde = 32690183;
+    // uint32_t pt_pa = pde & 0xFFFFF000;   // physical address of the page table
+    // uint32_t flags = pde & 0xFFF;        // present, rw, user, etc.
+
+
+    // DUMP start 0x8048000 len=96
+    // 08048000: 55 89 e5 57 56 53 83 ec 20 ... cd 80 eb fe ...
+    // DUMP end
+

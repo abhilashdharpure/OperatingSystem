@@ -18,6 +18,16 @@
 
 /* page size */
 #define PAGE_SIZE 4096U
+#define KERNEL_VMA  0xC0000000
+
+extern uint32_t *kernel_page_directory;       // virtual address
+extern uint32_t  kernel_page_directory_phys;  // physical address
+
+void paging_bootstrap(void);
+void write_cr3(uint32_t phys);
+void enable_paging(void);
+void paging_jump_high(void);
+
 
 typedef struct {
     uint32_t *pd_virt;
@@ -28,6 +38,7 @@ typedef struct {
 void paging_init(void); /* optional: call once at boot */
 uint32_t *create_page_directory(void); /* returns physical address? see comment */
 int map_page(uint32_t *pd_phys_ptr, uint32_t va, uint32_t pa, uint32_t flags);
+void unmap_page(uint32_t *page_directory, uint32_t va);
 int map_region(uint32_t *pd_phys_ptr, uint32_t va, uint32_t pa_start, uint32_t len, uint32_t flags);
 // uint32_t *create_user_pd(void); /* create PD for user process (physical-page-backed), returns pointer to PD phys (kernel-virt access) */
 page_dir_t create_user_pd(void);

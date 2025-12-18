@@ -1,6 +1,7 @@
 #include "tss.h"
 #include "arch/i686/gdt.h"   /* we will write GDT entry into g_GDT[] */
 #include <string.h>
+#include <debug.h>
 
 #define IO_BITMAP_SIZE 8192  // 65536 ports / 8
 
@@ -73,11 +74,15 @@ static inline void reload_gdt(void)
 {
     __asm__ volatile ("lgdt %0" :: "m"(g_GDT_Ptr));
 }
+
 void i686_TSS_Install(uintptr_t stack_top)
 {
     memset(&the_tss, 0, sizeof(the_tss));
 
-    the_tss.esp0 = stack_top;
+    // the_tss.esp0 = stack_top;
+    // the_tss.esp0 = (uintptr_t)&_kernel_stack_top - 4;
+    the_tss.esp0 = (uintptr_t)&stack_top + 16384; // top of 16 KiB stack
+
     the_tss.ss0  = KERNEL_DATA_SELECTOR;
 
     the_tss.iomap_base = offsetof(tss_entry_t, io_bitmap);

@@ -10,8 +10,23 @@ SECTIONS
     .text               : { __text_start = .;       *(.text)    }
     .data               : { __data_start = .;       *(.data)    }
     .rodata             : { __rodata_start = .;     *(.rodata)  }
-    .bss                : { __bss_start = .;        *(.bss)     }
+
+    .bss :
+    {
+        __bss_start = .;
+        *(.bss)
+        *(COMMON)
+        __bss_end = .;
+    }
+
+    /* Kernel stack (16 KiB) */
+    . = ALIGN(16);
+    _kernel_stack_bottom = .;
+    . += 16384;
+    _kernel_stack_top = .;
+
     
     __end = .;
     _kernel_end = .;
 }
+

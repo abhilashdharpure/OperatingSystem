@@ -63,7 +63,7 @@ uint32_t get_mapped_phys(uint32_t *pd_virt, uint32_t va) {
     uint32_t pt_idx = (va >> 12) & 0x3FF;
     uint32_t pde = pd_virt[pd_idx];
 
-    log_info("EXEC", "get_mapped_phys pde = %u, pd_idx = %u", pde, pd_idx);
+    // log_info("EXEC", "get_mapped_phys pde = %u, pd_idx = %u", pde, pd_idx);
 
     if (!(pde & PAGE_PRESENT))
     {
@@ -95,10 +95,25 @@ void set_phys_to_virt_ready()
     phys_to_virt_ready = 1;
 }
 
+void dump_user_code(Process *p, uint32_t va, size_t len) {
+    log_info("EXEC", "DUMP start 0x%x len=%u\n", va, (unsigned)len);
+    for (size_t i = 0; i < len; ++i) {
+        uint32_t pa = get_mapped_phys(p->page_directory, va + i);
+        if (!pa) {
+            log_info("EXEC", "DUMP: VA=0x%x not mapped\n", va + (unsigned)i);
+            break;
+        }
+        uint8_t b = *(volatile uint8_t*)phys_to_virt(pa);
+        if (i % 16 == 0) log_info("EXEC", "\n%08x: ", va + (unsigned)i);
+        log_info("EXEC", "%u ", b);
+    }
+    log_info("EXEC", "\nDUMP end\n");
+}
+
 
 pid_t exec_elf_mem(void *data, size_t size, BootParams* bootParams)
 {
-    log_info("EXEC", "exec_elf_mem start");
+    // log_info("EXEC", "exec_elf_mem start");
 
     Elf32_Ehdr *eh = (Elf32_Ehdr*)data;
     if (!eh->e_entry) {
@@ -106,28 +121,26 @@ pid_t exec_elf_mem(void *data, size_t size, BootParams* bootParams)
         return -1;
     }
 
+    // log_info("EXEC", "exec_elf_mem process_create");
+
     Process *p = process_create("user");
     if (!p) return -1;
 
     page_dir_t pd = create_user_pd();
+
+
     p->page_directory = pd.pd_virt;
     p->cr3 = pd.pd_phys;
 
-    // log_info("PD", "PD phys = 0x%x virt = %p", pd.pd_phys, pd.pd_virt);
-
     // in exec_elf_mem, right after create_user_pd:
-    log_info("PD", "PD phys = 0x%x virt = %p (stored in p: %p)", pd.pd_phys, pd.pd_virt, p->page_directory);
+    // log_info("PD", "PD phys = 0x%x virt = %p (stored in p: %p)", pd.pd_phys, pd.pd_virt, p->page_directory);
 
     // just before get_mapped_phys:
-    log_info("VERIFY", "Before get_mapped_phys: PDE[7]=0x%x, PDE[32]=0x%x",
-            p->page_directory[7], p->page_directory[32]);
-
-
-    log_info("CHECK", "PDE[7]  = 0x%x", p->page_directory[7]);
-    log_info("CHECK", "PDE[32] = 0x%x", p->page_directory[32]);
+    // log_info("VERIFY", "Before get_mapped_phys: PDE[7]=0x%x, PDE[32]=0x%x", p->page_directory[7], p->page_directory[32]);
 
     // Clone kernel mappings so user can call kernel services
     clone_kernel_mappings(p->page_directory);
+
 
     // p->page_directory = pd;
 
@@ -137,9 +150,11 @@ pid_t exec_elf_mem(void *data, size_t size, BootParams* bootParams)
 
     // Find a suitable user memory region for stack
     MemoryRegion* user_region = NULL;
-    for (int i = 0; i < bootParams->Memory.RegionCount; i++) {
+    for (int i = 0; i < bootParams->Memory.RegionCount; i++)
+    {
         if (bootParams->Memory.Regions[i].Type == 1 && 
-            bootParams->Memory.Regions[i].Begin >= 0x100000) {
+            bootParams->Memory.Regions[i].Begin >= 0x100000)
+        {
             user_region = &bootParams->Memory.Regions[i];
             break;
         }
@@ -149,29 +164,17 @@ pid_t exec_elf_mem(void *data, size_t size, BootParams* bootParams)
         return -1;
     }
 
+    // log_info("STACK", "Selected User region =0x%x, length =0x%x", user_region->Begin, user_region->Length);
+
+    // log_info("ELF", "Selected User Region: start=0x%llx length=0x%llx type=%x", user_region->Begin, user_region->Length, user_region->Type);
+
     uint32_t stack_top = 0x1FE0000;
     uint32_t stack_bottom = stack_top - USER_STACK_SIZE;
 
+    // log_info("ELF", "Stack Top == 0x%x stack_bottom= 0x%x", stack_top, stack_bottom);
 
-// ################################################## Option 1 ####################################
-
-    // for (uint32_t va = stack_bottom; va < stack_top; va += 0x1000) {
-    //     uint32_t pa = pmm_alloc_page();
-    //     if (!pa) {
-    //         log_info("EXEC", "Out of pages for stack!");
-    //         return -1;
-    //     }
-    //     memset(phys_to_virt(pa), 0, 0x1000);
-    //     log_info("TEST", "PA allocated = 0x%x -> KV=0x%x", pa, phys_to_virt(pa));
-    //     map_page(p->page_directory, va, pa, PAGE_PRESENT | PAGE_RW | PAGE_USER);
-    // }
-    // p->regs.esp = stack_top;
-// ##################################################################################################
-
-
-// ################################################## Option 2 ####################################
-
-    for (uint32_t va = stack_bottom; va < stack_top; va += PAGE_SIZE) {
+    for (uint32_t va = stack_bottom; va < stack_top; va += PAGE_SIZE)
+    {
         uint32_t pa = pmm_alloc_page();
         if (!pa) {
             log_info("EXEC", "Out of pages for stack!");
@@ -179,16 +182,18 @@ pid_t exec_elf_mem(void *data, size_t size, BootParams* bootParams)
         }
 
         memset((void*)pa, 0, PAGE_SIZE);  // identity for stack frames too
+        // memset((void*)(pa + KERNEL_VMA), 0, PAGE_SIZE);
 
-        log_info("STACK", "Stack page: VA=0x%x -> PA=0x%x", va, pa);
+        // log_info("STACK", "Stack page: VA=0x%x -> PA=0x%x", va, pa);
         map_page(p->page_directory, va, pa, PAGE_PRESENT | PAGE_RW | PAGE_USER);
     }
     p->regs.esp = stack_top;
 
-// ##################################################################################################
+
+    // log_info("ELF", "Before get_mapped_phys");
 
     uint32_t esp_pa_dbg = get_mapped_phys(p->page_directory, p->regs.esp - 4);
-    log_info("STACK", "After map: ESP VA=0x%x -> PA=0x%x", p->regs.esp, esp_pa_dbg);
+    // log_info("STACK", "After map: ESP VA=0x%x -> PA=0x%x", p->regs.esp, esp_pa_dbg);
 
 
     // Map ELF segments
@@ -199,39 +204,13 @@ pid_t exec_elf_mem(void *data, size_t size, BootParams* bootParams)
         uint32_t seg_start = ph[i].p_vaddr & ~(PAGE_SIZE - 1);
         uint32_t seg_end   = (ph[i].p_vaddr + ph[i].p_memsz + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
 
-// ################################################## Option 1 ####################################
-
-        // for (uint32_t va = seg_start; va < seg_end; va += PAGE_SIZE) {
-        //     uint32_t pa = pmm_alloc_page();
-        //     if (!pa) { /* handle error */ }
-
-        //     // Identity or phys_to_virt(pa) depending on your choice; for Option 1:
-        //     uint8_t *kva = (uint8_t*)pa;
-        //     memset(kva, 0, PAGE_SIZE);
-
-        //     map_page(p->page_directory, va, pa, PAGE_PRESENT | PAGE_USER | PAGE_RW);
-
-        //     uint32_t offset_in_segment = va - seg_start;
-        //     if (offset_in_segment < ph[i].p_filesz) {
-        //         uint32_t to_copy = PAGE_SIZE;
-        //         if (offset_in_segment + to_copy > ph[i].p_filesz)
-        //             to_copy = ph[i].p_filesz - offset_in_segment;
-
-        //         memcpy(kva,
-        //             (uint8_t*)data + ph[i].p_offset + offset_in_segment,
-        //             to_copy);
-        //     }
-        // }
-// ##################################################################################################
-
-
-// ################################################## Option 2 ####################################
 
         for (uint32_t va = seg_start; va < seg_end; va += PAGE_SIZE) {
             uint32_t pa = pmm_alloc_page();
             if (!pa) { /* handle error */ }
 
-            uint8_t *kva = (uint8_t*)pa; // identity
+            // Identity or phys_to_virt(pa) depending on your choice; for Option 1:
+            uint8_t *kva = (uint8_t*)pa;
             memset(kva, 0, PAGE_SIZE);
 
             map_page(p->page_directory, va, pa, PAGE_PRESENT | PAGE_USER | PAGE_RW);
@@ -247,8 +226,6 @@ pid_t exec_elf_mem(void *data, size_t size, BootParams* bootParams)
                     to_copy);
             }
         }
-// ##################################################################################################
-
     }
 
     // Set entry point
@@ -258,17 +235,21 @@ pid_t exec_elf_mem(void *data, size_t size, BootParams* bootParams)
     uint32_t eip_pa = get_mapped_phys(p->page_directory, p->regs.eip);
     uint32_t esp_pa = get_mapped_phys(p->page_directory, p->regs.esp - 4);
 
-    log_info("EXEC", "EIP VA=0x%x -> PA=0x%x", p->regs.eip, eip_pa);
-    log_info("EXEC", "ESP VA=0x%x -> PA=0x%x", p->regs.esp, esp_pa);
+    // log_info("EXEC", "EIP VA=0x%x -> PA=0x%x", p->regs.eip, eip_pa);
+    // log_info("EXEC", "ESP VA=0x%x -> PA=0x%x", p->regs.esp, esp_pa);
     if (!eip_pa || !esp_pa) {
         log_critical("EXEC", "ELF pages not mapped!");
     }
 
+    // for (uint32_t va = 0x8047000; va < 0x8049000; va += 0x1000) {
+    //     uint32_t pa = get_mapped_phys(p->page_directory, va);
+    //     log_info("TEST", "VA=0x%x -> PA=0x%x", va, pa);
+    // }
 
-    for (uint32_t va = 0x8047000; va < 0x8049000; va += 0x1000) {
-        uint32_t pa = get_mapped_phys(p->page_directory, va);
-        log_info("TEST", "VA=0x%x -> PA=0x%x", va, pa);
-    }
+
+    log_info("EXEC", "ELF loaded entry=0x%x", eh->e_entry);
+
+    // dump_user_code(p, 0x8048000, 0x60);
 
     // Switch to user mode
     enter_user_mode_from_process(p);

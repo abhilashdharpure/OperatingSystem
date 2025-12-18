@@ -1,0 +1,11 @@
+Import("env", "libc")
+
+init_env = env.Clone()
+
+program = init_env.Program(
+    "init",
+    ["main.c", libc],
+    LINKFLAGS=env["LINKFLAGS"] + " -Ttext=0x08048000"
+)
+
+Default(program)

@@ -172,44 +172,75 @@ static int read_cluster(fat32_t *fs, uint32_t cluster, void *buf)
 
 // static uint32_t fat_next_cluster(fat32_t *fs, uint32_t cluster) { /* ... */ }
 // read next cluster from FAT (FAT32)
+// static uint32_t fat_next_cluster(fat32_t *fs, uint32_t cluster)
+// {
+//     // log_debug("FAT32", "rfat_next_cluster start, cluster=%u", cluster);
+
+//     if (!fs) return 0x0FFFFFFF;
+
+//     // FAT32: 4 bytes per entry
+//     uint32_t fat_offset = cluster * 4;
+//     uint32_t bytes_per_sector = fs->bytes_per_sector;
+//     uint32_t fat_sector = fs->fat_start_lba + (fat_offset / bytes_per_sector);
+//     uint32_t offset_in_sector = fat_offset % bytes_per_sector;
+
+//     uint8_t sector_buf[512]; // sector-sized buffer; bytes_per_sector is normally 512
+//     if (bytes_per_sector > sizeof(sector_buf)) {
+//         // Very unusual: support larger sectors if defined
+//         // fall back to dynamic (shouldn't happen in typical systems)
+//         log_error("FAT32", "fat_next_cluster: unsupported bytes_per_sector=%u", bytes_per_sector);
+//         return 0x0FFFFFFF;
+//     }
+
+//     if (read_sector(fs, fat_sector, sector_buf) != 0) {
+//         log_error("FAT32", "fat_next_cluster: read_sector failed fat_sector=%u", fat_sector);
+//         return 0x0FFFFFFF;
+//     }
+
+//     // read 4 bytes little-endian
+//     uint32_t entry = *(uint32_t*)(sector_buf + offset_in_sector);
+//     entry &= 0x0FFFFFFF; // mask top nybble (FAT32 uses 28 bits)
+//     return entry;
+// }
+
 static uint32_t fat_next_cluster(fat32_t *fs, uint32_t cluster)
 {
-    // log_debug("FAT32", "rfat_next_cluster start, cluster=%u", cluster);
-
     if (!fs) return 0x0FFFFFFF;
 
-    // FAT32: 4 bytes per entry
     uint32_t fat_offset = cluster * 4;
     uint32_t bytes_per_sector = fs->bytes_per_sector;
     uint32_t fat_sector = fs->fat_start_lba + (fat_offset / bytes_per_sector);
     uint32_t offset_in_sector = fat_offset % bytes_per_sector;
 
-    uint8_t sector_buf[512]; // sector-sized buffer; bytes_per_sector is normally 512
-    if (bytes_per_sector > sizeof(sector_buf)) {
-        // Very unusual: support larger sectors if defined
-        // fall back to dynamic (shouldn't happen in typical systems)
-        log_error("FAT32", "fat_next_cluster: unsupported bytes_per_sector=%u", bytes_per_sector);
-        return 0x0FFFFFFF;
-    }
+    // Make sure buffer is in high-half kernel
+    uint8_t clbuf[512] __attribute__((aligned(4)));
 
-    if (read_sector(fs, fat_sector, sector_buf) != 0) {
+    if (read_sector(fs, fat_sector, clbuf) != 0) {
         log_error("FAT32", "fat_next_cluster: read_sector failed fat_sector=%u", fat_sector);
         return 0x0FFFFFFF;
     }
 
-    // read 4 bytes little-endian
-    uint32_t entry = *(uint32_t*)(sector_buf + offset_in_sector);
-    entry &= 0x0FFFFFFF; // mask top nybble (FAT32 uses 28 bits)
+    uint32_t entry;
+    memcpy(&entry, clbuf + offset_in_sector, sizeof(entry)); // avoids misaligned access
+    entry &= 0x0FFFFFFF; // mask top 4 bits
     return entry;
 }
 
 
+
+// static int is_eoc(uint32_t cl)
+// {
+//     // log_debug("FAT32", "is_eoc c = %d",cl);
+//     return cl >= 0x0FFFFFF8 && cl <= 0x0FFFFFFF;
+//     // return cl >= 0x0FFFFFF8;
+// }
+
 static int is_eoc(uint32_t cl)
 {
-    // log_debug("FAT32", "is_eoc c = %d",cl);
-    return cl >= 0x0FFFFFF8 && cl <= 0x0FFFFFFF;
-    // return cl >= 0x0FFFFFF8;
+    cl &= 0x0FFFFFFF;  // mask upper 4 bits
+    return cl >= 0x0FFFFFF8;
 }
+
 
 static void make_short_name(const fat32_dirent_disk_t *d, char out[NAME_MAX])
 {

@@ -62,18 +62,40 @@ static fd_t map_user_fd_to_vfs(int user_fd)
    Here we rely on VFS_Write so nothing else is needed. */
 void i686_syscall_handler(Registers* regs)
 {
-    log_debug("SYSCALL", "eax=%u ebx=%u ecx=%p edx=%u",
-              regs->eax, regs->ebx, regs->ecx, regs->edx);
+    // log_debug("SYSCALL", "eax=%u ebx=%u ecx=%p edx=%u",
+    //           regs->eax, regs->ebx, regs->ecx, regs->edx);
 
-    switch (regs->eax) {
-        case SYS_WRITE:
-            syscall_write(regs);
-            break;
+    log_info("SYSCALL",
+             "### syscall: eax=%u ebx=%u ecx=%p edx=%u cs=%x eip=%x",
+             regs->eax, regs->ebx, regs->ecx, regs->edx,
+             regs->cs, regs->eip);
 
-        default:
-            log_error("SYSCALL", "Unknown syscall %u", regs->eax);
-            break;
+    if (regs->eax == 1) {  // SYS_WRITE
+
+        switch (regs->eax) {
+            case SYS_WRITE:
+                syscall_write(regs);
+                break;
+
+            default:
+                log_error("SYSCALL", "Unknown syscall %u", regs->eax);
+                break;
+        }
+
+
+        // const char *buf = (const char *)regs->ecx;
+        // uint32_t len   = regs->edx;
+
+        // for (uint32_t i = 0; i < len; ++i)
+        //     kputc(buf[i]);  // direct VGA
+
+        // regs->eax = (int)len;
+        return;
     }
+
+    log_error("SYSCALL", "Unknown syscall %u", regs->eax);
+
+
 }
 
 static void syscall_write(Registers *regs)
