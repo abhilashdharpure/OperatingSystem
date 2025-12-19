@@ -266,14 +266,6 @@ void debug_buffer(const char* msg, const void* buffer, uint32_t count)
     fprint_buffer(VFS_FD_DEBUG, msg, buffer, count);
 }
 
-// void kprintf(const char *fmt, ...)
-// {
-//     va_list args;
-//     va_start(args, fmt);
-//     vfprintf(STDOUT_FD, fmt, args);
-//     va_end(args);
-// }
-
 int ksnprintf(char *buf, size_t size, const char *fmt, ...)
 {
     va_list args;

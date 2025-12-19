@@ -30,24 +30,10 @@
 #include "hal/fat32.h"
 #include "hal/fat.h"
 
-// #include "memdefs.h"
-// #include "memory.h"
+// #define PAGE_SIZE 4096
 
-// #include "elf_loader.h"
-
-#define PAGE_SIZE 4096
-
-# define SEEK_SET 0
-# define SEEK_CUR 1
-# define SEEK_END 2
-
-extern uint8_t _kernel_stack_bottom;
 extern uint8_t _kernel_stack_top;
-extern uint8_t _kernel_start;
-extern uint8_t _kernel_end;
-#define HIGH_HALF_STACK_TOP ((uintptr_t)&_kernel_stack_top + KERNEL_VMA)
 
-#define EARLY_IDENTITY_LIMIT (32 * 1024 * 1024) 
 #define VGA_PHYS 0xB8000
 
 extern void _init();
@@ -59,31 +45,12 @@ void timer(Registers* regs)
     printf(".");
 }
 
-// extern struct file_operations fs_file_ops;   // your filesystem file ops (fat/ext2/ramfs)
-extern void *rootfs_super;                   // handle/context for the mounted FS
-
-extern struct file_operations memfile_fops;
-
-static int userspace_started = 0;
-
-// // quick_port_test.c (insert into kernel init)
-// void quick_port_test(void) {
-//     uint8_t s1 = i686_inb(0x1F7); // typical status port
-//     uint8_t s2 = i686_inb(0x3F6); // control
-//     uint8_t kb = i686_inb(0x60);  // keyboard data port (should vary)
-//     log_info("PORTTEST", "inb 0x1F7=0x%02x  0x3F6=0x%02x  0x60=0x%02x", s1, s2, kb);
-// }
-
 void init_filesystem()
 {
-    // log_debug("Main", "calling init_filesystem");
-
     ata_init();
 
     static fat32_t fs;
     fs.bdev = block_devices[0]; // ATA disk
-
-    // log_debug("Main", "calling fat32_mount");
 
     fat32_mount(&fs);
 }
@@ -92,32 +59,26 @@ void start_userspace(BootParams* bootParams)
 {
     // log_debug("Main", "calling start_userspace");
 
-    // quick_port_test();
-
-// register_ata_devices_with_vfs(); 
-
     block_init();
 
-
     // ensure partition device is registered
-    if (!register_first_fat32_partition()) {
+    if (!register_first_fat32_partition())
+    {
         log_error("MAIN", "No FAT32 partition found during startup");
         // return or continue with diagnostics
     }
 
-
     block_device_t *part = block_lookup_by_name("sda1");
-    if (!part) {
+    if (!part)
+    {
         log_error("MAIN", "Partition sda1 not found");
         return;
     }
 
     // log_info("MAIN", "Using block device sda1: lba_base=%u sector_size=%u", part->lba_base, part->sector_size);
     
-
     // Initialize FAT32 fs object
     fat32_t *fs = fat32_init_device(part);
-
     // log_debug("Main", "fat32_init_device fs = %d", fs);
 
     if (!fs)
@@ -126,7 +87,6 @@ void start_userspace(BootParams* bootParams)
         return;
     }
 
-        // Debug — confirm BPB read correctly
     // log_info("FAT32", "Mounted FAT32: bytes_per_sector=%u spc=%u reserved=%u fats=%u sectors_per_fat=%u root_cluster=%u",
     //          fs->bytes_per_sector, fs->sectors_per_cluster, fs->reserved_sectors,
     //          fs->num_fats, fs->sectors_per_fat, fs->root_cluster);
@@ -136,9 +96,6 @@ void start_userspace(BootParams* bootParams)
     uint32_t part_lba = 0;
 
     debug_list_root();           // should show bin, boot, folder, etc.
-    // Optional: debug_list_path("/bin");
-
-    // log_info("Main", "calling VFS_Open");
 
     int fd = VFS_Open("/bin/init", O_RDONLY);
     if (fd < 0) panic("Cannot start user space");
@@ -146,9 +103,6 @@ void start_userspace(BootParams* bootParams)
     size_t max_size = 65536;
     memfile_t *mf = kmalloc(sizeof(memfile_t));
     mf->data = kmalloc(max_size);
-
-
-    // log_info("Main", "calling VFS_Read");
 
     size_t total = 0;
     while (total < max_size)
@@ -160,11 +114,7 @@ void start_userspace(BootParams* bootParams)
     }
 
     mf->size = total;
-    // log_info("Main", "VFS read done, size = %u", total);
-
-    // log_debug("Main", "Calling VFS_Close");
     VFS_Close(fd);
-    // log_debug("Main", "After VFS_Close");
 
     // Hand off to ELF loader
     pid_t pid = exec_elf_mem(mf->data, mf->size, bootParams);
@@ -172,9 +122,7 @@ void start_userspace(BootParams* bootParams)
     {
         panic("Failed to exec init");
     }
-
 }
-
 
 void start(BootParams* bootParams, VbeModeInfo* fb_info)
 {   
@@ -189,11 +137,9 @@ void start(BootParams* bootParams, VbeModeInfo* fb_info)
     }
 
     // Switch stack AFTER it is mapped
-    uintptr_t stack_top =
-        (((uintptr_t)&_kernel_stack_top) + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+    uintptr_t stack_top = (((uintptr_t)&_kernel_stack_top) + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
 
     __asm__ volatile ("mov %0, %%esp" :: "r"(stack_top));
-
 
     // map_vga
     for (uintptr_t pa = VGA_PHYS; pa < VGA_PHYS + 0x1000; pa += PAGE_SIZE)
@@ -203,32 +149,12 @@ void start(BootParams* bootParams, VbeModeInfo* fb_info)
 
     // load page directory and enable paging
     write_cr3(kernel_page_directory_phys);
-    // log_info("Paging", "PD phys = 0x%x", kernel_page_directory_phys);
     enable_paging();
-    // log_info("Paging", "Paging enabled successfully");
-
-
 
     paging_map_high_half_kernel(); // map high-half
 
     _init();         // global constructors
     HAL_Initialize();
-
-    //     // Switch stack to high-half mapped stack
-    // uintptr_t stack_top = (uintptr_t)&_kernel_stack_top;
-
-    // __asm__ volatile("movl %0, %%esp" :: "r"(stack_top));
-
-    // log_info("Main", "Starting enable_paging!");
-    // enable_paging();
-    // log_info("Main", "After enable_paging!");
-
-    // pmm_init(&bootParams->Memory);
-
-    // set_kernel_page_directory();
-
-    // log_debug("Main", "Boot device: %x", bootParams->BootDevice);
-    // log_debug("Main", "Memory region count: %d", bootParams->Memory.RegionCount);
 
     for (int i = 0; i < bootParams->Memory.RegionCount; i++) 
     {
@@ -237,8 +163,6 @@ void start(BootParams* bootParams, VbeModeInfo* fb_info)
             bootParams->Memory.Regions[i].Length,
             bootParams->Memory.Regions[i].Type);
     }
-
-    // log_info("Main", "Starting init_filesystem!");
 
     init_filesystem();
 
@@ -250,26 +174,21 @@ void start(BootParams* bootParams, VbeModeInfo* fb_info)
     // printf("This operating system is under construction.\n");
 
 
-    // // initialize framebuffer
-    // fb_init(fb_info);
-    // gfx_init();            // initialize graphics layer
+    // initialize framebuffer
+    fb_init(fb_info);
+    gfx_init();            // initialize graphics layer
 
-    // // log_info("MAIN", "Framebuffer ready: %ux%u", fb_dev.width, fb_dev.height);
+    // log_info("MAIN", "Framebuffer ready: %ux%u", fb_dev.width, fb_dev.height);
 
 
-    // gfx_clear(COLOR_BLACK);              // clear screen
-
-    set_phys_to_virt_ready();
+    gfx_clear(COLOR_BLACK);              // clear screen
 end:
-
-
     // compositor_init();
     // // Launch compositor
     // compositor_main();  // infinite loop
 
     // log_info("Main", "Starting start_userspace!");
     start_userspace(bootParams);
-
 
     // should never come here
     log_critical("Main", "CRITICAL ERROR: User Space not started!");

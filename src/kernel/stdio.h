@@ -19,5 +19,4 @@ void debugs(const char* str);
 void debugf(const char* fmt, ...);
 void debug_buffer(const char* msg, const void* buffer, uint32_t count);
 
-// void kprintf(const char *fmt, ...);
 int ksnprintf(char *buf, size_t size, const char *fmt, ...);

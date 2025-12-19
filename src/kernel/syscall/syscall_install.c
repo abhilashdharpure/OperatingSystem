@@ -9,20 +9,6 @@
 
 void i686_syscall_handler(Registers* regs); // implemented below in syscall.c
 
-// void i686_syscall_install(void)
-// {
-//     // Ensure vector 0x80 is enabled
-//     i686_IDT_EnableGate(0x80);
-
-//     // Register our syscall handler
-//     i686_ISR_RegisterHandler(0x80, i686_syscall_handler);
-
-//     dump_syscall_idt_entry();
-
-//     log_info("SYSCALL", "syscall vector 0x80 installed");
-// }
-
-
 void i686_syscall_install(void)
 {
     i686_ISR_RegisterHandler(0x80, i686_syscall_handler);

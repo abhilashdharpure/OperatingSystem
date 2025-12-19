@@ -85,10 +85,10 @@ void __attribute__((cdecl)) start(uint16_t bootDrive, void* partition)
             }
         }
 
-        // // Set the VBE
-        // if (pickedMode != 0xFFFF && VBE_SetMode(pickedMode)) {
-        //     printf("VBE mode set..(\n");
-        // }
+        // Set the VBE
+        if (pickedMode != 0xFFFF && VBE_SetMode(pickedMode)) {
+            printf("VBE mode set..(\n");
+        }
     }
     else {
         printf("No VBE extensions :(\n");
