@@ -1,5 +1,5 @@
 #include <stdio.h>
-#include <arch/i686/io.h>
+#include <arch/x86_64/io.h>
 
 #include <stdarg.h>
 #include <stdbool.h>
@@ -8,8 +8,39 @@
 
 #define STDOUT_FD 1  // or whatever your console output fd is
 
+// MMIO base address for QEMU’s serial port (UEFI)
+#define SERIAL_MMIO_BASE 0x10000000 // QEMU virtio UART or memory-mapped serial (adjust if needed)
+
+// static inline void serial_putc(char c)
+// {
+//     // In QEMU, the ISA port 0x3F8 works if QEMU provides legacy support
+//     // Otherwise, UEFI serial protocols are needed.
+//     // For simplicity, we'll try the standard port:
+//     volatile uint8_t *serial = (volatile uint8_t *)0x3F8;
+//     while (!(inb(0x3F8 + 5) & 0x20)) ; // wait for THR empty
+//     *serial = c;
+// }
+
+static inline void serial_putc(char c) {
+    // Wait until transmit buffer empty
+    while (!(inb(0x3F8 + 5) & 0x20))
+        ;
+
+    outb(0x3F8, c);
+}
+
+
+static inline void serial_write(const char *s)
+{
+    while (*s)
+        serial_putc(*s++);
+}
+
+
 void fputc(char c, fd_t file)
 {
+    // Write to UEFI/QEMU serial
+    serial_putc(c);
     VFS_Write(file, &c, sizeof(c));
 }
 

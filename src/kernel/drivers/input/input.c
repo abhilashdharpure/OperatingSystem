@@ -6,7 +6,7 @@
 #include "hal/file.h"
 #include <stdio.h>
 #include "stddef.h"
-#include <arch/i686/irq.h>
+#include <arch/x86_64/irq.h>
 
 static inline unsigned long irq_save_flags_cli(void)
 {

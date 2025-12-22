@@ -5,20 +5,22 @@
 #include "drivers/fb/fb_graphics.h"
 #include "drivers/gfx/gfx.h"
 #include <hal/hal.h>
-#include <arch/i686/irq.h>
+#include <arch/x86_64/irq.h>
+#include <arch/x86_64/cpu.h>
 #include <debug.h>
 #include <boot/bootparams.h>
 #include "drivers/input/input.h"
 #include "drivers/input/input_manager.h"
 #include "compositor/compositor.h"
 #include "hal/vfs_memfile.h"
+#include <arch/x86_64/io.h>
 
+#include <stdio.h>
 
 #include "paging.h"
 #include "pmm.h"
-#include "arch/i686/gdt.h"
+#include "arch/x86_64/gdt.h"
 #include "hal/vfs.h"
-#include "arch/i686/switch_user_mode.h"
 #include "memfile.h"
 #include "hal/partition.h"
 
@@ -36,9 +38,13 @@ extern uint8_t _kernel_stack_top;
 
 #define VGA_PHYS 0xB8000
 
-extern void _init();
+// extern void _init();
 
 void crash_me();
+
+
+extern uint32_t mb_info_ptr;
+void start(BootParams* bootParams, VbeModeInfo* fb_info);
 
 void timer(Registers* regs)
 {
@@ -124,6 +130,137 @@ void start_userspace(BootParams* bootParams)
     }
 }
 
+
+void parse_multiboot2(void *mb_info_ptr) 
+{ 
+    (void)mb_info_ptr; // TODO: implement real Multiboot2 parsing for x86_64 
+    
+}
+
+void parse_multiboot2_to_bootparams(uint64_t mb_info_phys,
+                                    BootParams* bp,
+                                    VbeModeInfo* fb)
+{
+    // TEMP: just parse memory map later
+    (void)mb_info_phys;
+    (void)bp;
+    (void)fb;
+}
+
+void setup_identity_paging(BootParams* bp, VbeModeInfo* fb)
+{
+    (void)bp;
+    (void)fb;
+}
+
+void setup_stack(void)
+{
+    // Stack already set in ASM for now
+}
+// void early_kernel_main(uint64_t mb_info_phys)
+// {
+//     BootParams bootParams = {0};
+//     VbeModeInfo fb_info = {0};
+
+//     parse_multiboot2_to_bootparams(mb_info_phys, &bootParams, &fb_info);
+
+//     setup_identity_paging(&bootParams, &fb_info);
+//     setup_stack();
+
+//     start(&bootParams, &fb_info);
+// }
+
+void init_serial()
+{
+    // Reset UART (same as before)
+    outb(0x00, 0x3F9);      // Disable interrupts
+    outb(0x80, 0x3FB);      // Enable DLAB
+    outb(0x03, 0x3F8);      // Divisor low byte (38400 baud)
+    outb(0x00, 0x3F9);      // Divisor high byte
+    outb(0x03, 0x3FB);      // 8 bits, no parity, 1 stop bit
+    outb(0xC7, 0x3FA);      // FIFO enabled, clear
+    outb(0x0B, 0x3FC);      // IRQs disabled, RTS/DSR set
+}
+
+
+// static inline void serial_putc(char c) {
+//     // Wait until transmit buffer empty
+//     while (!(inb(0x3F8 + 5) & 0x20));
+//     *((volatile char *)0x3F8) = c;
+// }
+// static inline void serial_putc(char c) {
+//     // Wait until transmit buffer empty
+//     while (!(inb(0x3F8 + 5) & 0x20))
+//         ;
+
+//     outb(0x3F8, c);
+// }
+
+
+static void serial_write(const char *s) {
+    while (*s) serial_putc(*s++);
+}
+
+static inline void serial_putc_asm(char c) {
+    __asm__ volatile (
+        "mov $0x3F8, %%dx\n\t"
+        "mov %0, %%al\n\t"
+        "out %%al, %%dx\n\t"
+        :
+        : "r"(c)
+        : "dx", "al"
+    );
+}
+
+
+void early_kernel_main(void) {
+
+    serial_putc_asm('K');
+    init_serial();
+
+    // Prove we are here in the most primitive way
+    serial_write("EARLY\n");
+
+    x64_IDT_Initialize();
+
+    serial_write("BEFORE UD2\n");
+    __asm__ volatile("ud2");
+    serial_write("AFTER UD2\n");
+
+    for (;;) {
+        __asm__ volatile("hlt");
+    }
+}
+
+// void early_kernel_main(void) {
+//     init_serial();
+//     log_info("Boot", "early_kernel_main entered");
+
+//     x64_IDT_Initialize();
+
+//     log_info("Boot", "Triggering UD2 to test IDT...");
+//     __asm__ volatile("ud2");
+
+//     for (;;) {
+//         __asm__ volatile("hlt");
+//     }
+// }
+
+
+
+// void start(void)
+// {
+//     log_info("Main", "Kernel Started");
+
+//     uint64_t mb_info = (uint64_t)mb_info_ptr;
+//     parse_multiboot2(mb_info);
+
+//     // pmm_init(...);
+//     // paging_init(...);
+
+//     // continue boot...
+// }
+
 void start(BootParams* bootParams, VbeModeInfo* fb_info)
 {   
     log_info("Main", "Kernel Started");
@@ -136,10 +273,16 @@ void start(BootParams* bootParams, VbeModeInfo* fb_info)
         map_identity_page(kernel_page_directory, pa);
     }
 
-    // Switch stack AFTER it is mapped
-    uintptr_t stack_top = (((uintptr_t)&_kernel_stack_top) + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+    uintptr_t stack_top_aligned = (uintptr_t)&_kernel_stack_top;
+    stack_top_aligned = (stack_top_aligned + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
 
-    __asm__ volatile ("mov %0, %%esp" :: "r"(stack_top));
+    __asm__ volatile(
+        "mov %0, %%rsp\n"
+        :
+        : "r"(stack_top_aligned)
+        : "memory"
+    );
+
 
     // map_vga
     for (uintptr_t pa = VGA_PHYS; pa < VGA_PHYS + 0x1000; pa += PAGE_SIZE)
@@ -153,7 +296,7 @@ void start(BootParams* bootParams, VbeModeInfo* fb_info)
 
     paging_map_high_half_kernel(); // map high-half
 
-    _init();         // global constructors
+    // _init();         // global constructors
     HAL_Initialize();
 
     for (int i = 0; i < bootParams->Memory.RegionCount; i++) 

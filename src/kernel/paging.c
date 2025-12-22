@@ -1,17 +1,13 @@
 #include "paging.h"
 #include <string.h>
 #include <stdio.h>
-#include <arch/i686/irq.h>
+#include <arch/x86_64/irq.h>
 #include <debug.h>
 #include "hal/process.h"
+#include <arch/x86_64/cpu.h>
 
 #include <stdint.h>
 #include <stdbool.h>
-
-#define PAGE_PRESENT 0x1
-#define PAGE_RW      0x2
-#define PAGE_USER    0x4
-#define PAGE_SIZE    4096
 
 // High-half kernel base
 #define KERNEL_VMA   0xC0000000
@@ -50,12 +46,16 @@ extern void phys_free_page(uint32_t pa);
 extern void *phys_to_virt(uint32_t pa);     /* kernel virtual address for physical page */
 extern uint32_t virt_to_phys(void *v);      /* optional */
 
-void write_cr3(uint32_t pa)
-{
-    __asm__ volatile("mov %0, %%cr3" :: "r"(pa) : "memory");
+// extern void write_cr3(uint32_t pa);
+extern void enter_user_mode(Process *p);
 
-    log_info("VERIFY", "write_cr3 pa=0x%x", pa);
-}
+
+// void write_cr3(uint32_t pa)
+// {
+//     __asm__ volatile("mov %0, %%cr3" :: "r"(pa) : "memory");
+
+//     log_info("VERIFY", "write_cr3 pa=0x%x", pa);
+// }
 
 void map_identity_page(uint32_t* pd, uintptr_t pa)
 {
@@ -152,7 +152,7 @@ void paging_map_high_half_kernel(void)
 
 void enable_paging(void)
 {
-    uint32_t cr0;
+    uint64_t cr0;
     __asm__ volatile("mov %%cr0, %0" : "=r"(cr0));
 
     cr0 |= 0x80000000;
@@ -424,67 +424,69 @@ void enter_user_mode_from_process(Process *p)
     /* Switch to process page directory */
     write_cr3(pd_phys);
 
-    // log_info("EXEC", "enter_user_mode_from_process After write_cr3");
+    log_info("EXEC", "enter_user_mode_from_process After write_cr3");
 
-    /*
-     * Load user data selectors while still in ring 0.
-     * SS MUST NOT be loaded here — it must be loaded by IRET.
-     */
-    __asm__ volatile (
-        "movw %[udsel], %%ax\n\t"
-        "movw %%ax, %%ds\n\t"
-        "movw %%ax, %%es\n\t"
-        "movw %%ax, %%fs\n\t"
-        "movw %%ax, %%gs\n\t"
-        :
-        : [udsel] "i" (USER_DS)
-        : "ax", "memory"
-    );
+    enter_user_mode(p);
 
-    log_info("EXEC", "enter_user_mode_from_process switching to user mode");
+    // /*
+    //  * Load user data selectors while still in ring 0.
+    //  * SS MUST NOT be loaded here — it must be loaded by IRET.
+    //  */
+    // __asm__ volatile (
+    //     "movw %[udsel], %%ax\n\t"
+    //     "movw %%ax, %%ds\n\t"
+    //     "movw %%ax, %%es\n\t"
+    //     "movw %%ax, %%fs\n\t"
+    //     "movw %%ax, %%gs\n\t"
+    //     :
+    //     : [udsel] "i" (USER_DS)
+    //     : "ax", "memory"
+    // );
 
-    /*
-     * Build a *safe* EFLAGS value for ring 3.
-     * We MUST NOT reuse kernel EFLAGS directly.
-     */
-    uint32_t user_eflags;
-    __asm__ volatile (
-        "pushf\n\t"
-        "pop %0\n\t"
-        : "=r"(user_eflags)
-    );
+    // log_info("EXEC", "enter_user_mode_from_process switching to user mode");
 
-    /* Enable interrupts in user mode */
-    user_eflags |= (1 << 9);        /* IF = 1 */
+    // /*
+    //  * Build a *safe* EFLAGS value for ring 3.
+    //  * We MUST NOT reuse kernel EFLAGS directly.
+    //  */
+    // uint32_t user_eflags;
+    // __asm__ volatile (
+    //     "pushf\n\t"
+    //     "pop %0\n\t"
+    //     : "=r"(user_eflags)
+    // );
 
-    /* Clear IOPL (must be 0 for ring 3) */
-    user_eflags &= ~(3 << 12);      /* IOPL = 0 */
+    // /* Enable interrupts in user mode */
+    // user_eflags |= (1 << 9);        /* IF = 1 */
 
-    /*
-     * Now switch to user mode using IRET.
-     * Stack frame layout (top → bottom):
-     *   SS
-     *   ESP
-     *   EFLAGS
-     *   CS
-     *   EIP
-     */
-    __asm__ volatile (
-        "cli\n\t"                         /* no interrupts during transition */
-        "pushl %[udsel]\n\t"             /* SS */
-        "pushl %[esp]\n\t"               /* ESP */
-        "pushl %[eflags]\n\t"            /* sanitized EFLAGS */
-        "pushl %[ucsel]\n\t"             /* CS */
-        "pushl %[eip]\n\t"               /* EIP */
-        "iret\n\t"
-        :
-        : [udsel]  "r" ((uint32_t)USER_DS),
-          [esp]    "r" ((uint32_t)p->regs.esp),
-          [eflags] "r" (user_eflags),
-          [ucsel]  "r" ((uint32_t)USER_CS),
-          [eip]    "r" ((uint32_t)p->regs.eip)
-        : "memory"
-    );
+    // /* Clear IOPL (must be 0 for ring 3) */
+    // user_eflags &= ~(3 << 12);      /* IOPL = 0 */
+
+    // /*
+    //  * Now switch to user mode using IRET.
+    //  * Stack frame layout (top → bottom):
+    //  *   SS
+    //  *   ESP
+    //  *   EFLAGS
+    //  *   CS
+    //  *   EIP
+    //  */
+    // __asm__ volatile (
+    //     "cli\n\t"                         /* no interrupts during transition */
+    //     "pushl %[udsel]\n\t"             /* SS */
+    //     "pushl %[esp]\n\t"               /* ESP */
+    //     "pushl %[eflags]\n\t"            /* sanitized EFLAGS */
+    //     "pushl %[ucsel]\n\t"             /* CS */
+    //     "pushl %[eip]\n\t"               /* EIP */
+    //     "iret\n\t"
+    //     :
+    //     : [udsel]  "r" ((uint32_t)USER_DS),
+    //       [esp]    "r" ((uint32_t)p->regs.esp),
+    //       [eflags] "r" (user_eflags),
+    //       [ucsel]  "r" ((uint32_t)USER_CS),
+    //       [eip]    "r" ((uint32_t)p->regs.eip)
+    //     : "memory"
+    // );
 
     /* We should NEVER reach here */
     log_critical("EXEC", "enter_user_mode: iret returned unexpectedly");

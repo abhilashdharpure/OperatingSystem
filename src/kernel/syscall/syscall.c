@@ -1,7 +1,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include "debug.h"
-#include <arch/i686/isr.h>
+#include <arch/x86_64/isr.h>
 #include "syscall.h"
 #include "hal/vfs.h"     /* for VFS_Write and VFS_FD_* constants */
 #include "hal/process.h"     /* for current_process if you want pid in logging */

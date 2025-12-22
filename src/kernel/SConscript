@@ -1,64 +1,145 @@
 import os
 
 from SCons.Environment import Environment
-from build_scripts.utility import GlobRecursive, FindIndex, IsFileName
-
+from build_scripts.utility import GlobRecursive
 
 Import('TARGET_ENVIRONMENT')
-TARGET_ENVIRONMENT: Environment
-
 env = TARGET_ENVIRONMENT.Clone()
+
+arch = env['arch']
+
+# -------------------------------------------------------
+# Common flags
+# -------------------------------------------------------
 env.Append(
-    LINKFLAGS = [
+    LINKFLAGS=[
         '-Wl,-T', env.File('linker.ld').srcnode().path,
-        '-Wl,-Map=' + env.File('kernel.map').path
+        '-Wl,-Map=' + env.File('kernel.map').path,
+        '-Wl,-z,max-page-size=0x1000',
     ],
-    CPPPATH = [ 
+    CPPPATH=[
         env.Dir('.').srcnode(),
-        env['PROJECTDIR'].Dir('src/libs')
+        env['PROJECTDIR'].Dir('src/libs'),
     ],
-    ASFLAGS = [ '-I', env.Dir('.').srcnode(), '-f', 'elf' ]
 )
 
-sources = GlobRecursive(env, '*.c') + \
-          GlobRecursive(env, '*.cpp') + \
-          GlobRecursive(env, '*.asm')
+# -------------------------------------------------------
+# Collect sources
+# -------------------------------------------------------
+all_c_cpp = GlobRecursive(env, '*.c') + GlobRecursive(env, '*.cpp')
+all_asm   = GlobRecursive(env, '*.asm')
 
-objects = env.Object(sources)
-obj_crti = objects.pop(FindIndex(objects, lambda item: IsFileName(item, 'crti.o')))
-obj_crtn = objects.pop(FindIndex(objects, lambda item: IsFileName(item, 'crtn.o')))
+# # --- Flatten all_asm because GlobRecursive may return nested lists ---
+# flat_asm = []
+# for item in all_asm:
+#     if isinstance(item, list):
+#         flat_asm.extend(item)
+#     else:
+#         flat_asm.append(item)
+# all_asm = flat_asm
 
+
+# -------------------------------------------------------
+# Split ASM: 32-bit stub vs 64-bit kernel
+# -------------------------------------------------------
+asm32_sources = []
+asm64_sources = []
+
+if arch == 'x86_64':
+    for src in all_asm:
+        path = str(src)
+        print("ASM file:", path)
+
+        if path.endswith('arch/x86_64/boot32.asm') or \
+           path.endswith('arch/x86_64/multiboot_header.asm'):
+            print(" -> 32-bit ASM")
+            asm32_sources.append(src)
+        else:
+            print(" -> 64-bit ASM")
+            asm64_sources.append(src)
+else:
+    # i686: all ASM is 32-bit
+    asm32_sources = all_asm
+
+
+# asm32_sources = []
+# asm64_sources = []
+
+# if arch == 'x86_64':
+#     for src in all_asm:
+#         path = src.srcnode().path
+#         print("ASM file:", path)
+
+#         base = os.path.basename(path)
+#         if base in ("boot32.asm", "multiboot_header.asm"):
+#             print(" -> 32-bit ASM")
+#             asm32_sources.append(src)
+#         else:
+#             print(" -> 64-bit ASM")
+#             asm64_sources.append(src)
+# else:
+#     asm32_sources = all_asm
+
+
+# -------------------------------------------------------
+# Build C/C++ (64-bit for x86_64, 32-bit for i686)
+# -------------------------------------------------------
+if arch == 'x86_64':
+    env.Append(CCFLAGS=['-m64', '-ffreestanding', '-fno-pic', '-fno-plt',
+                        '-mno-red-zone', '-mcmodel=kernel'])
+else:
+    env.Append(CCFLAGS=['-m32', '-ffreestanding'])
+
+c_objects = env.Object(all_c_cpp)
+
+# -------------------------------------------------------
+# Build 32-bit ASM for stub
+# -------------------------------------------------------
+asm32_objects = []
+if asm32_sources:
+    asm32 = env.Clone()
+    asm32['AS'] = 'nasm'
+    asm32['ASFLAGS'] = ['-f', 'elf32']
+    asm32_objects = asm32.Object(asm32_sources)
+
+# -------------------------------------------------------
+# Build 64-bit ASM for kernel
+# -------------------------------------------------------
+asm64_objects = []
+if asm64_sources:
+    asm64 = env.Clone()
+    asm64['AS'] = 'nasm'
+    asm64['ASFLAGS'] = ['-f', 'elf64']
+    asm64_objects = asm64.Object(asm64_sources)
+
+# -------------------------------------------------------
+# Link kernel with libcore
+# -------------------------------------------------------
 Import('libcore')
 
-static_libs = [
-    libcore,
-]
-
-objects = [
-    obj_crti,
-    os.path.join(env["TOOLCHAIN_LIBGCC"], 'crtbegin.o'),
-    *objects,
-    *static_libs,
-    os.path.join(env["TOOLCHAIN_LIBGCC"], 'crtend.o'),
-    obj_crtn
-]
-
-# init_src = env.File('#image/rootfs/bin/init')  # project-root relative
-# init_blob = env.Command(
-#     target='init_blob.o',
-#     source=init_src,
-#     action='objcopy -I binary -O elf32-i386 -B i386 $SOURCE $TARGET'
-# )
-
-# env.Depends(init_blob, init_src)
-# objects.append(init_blob)
-
-
-
+objects = []
+objects += asm32_objects   # 32-bit stub first
+objects += asm64_objects
+objects += c_objects
+objects.append(libcore)
 
 kernel = env.Program('kernel.elf', objects)
-kernel_stripped = env.Command('kernel-stripped.elf', kernel, '$STRIP -o $TARGET $SOURCE')
+
+kernel_bin = env.Command(
+    'kernel.bin',
+    kernel,
+    'objcopy -O binary $SOURCE $TARGET'
+)
+
+kernel_stripped = env.Command(
+    'kernel-stripped.elf',
+    kernel,
+    '$STRIP -o $TARGET $SOURCE'
+)
+
+env.Default(kernel_bin)
 env.Default(kernel_stripped)
 
 Export('kernel')
+Export('kernel_bin')
 Export('kernel_stripped')

@@ -23,6 +23,11 @@ qemu-system-i386 -fda build/main_floppy.img
 # When ./run.sh fails
 unset GTK_PATH
 
+# For GRUB, install xorriso
+sudo apt update
+sudo apt install xorriso
+sudo apt install grub-pc-bin
+sudo apt install grub-efi-amd64-bin
 
 # Install Watcom
 sudo apt install snapd
@@ -310,3 +315,23 @@ cp bin/init/init ../../image/root/bin/
 cd ../../
 clear && scons run
 
+
+
+
+GRUB
+  ↓ (32-bit protected mode, Multiboot2)
+boot32.asm        ← entry point from GRUB
+  ↓ (you enable paging + long mode)
+boot64.asm        ← first instruction executed in 64-bit mode
+  ↓
+early_kernel_main (C/C++)
+
+
+
+
+I see in QEMU. GRUB error: no multiboot header found. error: you need to load the kernel first. Press any key to continue. 
+
+GRUB error: invalid arch-dependent ELF magic. error: you need to load the kernel first. Press any key to continue.  
+
+
+objdump -h build/x86_64_debug/kernel/kernel.elf

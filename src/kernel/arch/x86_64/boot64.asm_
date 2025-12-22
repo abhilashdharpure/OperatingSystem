@@ -1,0 +1,8 @@
+BITS 64
+global long_mode_entry
+
+extern kernel_entry
+
+long_mode_entry:
+    ; setup stack, paging already done
+    jmp kernel_entry

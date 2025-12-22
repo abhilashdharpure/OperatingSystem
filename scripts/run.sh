@@ -1,22 +1,28 @@
 #!/bin/bash
 
-QEMU_ARGS='-debugcon stdio -m 32'
-
-if [ "$#" -le 1 ]; then
-    echo "Usage: ./run.sh <image_type> <image>"
+if [ "$#" -ne 2 ]; then
+    echo "Usage: $0 <image_type> <image>"
     exit 1
 fi
 
-case "$1" in
-    "floppy")   QEMU_ARGS="${QEMU_ARGS} -fda $2"
-    ;;
-    "disk")     QEMU_ARGS="${QEMU_ARGS} -hda $2"
-    ;;
-    *)          echo "Unknown image type $1."
-                exit 2
-esac
+IMAGE_TYPE="$1"
+IMAGE_FILE="$2"
 
-qemu-system-i386 $QEMU_ARGS
+# sanity check
+if [ ! -f "$IMAGE_FILE" ]; then
+    echo "Error: ISO file not found: $IMAGE_FILE"
+    exit 1
+fi
 
-# echo "Running: /usr/bin/qemu-system-i386 $QEMU_ARGS"
-# exec /usr/bin/qemu-system-i386 $QEMU_ARGS
+# exec qemu-system-x86_64 \
+#     -m 512 \
+#     -bios /usr/share/OVMF/OVMF_CODE.fd \
+#     -cdrom "$IMAGE_FILE" \
+#     -serial stdio \
+#     -no-reboot
+
+qemu-system-x86_64 \
+    -m 512 \
+    -cdrom "$2" \
+    -serial stdio \
+    -no-reboot

@@ -1,32 +1,65 @@
-ENTRY(start)
-OUTPUT_FORMAT("elf32-i386")
-phys = 0x00100000;
+OUTPUT_FORMAT(elf64-x86-64)
+OUTPUT_ARCH(i386:x86-64)
+
+ENTRY(multiboot_entry)
 
 SECTIONS
 {
-    . = phys;
-    _kernel_start = .;
-    
-    .text               : { __text_start = .;       *(.text)    }
-    .data               : { __data_start = .;       *(.data)    }
-    .rodata             : { __rodata_start = .;     *(.rodata)  }
-
-    .bss :
+    /* -------------------------------------------------- */
+    /* Multiboot header must be very early                */
+    /* -------------------------------------------------- */
+    .multiboot_header 0x0 : AT(0x0)
     {
-        __bss_start = .;
-        *(.bss)
-        *(COMMON)
-        __bss_end = .;
+        KEEP(*(.multiboot_header))
     }
 
-    /* Kernel stack (16 KiB) */
-    . = ALIGN(16);
-    _kernel_stack_bottom = .;
-    . += 16384;
-    _kernel_stack_top = .;
+    /* -------------------------------------------------- */
+    /* 32-bit boot code (runs before paging)              */
+    /* -------------------------------------------------- */
+    . = 0x100;
+    .boot32 : AT(0x100)
+    {
+        KEEP(*(.text.boot32))
+    }
 
-    
-    __end = .;
-    _kernel_end = .;
+    /* -------------------------------------------------- */
+    /* Kernel proper (identity mapped)                    */
+    /* -------------------------------------------------- */
+    . = 0x1000;
+    .text : AT(0x1000)
+    {
+        *(.text*)
+    }
+
+    .rodata : AT(ADDR(.rodata))
+    {
+        *(.rodata*)
+    }
+
+    .data : AT(ADDR(.data))
+    {
+        *(.data*)
+    }
+
+    .bss (NOLOAD) : AT(ADDR(.bss))
+    {
+        *(.bss*)
+        *(COMMON)
+    }
+
+    /* -------------------------------------------------- */
+    /* Kernel stack (NOLOAD, but identity mapped)         */
+    /* -------------------------------------------------- */
+    .stack (NOLOAD) : AT(ADDR(.bss) + SIZEOF(.bss))
+    {
+        _kernel_stack_bottom = .;
+        . += 0x4000;
+        _kernel_stack_top = .;
+    }
+
+    /* -------------------------------------------------- */
+    /* Useful symbols                                     */
+    /* -------------------------------------------------- */
+    _kernel_start = 0x1000;
+    _kernel_end   = .;
 }
-

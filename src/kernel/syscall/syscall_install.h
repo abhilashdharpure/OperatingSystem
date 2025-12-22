@@ -1,5 +1,5 @@
 #pragma once
 
-#include <arch/i686/isr.h>
+#include <arch/x86_64/isr.h>
 
 void i686_syscall_handler(Registers* regs);

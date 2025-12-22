@@ -1,5 +1,5 @@
 #include "time.h"
-#include <arch/i686/pit.h>
+#include <arch/x86_64/pit.h>
 
 
 uint64_t get_system_time(void) 

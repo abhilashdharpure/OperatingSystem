@@ -1,7 +1,7 @@
 #include "input_manager.h"
 #include "string.h"
 #include "debug.h"
-#include "arch/i686/events/input_event.h"
+#include "arch/x86_64/events/input_event.h"
 
 static InputManager input_mgr;
 

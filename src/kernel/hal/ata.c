@@ -23,24 +23,24 @@ static ata_device_t ata0_slave  = { .device = 1, .io_base = 0x1F0, .ctrl_base = 
 int ata_probe_identify(void) {
     log_info("ATA", "IDENTIFY probe start");
     // select master
-    // i686_outb(ATA_DEVICE, 0xA0); // 0xA0 = master for IDENTIFY legacy
+    // outb(ATA_DEVICE, 0xA0); // 0xA0 = master for IDENTIFY legacy
 
     ata_device_t *ata = &ata0_master; // or from private_data
-    i686_outb(ata->io_base + ATA_DEVICE, 0xA0 | (ata->device << 4));
+    outb(ata->io_base + ATA_DEVICE, 0xA0 | (ata->device << 4));
     io_wait_400ns();
 
     // zero sector count and LBA registers per spec
-    i686_outb(ATA_SECCNT, 0);
-    i686_outb(ATA_LBA_LO, 0);
-    i686_outb(ATA_LBA_MID, 0);
-    i686_outb(ATA_LBA_HI, 0);
+    outb(ATA_SECCNT, 0);
+    outb(ATA_LBA_LO, 0);
+    outb(ATA_LBA_MID, 0);
+    outb(ATA_LBA_HI, 0);
 
     // issue IDENTIFY DEVICE (0xEC)
-    i686_outb(ATA_COMMAND, 0xEC);
+    outb(ATA_COMMAND, 0xEC);
     uint16_t io_base = ATA_IO_BASE;
     // wait for response up to a short deadline
     for (int i = 0; i < 10000; ++i) {
-        uint8_t st = i686_inb(io_base + ATA_STATUS);
+        uint8_t st = inb(io_base + ATA_STATUS);
         if (st == 0) {
             // no device responding
             if ((i & 255) == 0) log_info("ATA", "identify loop still 0 (i=%d)", i);
@@ -62,7 +62,7 @@ int ata_probe_identify(void) {
 
 int ata_wait_not_busy(ata_device_t *ata, uint32_t timeout_ms) {
     // simplified polling loop
-    while (i686_inb(ata->io_base + ATA_STATUS) & ST_BSY);
+    while (inb(ata->io_base + ATA_STATUS) & ST_BSY);
     return 0;
 }
 
@@ -73,7 +73,7 @@ int ata_wait_drq(ata_device_t *ata, uint32_t timeout_ms)
     log_info("ATA", "ata_wait_drq start = %llu", start);
 
     while ((pit_get_ticks() - start) < timeout_ms) {
-        uint8_t st = i686_inb(ata->io_base + ATA_STATUS);
+        uint8_t st = inb(ata->io_base + ATA_STATUS);
         
         log_info("ATA", "ata_wait_drq status = 0x%02x", st);
 
@@ -90,7 +90,7 @@ int ata_wait_drq(ata_device_t *ata, uint32_t timeout_ms)
 
 static void ata_select_drive_master(void) {
     log_debug("ATA", "Start ata_select_drive_master");
-    i686_outb(ATA_DEVICE, 0xE0); // master, high 4 bits of LBA later
+    outb(ATA_DEVICE, 0xE0); // master, high 4 bits of LBA later
     io_wait_400ns();
     log_debug("ATA", "End ata_select_drive_master");
 }
@@ -98,14 +98,14 @@ static void ata_select_drive_master(void) {
 static int ata_identify(ata_device_t *ata) {
     log_info("ATA", "IDENTIFY probe device=%u", ata->device);
 
-    i686_outb(ata->io_base + ATA_DEVICE, 0xA0 | (ata->device << 4));
+    outb(ata->io_base + ATA_DEVICE, 0xA0 | (ata->device << 4));
     io_wait_400ns(); 
 
-    i686_outb(ata->io_base + ATA_SECCNT, 0);
-    i686_outb(ata->io_base + ATA_LBA_LO, 0);
-    i686_outb(ata->io_base + ATA_LBA_MID, 0);
-    i686_outb(ata->io_base + ATA_LBA_HI, 0);
-    i686_outb(ata->io_base + ATA_COMMAND, 0xEC); // IDENTIFY
+    outb(ata->io_base + ATA_SECCNT, 0);
+    outb(ata->io_base + ATA_LBA_LO, 0);
+    outb(ata->io_base + ATA_LBA_MID, 0);
+    outb(ata->io_base + ATA_LBA_HI, 0);
+    outb(ata->io_base + ATA_COMMAND, 0xEC); // IDENTIFY
 
     io_wait_400ns();
 
@@ -115,7 +115,7 @@ static int ata_identify(ata_device_t *ata) {
     }
 
     for (int i = 0; i < 10000; ++i) {
-        uint8_t st = i686_inb(ata->io_base + ATA_STATUS);
+        uint8_t st = inb(ata->io_base + ATA_STATUS);
         if (st == 0)
         { 
             io_wait_400ns();
@@ -132,7 +132,7 @@ static int ata_identify(ata_device_t *ata) {
         io_wait_400ns();
     }
 
-    uint8_t status = i686_inb(ata->io_base + ATA_STATUS);
+    uint8_t status = inb(ata->io_base + ATA_STATUS);
     if (status == 0) {
         log_error("ATA", "No device on channel %u", ata->device);
         return -1;
@@ -144,18 +144,18 @@ static int ata_identify(ata_device_t *ata) {
 
 
 static void issue_ata_read28(uint32_t lba, uint8_t count) {
-    i686_outb(ATA_DEV_CTRL, 0x00);       // enable interrupts
-    i686_outb(ATA_SECCNT, count);
-    i686_outb(ATA_LBA_LO, (uint8_t)(lba & 0xFF));
-    i686_outb(ATA_LBA_MID, (uint8_t)((lba >> 8) & 0xFF));
-    i686_outb(ATA_LBA_HI, (uint8_t)((lba >> 16) & 0xFF));
-    i686_outb(ATA_DEVICE, 0xE0 | ((lba >> 24) & 0x0F)); // master + LBA high nibble
-    i686_outb(ATA_COMMAND, 0x20);       // READ SECTORS (PIO)
+    outb(ATA_DEV_CTRL, 0x00);       // enable interrupts
+    outb(ATA_SECCNT, count);
+    outb(ATA_LBA_LO, (uint8_t)(lba & 0xFF));
+    outb(ATA_LBA_MID, (uint8_t)((lba >> 8) & 0xFF));
+    outb(ATA_LBA_HI, (uint8_t)((lba >> 16) & 0xFF));
+    outb(ATA_DEVICE, 0xE0 | ((lba >> 24) & 0x0F)); // master + LBA high nibble
+    outb(ATA_COMMAND, 0x20);       // READ SECTORS (PIO)
 }
 
 static void read_512_bytes(void *buf){
     uint16_t *w = (uint16_t*)buf;
-    for (int i = 0; i < 256; ++i) w[i] = i686_inw(ATA_DATA);
+    for (int i = 0; i < 256; ++i) w[i] = inw(ATA_DATA);
 }
 
 // int ata_read_sectors(block_device_t *dev, uint32_t lba, uint32_t count, void *buf)
@@ -167,25 +167,25 @@ static void read_512_bytes(void *buf){
 
 //     if (ata_wait_not_busy(ata, 5000) < 0) return -1;
 
-//     i686_outb(io_base + ATA_SECCNT, (uint8_t)count);
+//     outb(io_base + ATA_SECCNT, (uint8_t)count);
 //     io_wait_400ns();
-//     i686_outb(io_base + ATA_LBA_LO,  (uint8_t)(lba & 0xFF));
+//     outb(io_base + ATA_LBA_LO,  (uint8_t)(lba & 0xFF));
 //     io_wait_400ns();
-//     i686_outb(io_base + ATA_LBA_MID, (uint8_t)((lba >> 8) & 0xFF));
+//     outb(io_base + ATA_LBA_MID, (uint8_t)((lba >> 8) & 0xFF));
 //     io_wait_400ns();
-//     i686_outb(io_base + ATA_LBA_HI,  (uint8_t)((lba >> 16) & 0xFF));
+//     outb(io_base + ATA_LBA_HI,  (uint8_t)((lba >> 16) & 0xFF));
 //     io_wait_400ns();
-//     i686_outb(io_base + ATA_DEVICE,  0xE0 | ((device & 1) << 4) | ((lba >> 24) & 0x0F));
+//     outb(io_base + ATA_DEVICE,  0xE0 | ((device & 1) << 4) | ((lba >> 24) & 0x0F));
 //     io_wait_400ns();
 
-//     i686_outb(io_base + ATA_COMMAND, ATA_CMD_READ_SECTORS);
+//     outb(io_base + ATA_COMMAND, ATA_CMD_READ_SECTORS);
 //     io_wait_400ns();
 
 //     for (uint32_t i = 0; i < count; i++) {
 //         if (ata_wait_drq(ata, 5000) < 0) return -2;
 
 //         for (int j = 0; j < 256; j++) {
-//             uint16_t word = i686_inw(io_base + ATA_DATA);
+//             uint16_t word = inw(io_base + ATA_DATA);
 //             buffer[j*2]   = word & 0xFF;
 //             buffer[j*2+1] = (word >> 8) & 0xFF;
 //         }
@@ -209,17 +209,17 @@ int ata_read_sectors(block_device_t *dev, uint32_t lba, uint32_t count, void *bu
     ata_device_t *ata = (ata_device_t*)dev->private_data;
 
     // select master
-    i686_outb(ata->io_base + ATA_DEVICE, 0xE0 | ((lba >> 24) & 0x0F));
-    i686_outb(ata->io_base + ATA_SECCNT, count);
-    i686_outb(ata->io_base + ATA_LBA_LO, lba & 0xFF);
-    i686_outb(ata->io_base + ATA_LBA_MID, (lba >> 8) & 0xFF);
-    i686_outb(ata->io_base + ATA_LBA_HI, (lba >> 16) & 0xFF);
-    i686_outb(ata->io_base + ATA_COMMAND, ATA_CMD_READ_SECTORS);
+    outb(ata->io_base + ATA_DEVICE, 0xE0 | ((lba >> 24) & 0x0F));
+    outb(ata->io_base + ATA_SECCNT, count);
+    outb(ata->io_base + ATA_LBA_LO, lba & 0xFF);
+    outb(ata->io_base + ATA_LBA_MID, (lba >> 8) & 0xFF);
+    outb(ata->io_base + ATA_LBA_HI, (lba >> 16) & 0xFF);
+    outb(ata->io_base + ATA_COMMAND, ATA_CMD_READ_SECTORS);
 
     for (uint32_t s = 0; s < count; s++) {
-        while (!(i686_inb(ata->io_base + ATA_STATUS) & ST_DRQ));
+        while (!(inb(ata->io_base + ATA_STATUS) & ST_DRQ));
         for (int i = 0; i < 256; i++) {
-            ((uint16_t*)buf)[i + s*256] = i686_inw(ata->io_base + ATA_DATA);
+            ((uint16_t*)buf)[i + s*256] = inw(ata->io_base + ATA_DATA);
         }
     }
 
@@ -243,14 +243,14 @@ void ata_init() {
 // extern ata_device ata_devices[4];
 
 // static inline void io_wait_400ns(void) {
-//     (void)i686_inb(ATA_ALT_STATUS);
-//     (void)i686_inb(ATA_ALT_STATUS);
-//     (void)i686_inb(ATA_ALT_STATUS);
-//     (void)i686_inb(ATA_ALT_STATUS);
+//     (void)inb(ATA_ALT_STATUS);
+//     (void)inb(ATA_ALT_STATUS);
+//     (void)inb(ATA_ALT_STATUS);
+//     (void)inb(ATA_ALT_STATUS);
 // }
 
 // static inline void io_wait_400ns(void) {
-//     i686_inb(0x80); i686_inb(0x80); i686_inb(0x80); i686_inb(0x80);
+//     inb(0x80); inb(0x80); inb(0x80); inb(0x80);
 // }
 // Wait for ATA device to clear BSY
 // int ata_wait_not_busy(ata_device_t *ata, uint32_t timeout_ms)
@@ -259,7 +259,7 @@ void ata_init() {
 //     log_info("ATA", "ata_wait_not_busy start = %llu", start);
 
 //     while ((pit_get_ticks() - start) < timeout_ms) {
-//         uint8_t st = i686_inb(ata->io_base + ATA_STATUS);
+//         uint8_t st = inb(ata->io_base + ATA_STATUS);
 //         log_info("ATA", "ata_wait_not_busy status = 0x%02x", st);
 
 //         if (!(st & ST_BSY)) {
@@ -280,7 +280,7 @@ void ata_init() {
 //     log_error("ATA", "Inside ata_wait_not_busy, start = ", start);
 //     while ((pit_get_ticks() - start) < timeout_ms)
 //     {
-//         uint8_t st = i686_inb(ata->io_base + ATA_STATUS);
+//         uint8_t st = inb(ata->io_base + ATA_STATUS);
 //         log_error("ATA", "Inside ata_wait_not_busy, st = ", st);
 
 //         if (!(st & ST_BSY))
@@ -296,7 +296,7 @@ void ata_init() {
 // int ata_wait_drq(ata_device_t *ata, uint32_t timeout_ms) {
 //     uint64_t start = pit_get_ticks();
 //     while ((pit_get_ticks() - start) < timeout_ms) {
-//         uint8_t st = i686_inb(ata->io_base + ATA_STATUS);
+//         uint8_t st = inb(ata->io_base + ATA_STATUS);
 //         if (!(st & ST_BSY) && (st & ST_DRQ)) return 0;
 //         io_wait_400ns();
 //     }

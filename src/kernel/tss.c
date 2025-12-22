@@ -1,5 +1,5 @@
 #include "tss.h"
-#include "arch/i686/gdt.h"   /* we will write GDT entry into g_GDT[] */
+#include "arch/x86_64/gdt.h"   /* we will write GDT entry into g_GDT[] */
 #include <string.h>
 #include <debug.h>
 

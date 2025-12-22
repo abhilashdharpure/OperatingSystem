@@ -48,7 +48,7 @@ typedef struct {
 
 /* helpers you must have or implement */
 extern uint32_t virt_to_phys(void *v);
-extern void write_cr3(uint32_t pd_phys);
+// extern void write_cr3(uint32_t pd_phys);
 
 // Get the physical address mapped to a virtual address
 uint32_t get_mapped_phys(uint32_t *pd_virt, uint32_t va)

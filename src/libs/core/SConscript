@@ -3,22 +3,32 @@ import os
 from SCons.Environment import Environment
 from build_scripts.utility import GlobRecursive, FindIndex, IsFileName
 
-
 Import('TARGET_ENVIRONMENT')
 TARGET_ENVIRONMENT: Environment
 
 env = TARGET_ENVIRONMENT.Clone()
+
+# Core library include path
 env.Append(
-    CPPPATH = [ env.Dir('.').srcnode() ],
-    ASFLAGS = [ '-I', env.Dir('.').srcnode(), '-f', 'elf' ]
+    CPPPATH = [ env.Dir('.').srcnode() ]
 )
 
-sources = GlobRecursive(env, '*.c') + \
-          GlobRecursive(env, '*.cpp') + \
-          GlobRecursive(env, '*.asm')
+# ---------------------------------------------------------
+# Core library sources (C / C++ only)
+# ---------------------------------------------------------
+sources = []
+sources += GlobRecursive(env, '*.c')
+sources += GlobRecursive(env, '*.cpp')
+
+# ---------------------------------------------------------
+# IMPORTANT:
+# Do NOT compile any architecture-specific ASM here.
+# The kernel SConscript handles all ASM.
+# ---------------------------------------------------------
 
 objects = env.Object(sources)
 
+# Build static library
 libcore = env.StaticLibrary('libcore.o', objects)
 
 Export('libcore')

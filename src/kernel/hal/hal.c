@@ -1,11 +1,11 @@
 #include "hal.h"
-#include <arch/i686/gdt.h>
-#include <arch/i686/idt.h>
-#include <arch/i686/isr.h>
-#include <arch/i686/irq.h>
-#include <arch/i686/vga_text.h>
-#include <arch/i686/ps2.h>
-#include <arch/i686/pit.h>
+#include <arch/x86_64/gdt.h>
+#include <arch/x86_64/idt.h>
+#include <arch/x86_64/isr.h>
+#include <arch/x86_64/irq.h>
+#include <arch/x86_64/vga_text.h>
+#include <arch/x86_64/ps2.h>
+#include <arch/x86_64/pit.h>
 #include "tss.h"
 #include "syscall/syscall_install.h"
 #include "debug.h"
@@ -47,7 +47,8 @@ void HAL_Initialize()
     // log_info("STACK", "kernel stack top    = %p", &_kernel_stack_top);
 
     __asm__ volatile ("cli");
-    i686_GDT_Initialize();
+    gdt_init();
+    // i686_GDT_Initialize();
     /* kernel_stack_top: top of kernel stack (virtual address) used for ring0 on interrupts */
     i686_TSS_Install(_kernel_stack_top);
     i686_IDT_Initialize();

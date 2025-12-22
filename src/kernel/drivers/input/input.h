@@ -1,7 +1,7 @@
 #pragma once
 
 #include "stdint.h"
-#include "arch/i686/events/input_event.h"
+#include "arch/x86_64/events/input_event.h"
 #include <string.h>
 
 

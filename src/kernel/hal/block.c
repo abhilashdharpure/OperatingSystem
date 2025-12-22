@@ -1,7 +1,7 @@
 #include "block.h"
 #include "hal/process.h"
 #include "hal/ata.h"
-#include "arch/i686/io.h"
+#include "arch/x86_64/io.h"
 #include "debug.h"
 #include "hal/ata.h"
 #include "hal/fat32.h"
@@ -22,13 +22,13 @@ void issue_ata_read(uint32_t lba, uint32_t count) {
 }
 
 int data_ready(void) {
-    uint8_t status = i686_inb(ATA_STATUS);
+    uint8_t status = inb(ATA_STATUS);
     return !(status & ATA_BSY) && (status & ATA_DRQ);
 }
 
 void read_256_words_to(uint16_t *buf) {
     for (int i = 0; i < 256; i++) {
-        buf[i] = i686_inw(ATA_DATA);
+        buf[i] = inw(ATA_DATA);
     }
 }
 

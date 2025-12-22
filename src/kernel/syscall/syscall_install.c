@@ -1,11 +1,11 @@
 #include "syscall_install.h"
-#include "arch/i686/isr.h"
-#include "arch/i686/idt.h"
-#include "arch/i686/gdt.h"
+#include "arch/x86_64/isr.h"
+#include "arch/x86_64/idt.h"
+#include "arch/x86_64/gdt.h"
 #include "debug.h"
 
 
-// #include "arch/i686/isrs_gen.c"
+// #include "arch/x86_64/isrs_gen.c"
 
 void i686_syscall_handler(Registers* regs); // implemented below in syscall.c
 

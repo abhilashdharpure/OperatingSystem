@@ -20,3 +20,4 @@ void debugf(const char* fmt, ...);
 void debug_buffer(const char* msg, const void* buffer, uint32_t count);
 
 int ksnprintf(char *buf, size_t size, const char *fmt, ...);
+static inline void serial_putc(char c);

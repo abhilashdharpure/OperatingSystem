@@ -1,6 +1,6 @@
 #pragma once
 
-#include "arch/i686/io.h"
+#include "arch/x86_64/io.h"
 #include "hal/block.h"
 
 
