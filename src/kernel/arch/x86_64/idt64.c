@@ -1,9 +1,11 @@
 // idt64.c
 #include "idt64.h"
 #include "debug.h"
+#include "arch/x86_64/serial.h"
 
 #define IDT64_ENTRIES 256
 
+__attribute__((section(".text")))
 static IDTEntry64 g_IDT64[IDT64_ENTRIES];
 static IDTDescriptor64 g_IDT64Descriptor = { sizeof(g_IDT64) - 1, g_IDT64 };
 
@@ -50,6 +52,6 @@ void x64_IDT_Initialize(void)
 
     lidt64(&g_IDT64Descriptor);
 
-    log_info("IDT64", "Loaded 64-bit IDT at %p (limit=%u)",
-             (void*)g_IDT64Descriptor.Ptr, g_IDT64Descriptor.Limit);
+    // log_info("IDT64", "Loaded 64-bit IDT at %p (limit=%u)",
+    //          (void*)g_IDT64Descriptor.Ptr, g_IDT64Descriptor.Limit);
 }

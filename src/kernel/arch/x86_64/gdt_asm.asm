@@ -1,3 +1,5 @@
+; gdt_asm.asm
+
 [bits 32]
 
 ; void __attribute__((cdecl)) i686_GDT_Load(GDTDescriptor* descriptor, uint16_t codeSegment, uint16_t dataSegment);
@@ -33,16 +35,23 @@ i686_GDT_Load:
     pop ebp
     ret
 
-global gdt64_pointer
+; global gdt64_pointer
 
-section .data
-align 8
+; section .data
+; align 8
 
-gdt64_pointer:
-    dw gdt64_end - gdt64 - 1  ; limit
-    dq gdt64                  ; base
+; gdt64_pointer:
+;     dw gdt64_end - gdt64 - 1
+;     dq gdt64
 
-; your 64-bit GDT:
-gdt64:
-    ; ... descriptors ...
-gdt64_end:
+; gdt64:
+;     dq 0                        ; 0x00: null descriptor
+
+;     ; 0x08: 64-bit kernel code segment
+;     dq 0x00AF9A000000FFFF       ; base=0, limit=0xFFFFF, code, RX, 64-bit
+
+;     ; 0x10: 64-bit kernel data segment
+;     dq 0x00AF92000000FFFF       ; base=0, limit=0xFFFFF, data, RW
+
+; gdt64_end:
+

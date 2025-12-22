@@ -15,7 +15,8 @@
 #include "hal/vfs_memfile.h"
 #include <arch/x86_64/io.h>
 
-#include <stdio.h>
+// #include <stdio.h>
+#include "arch/x86_64/serial.h"
 
 #include "paging.h"
 #include "pmm.h"
@@ -183,54 +184,33 @@ void init_serial()
 }
 
 
-// static inline void serial_putc(char c) {
-//     // Wait until transmit buffer empty
-//     while (!(inb(0x3F8 + 5) & 0x20));
-//     *((volatile char *)0x3F8) = c;
-// }
-// static inline void serial_putc(char c) {
-//     // Wait until transmit buffer empty
-//     while (!(inb(0x3F8 + 5) & 0x20))
-//         ;
-
-//     outb(0x3F8, c);
-// }
-
-
-static void serial_write(const char *s) {
-    while (*s) serial_putc(*s++);
-}
-
-static inline void serial_putc_asm(char c) {
-    __asm__ volatile (
-        "mov $0x3F8, %%dx\n\t"
-        "mov %0, %%al\n\t"
-        "out %%al, %%dx\n\t"
-        :
-        : "r"(c)
-        : "dx", "al"
-    );
-}
-
-
 void early_kernel_main(void) {
-
     serial_putc_asm('K');
-    init_serial();
+    serial_init();
+    serial_putc_asm('A');
 
-    // Prove we are here in the most primitive way
+    debug_print_cs();          // <<< Add this
     serial_write("EARLY\n");
+    serial_putc_asm('R');
 
     x64_IDT_Initialize();
+    serial_putc_asm('N');
 
     serial_write("BEFORE UD2\n");
+    serial_putc_asm('A');
+
     __asm__ volatile("ud2");
+    serial_putc_asm('L');
+
     serial_write("AFTER UD2\n");
 
     for (;;) {
         __asm__ volatile("hlt");
     }
 }
+
+
+
 
 // void early_kernel_main(void) {
 //     init_serial();
