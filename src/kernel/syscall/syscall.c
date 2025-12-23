@@ -1,7 +1,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include "debug.h"
-#include <arch/x86_64/isr.h>
+#include <arch/x86_64/isr64.h>
 #include "syscall.h"
 #include "hal/vfs.h"     /* for VFS_Write and VFS_FD_* constants */
 #include "hal/process.h"     /* for current_process if you want pid in logging */
@@ -16,7 +16,7 @@
 
 extern int is_user_vaddr(uint32_t vaddr); /* optional - replace or remove if not present */
 
-static void syscall_write(Registers *regs);
+static void syscall_write(ISRFrame64 *regs);
 
 /* copy_from_user: copies up-to `len` bytes from user address `uaddr` into kernel buffer dst.
    Returns 0 on success, -1 on invalid user address. */
@@ -58,46 +58,74 @@ static fd_t map_user_fd_to_vfs(int user_fd)
     }
 }
 
-/* Replace kernel_putchar with your actual routine if needed (e.g. framebuffer/serial writer).
-   Here we rely on VFS_Write so nothing else is needed. */
-void i686_syscall_handler(Registers* regs)
+// /* Replace kernel_putchar with your actual routine if needed (e.g. framebuffer/serial writer).
+//    Here we rely on VFS_Write so nothing else is needed. */
+// void i686_syscall_handler(Registers* regs)
+// {
+//     log_info("SYSCALL",
+//              "### syscall: eax=%u ebx=%u ecx=%p edx=%u cs=%x eip=%x",
+//              regs->eax, regs->ebx, regs->ecx, regs->edx,
+//              regs->cs, regs->eip);
+
+//     if (regs->eax == 1)
+//     {
+//         switch (regs->eax) {
+//             case SYS_WRITE:
+//                 syscall_write(regs);
+//                 break;
+
+//             default:
+//                 log_error("SYSCALL", "Unknown syscall %u", regs->eax);
+//                 break;
+//         }
+
+//         return;
+//     }
+
+//     log_error("SYSCALL", "Unknown syscall %u", regs->eax);
+// }
+
+void x64_syscall_handler(ISRFrame64* regs)
 {
-    log_info("SYSCALL",
-             "### syscall: eax=%u ebx=%u ecx=%p edx=%u cs=%x eip=%x",
-             regs->eax, regs->ebx, regs->ecx, regs->edx,
-             regs->cs, regs->eip);
+    log_info("SYSCALL", "TODO Not implemente x64_syscall_handler...");
+    // log_info("SYSCALL",
+    //          "### syscall: eax=%u ebx=%u ecx=%p edx=%u cs=%x eip=%x",
+    //          regs->eax, regs->ebx, regs->ecx, regs->edx,
+    //          regs->cs, regs->eip);
 
-    if (regs->eax == 1)
-    {
-        switch (regs->eax) {
-            case SYS_WRITE:
-                syscall_write(regs);
-                break;
+    // if (regs->eax == 1)
+    // {
+    //     switch (regs->eax) {
+    //         case SYS_WRITE:
+    //             syscall_write(regs);
+    //             break;
 
-            default:
-                log_error("SYSCALL", "Unknown syscall %u", regs->eax);
-                break;
-        }
+    //         default:
+    //             log_error("SYSCALL", "Unknown syscall %u", regs->eax);
+    //             break;
+    //     }
 
-        return;
-    }
+    //     return;
+    // }
 
-    log_error("SYSCALL", "Unknown syscall %u", regs->eax);
+    // log_error("SYSCALL", "Unknown syscall %u", regs->eax);
 }
 
-static void syscall_write(Registers *regs)
+static void syscall_write(ISRFrame64 *regs)
 {
-    int fd = regs->ebx;
-    const char *buf = (const char *)regs->ecx;
-    uint32_t len = regs->edx;
+    log_info("SYSCALL", "TODO Not implement syscall_write...");
 
-    log_debug("SYSCALL", "SYS_WRITE fd=%d buf=%p len=%u", fd, buf, len);
+    // int fd = regs->ebx;
+    // const char *buf = (const char *)regs->ecx;
+    // uint32_t len = regs->edx;
 
-    /* VERY IMPORTANT:
-       User memory must be mapped in kernel page tables.
-       If you are using shared user/kernel address space, this works.
-    */
+    // log_debug("SYSCALL", "SYS_WRITE fd=%d buf=%p len=%u", fd, buf, len);
 
-    int ret = VFS_Write(fd, buf, len);
-    regs->eax = ret;
+    // /* VERY IMPORTANT:
+    //    User memory must be mapped in kernel page tables.
+    //    If you are using shared user/kernel address space, this works.
+    // */
+
+    // int ret = VFS_Write(fd, buf, len);
+    // regs->eax = ret;
 }

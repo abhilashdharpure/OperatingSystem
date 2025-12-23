@@ -9,10 +9,10 @@
 volatile uint64_t pit_ticks = 0;
 static uint32_t pit_frequency = 1000;   // default to 1000 Hz (1 ms per tick)
 
-void pit_irq_handler(Registers* regs)
+void pit_irq_handler(ISR64Handler* regs)
 {
     pit_ticks++;
-    i686_IRQ_SendEndOfInterupt(HardwareIRQNo_PIT_Timer);
+    x64_IRQ_SendEndOfInterupt(HardwareIRQNo_PIT_Timer);
 }
 
 void pit_init(uint32_t frequency)
@@ -29,7 +29,7 @@ void pit_init(uint32_t frequency)
     outb(0x40, divisor & 0xFF);
     outb(0x40, divisor >> 8);
 
-    i686_IRQ_RegisterHandler(HardwareIRQNo_PIT_Timer, pit_irq_handler);
+    x64_IRQ_RegisterHandler(HardwareIRQNo_PIT_Timer, pit_irq_handler);
 
     log_info("PIT", "Initialized at %u Hz (divisor=%u)", pit_frequency, divisor);
 }

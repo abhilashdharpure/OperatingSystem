@@ -1,5 +1,6 @@
 #pragma once
 
-#include <arch/x86_64/isr.h>
+#include <arch/x86_64/isr64.h>
 
-void i686_syscall_handler(Registers* regs);
+void x64_syscall_handler(ISRFrame64* regs);
+void x64_syscall_install(void);

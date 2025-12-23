@@ -15,7 +15,7 @@
 #include "hal/vfs_memfile.h"
 #include <arch/x86_64/io.h>
 
-// #include <stdio.h>
+#include "multiboot2_defines.h"
 #include "arch/x86_64/serial.h"
 
 #include "paging.h"
@@ -39,6 +39,7 @@ extern uint8_t _kernel_stack_top;
 
 #define VGA_PHYS 0xB8000
 
+
 // extern void _init();
 
 void crash_me();
@@ -47,7 +48,7 @@ void crash_me();
 extern uint32_t mb_info_ptr;
 void start(BootParams* bootParams, VbeModeInfo* fb_info);
 
-void timer(Registers* regs)
+void timer(ISRFrame64* regs)
 {
     printf(".");
 }
@@ -171,75 +172,110 @@ void setup_stack(void)
 //     start(&bootParams, &fb_info);
 // }
 
-void init_serial()
+
+
+
+void parse_multiboot2_memory_map(multiboot2_info_t* mbi)
 {
-    // Reset UART (same as before)
-    outb(0x00, 0x3F9);      // Disable interrupts
-    outb(0x80, 0x3FB);      // Enable DLAB
-    outb(0x03, 0x3F8);      // Divisor low byte (38400 baud)
-    outb(0x00, 0x3F9);      // Divisor high byte
-    outb(0x03, 0x3FB);      // 8 bits, no parity, 1 stop bit
-    outb(0xC7, 0x3FA);      // FIFO enabled, clear
-    outb(0x0B, 0x3FC);      // IRQs disabled, RTS/DSR set
+    uint8_t* tag_ptr = mbi->tags;
+
+    log_info("Boot", "parse_multiboot2_memory_map tag_ptr = %p", tag_ptr);
+    log_info("Boot", "parse_multiboot2_memory_map mbi->total_size = %u", mbi->total_size);
+
+
+    while ((uintptr_t)tag_ptr < (uintptr_t)mbi + mbi->total_size)
+    {
+        multiboot2_tag_header_t* tag = (multiboot2_tag_header_t*)tag_ptr;
+
+        // log_info("Boot", "parse_multiboot2_memory_map tag->type = %u", tag->type);
+
+
+        if (tag->type == MULTIBOOT_TAG_TYPE_MMAP)
+        {
+            multiboot2_mmap_entry_t* mmap = (multiboot2_mmap_entry_t*)(tag + 1);
+            uintptr_t end = (uintptr_t)tag + tag->size;
+
+            for (; (uintptr_t)mmap < end; mmap = (multiboot2_mmap_entry_t*)((uintptr_t)mmap + mmap->size)) {
+                log_info("MEM", "Memory region: 0x%llx - 0x%llx type=%u",
+                    mmap->entry_addr,
+                    mmap->entry_addr + mmap->entry_len,
+                    mmap->mem_type);
+            }
+        }
+
+        // Move to next tag (8-byte aligned)
+        tag_ptr = (uint8_t*)tag + ((tag->size + 7) & ~7);
+    }
 }
 
 
-void early_kernel_main(void) {
-    serial_putc_asm('K');
-    serial_init();
-    serial_putc_asm('A');
+void parse_multiboot2_framebuffer(multiboot2_info_t* mbi) {
+    uint8_t* tag_ptr = mbi->tags;
 
-    debug_print_cs();          // <<< Add this
+    while ((uintptr_t)tag_ptr < (uintptr_t)mbi + mbi->total_size) {
+        multiboot2_tag_header_t* tag = (multiboot2_tag_header_t*)tag_ptr;
+
+        if (tag->type == MULTIBOOT_TAG_TYPE_FRAMEBUFFER) {
+            multiboot2_fb_tag_t* fb = (multiboot2_fb_tag_t*)(tag + 1);
+            log_info("FB", "Framebuffer at 0x%llx %ux%u pitch=%u bpp=%u",
+                     fb->addr, fb->width, fb->height, fb->pitch, fb->bpp);
+        }
+
+        tag_ptr = (uint8_t*)tag + ((tag->size + 7) & ~7);
+    }
+}
+
+
+// typedef struct {
+//     uint32_t total_size;
+//     uint32_t reserved;
+//     uint8_t  tags[];
+// } multiboot2_info_t;
+
+// void early_kernel_main(BootParams* bootParams, VbeModeInfo* fb_info)
+// void early_kernel_main(void)
+void early_kernel_main(void* multiboot_info)
+{
+    log_info("Boot", "early_kernel_main entered");
+
+    multiboot2_info_t* mbi = (multiboot2_info_t*)multiboot_info;
+    log_info("Boot", "mbi=%p total_size=%u", mbi, mbi->total_size);
+    // log_info("Boot", "early_kernel_main total_size = %u, reserved = %u, tags = %u", mbi->total_size, mbi->reserved, mbi->tags);
+    log_info("Boot", "total_size=%u, reserved=%u, tags=%p", mbi->total_size, mbi->reserved, (void*)mbi->tags);
+
+    serial_putc_asm('1');
+    serial_init();
+    serial_putc_asm('2');
+
+
+    parse_multiboot2_memory_map(mbi);
+    parse_multiboot2_framebuffer(mbi);
+
+
+    serial_putc_asm('B');
+
+    debug_print_cs();
     serial_write("EARLY\n");
     serial_putc_asm('R');
 
     x64_IDT_Initialize();
-    serial_putc_asm('N');
+    // HAL_Initialize();
 
-    serial_write("BEFORE UD2\n");
-    serial_putc_asm('A');
+    
+    // serial_putc_asm('N');
 
-    __asm__ volatile("ud2");
-    serial_putc_asm('L');
+    // serial_write("BEFORE UD2\n");
+    // serial_putc_asm('A');
 
-    serial_write("AFTER UD2\n");
+    // __asm__ volatile("ud2");
+    // serial_putc_asm('L');
+
+    // serial_write("AFTER UD2\n");
 
     for (;;) {
         __asm__ volatile("hlt");
     }
 }
-
-
-
-
-// void early_kernel_main(void) {
-//     init_serial();
-//     log_info("Boot", "early_kernel_main entered");
-
-//     x64_IDT_Initialize();
-
-//     log_info("Boot", "Triggering UD2 to test IDT...");
-//     __asm__ volatile("ud2");
-
-//     for (;;) {
-//         __asm__ volatile("hlt");
-//     }
-// }
-
-
-
-// void start(void)
-// {
-//     log_info("Main", "Kernel Started");
-
-//     uint64_t mb_info = (uint64_t)mb_info_ptr;
-//     parse_multiboot2(mb_info);
-
-//     // pmm_init(...);
-//     // paging_init(...);
-
-//     // continue boot...
-// }
 
 void start(BootParams* bootParams, VbeModeInfo* fb_info)
 {   

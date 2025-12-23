@@ -89,11 +89,11 @@ static void ps2_keyboard_handler()
 
     input_push_event(&keyboard_dev, &synEvent);
     
-    i686_IRQ_SendEndOfInterupt(HardwareIRQNo_Keyboard);
+    x64_IRQ_SendEndOfInterupt(HardwareIRQNo_Keyboard);
 }
 
 // IRQ12 handler
-static void ps2_mouse_handler(Registers* regs)
+static void ps2_mouse_handler(ISR64Handler* regs)
 {
     uint8_t data = inb(DATA_PORT);
 
@@ -189,7 +189,7 @@ static void ps2_mouse_handler(Registers* regs)
     synEvent.value = 0;
     input_push_event(&mouse_dev, &synEvent);
 
-    i686_IRQ_SendEndOfInterupt(HardwareIRQNo_Mouse); // Or the proper IRQ number for mouse IRQ12
+    x64_IRQ_SendEndOfInterupt(HardwareIRQNo_Mouse); // Or the proper IRQ number for mouse IRQ12
 }
 
 void ps2_test_mouse_polling()
@@ -271,8 +271,8 @@ void init_input_system(void)
 
 void ps2_init() 
 {
-    i686_IRQ_RegisterHandler(HardwareIRQNo_Keyboard, ps2_keyboard_handler);
-    i686_IRQ_RegisterHandler(HardwareIRQNo_Mouse, ps2_mouse_handler);
+    x64_IRQ_RegisterHandler(HardwareIRQNo_Keyboard, ps2_keyboard_handler);
+    x64_IRQ_RegisterHandler(HardwareIRQNo_Mouse, ps2_mouse_handler);
 
     log_info("PS/2", "Registered IRQ handlers");
 

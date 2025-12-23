@@ -35,23 +35,19 @@ i686_GDT_Load:
     pop ebp
     ret
 
-; global gdt64_pointer
+; boot-time GDT for long mode
+global gdt64_desc
 
-; section .data
-; align 8
+section .data
+align 8
+gdt64:
+    dq 0x0000000000000000    ; null
+    dq 0x00209A0000000000    ; 0x08: 64-bit code
+    dq 0x0000920000000000    ; 0x10: data
+gdt64_end:
 
-; gdt64_pointer:
-;     dw gdt64_end - gdt64 - 1
-;     dq gdt64
+gdt64_desc:
+    dw gdt64_end - gdt64 - 1
+    dq gdt64
 
-; gdt64:
-;     dq 0                        ; 0x00: null descriptor
-
-;     ; 0x08: 64-bit kernel code segment
-;     dq 0x00AF9A000000FFFF       ; base=0, limit=0xFFFFF, code, RX, 64-bit
-
-;     ; 0x10: 64-bit kernel data segment
-;     dq 0x00AF92000000FFFF       ; base=0, limit=0xFFFFF, data, RW
-
-; gdt64_end:
 

@@ -1,7 +1,7 @@
 #include "hal.h"
 #include <arch/x86_64/gdt.h>
-#include <arch/x86_64/idt.h>
-#include <arch/x86_64/isr.h>
+#include <arch/x86_64/idt64.h>
+#include <arch/x86_64/isr64.h>
 #include <arch/x86_64/irq.h>
 #include <arch/x86_64/vga_text.h>
 #include <arch/x86_64/ps2.h>
@@ -31,7 +31,7 @@ uintptr_t _kernel_stack_top    = KERNEL_STACK_PHYS + KERNEL_STACK_SIZE;
 // extern uint8_t _kernel_stack_bottom;
 
 
-/* kernel test - place after i686_syscall_install() */
+/* kernel test - place after x64_syscall_install() */
 static void test_int80_kernel(void)
 {
     log_info("TEST", "kernel: invoking int $0x80");
@@ -50,13 +50,14 @@ void HAL_Initialize()
     gdt_init();
     // i686_GDT_Initialize();
     /* kernel_stack_top: top of kernel stack (virtual address) used for ring0 on interrupts */
-    i686_TSS_Install(_kernel_stack_top);
-    i686_IDT_Initialize();
-    i686_ISR_Initialize();
-    i686_IRQ_Initialize();
+    x64_TSS_Install(_kernel_stack_top);
+    x64_IDT_Initialize();
+    // i686_ISR_Initialize();
+    x64_ISR_Initialize();
+    x64_IRQ_Initialize();
 
     InitializeDevNull();
-    i686_syscall_install();
+    x64_syscall_install();
     // test_int80_kernel();
     __asm__ volatile ("sti");
     // init keyboard

@@ -1,74 +1,62 @@
 #include "gdt.h"
-#include <stdint.h>
 
-extern void gdt_flush(uint64_t gdtr_addr);
+extern void gdt_flush(uint64_t gdtr);
+extern void tss_flush(uint16_t selector);
 
-#define GDT_ENTRY(base, limit, access, flags) {                     \
-    GDT_LIMIT_LOW(limit),                                           \
-    GDT_BASE_LOW(base),                                             \
-    GDT_BASE_MIDDLE(base),                                          \
-    access,                                                         \
-    GDT_FLAGS_LIMIT_HI(limit, flags),                               \
-    GDT_BASE_HIGH(base)                                             \
-}
+static TSSDescriptor tss_desc;
+GDTEntry g_GDT[6];   // add 6th entry for TSS
 GDTR g_GDT_Ptr;
 
-GDTEntry g_GDT[] = {
-    {0,0,0,0,0,0},
-    /* kernel code */
-    GDT_ENTRY(0, 0xFFFFF,
-        GDT_ACCESS_PRESENT | GDT_ACCESS_RING0 | GDT_ACCESS_CODE_SEGMENT | GDT_ACCESS_CODE_READABLE,
-        GDT_FLAG_32BIT | GDT_FLAG_GRANULARITY_4K),
-    /* kernel data */
-    GDT_ENTRY(0, 0xFFFFF,
-        GDT_ACCESS_PRESENT | GDT_ACCESS_RING0 | GDT_ACCESS_DATA_SEGMENT | GDT_ACCESS_DATA_WRITEABLE,
-        GDT_FLAG_32BIT | GDT_FLAG_GRANULARITY_4K),
-    /* user code */
-    GDT_ENTRY(0, 0xFFFFF,
-        GDT_ACCESS_PRESENT | GDT_ACCESS_RING3 | GDT_ACCESS_CODE_SEGMENT | GDT_ACCESS_CODE_READABLE,
-        GDT_FLAG_32BIT | GDT_FLAG_GRANULARITY_4K),
-    /* user data */
-    GDT_ENTRY(0, 0xFFFFF,
-        GDT_ACCESS_PRESENT | GDT_ACCESS_RING3 | GDT_ACCESS_DATA_SEGMENT | GDT_ACCESS_DATA_WRITEABLE,
-        GDT_FLAG_32BIT | GDT_FLAG_GRANULARITY_4K),
-    /* TSS (filled later) */
-    GDT_ENTRY(0, 0, 0, 0),
-};
-
-/* exported size for loader */
-uint32_t g_GDT_size = sizeof(g_GDT);
-
-#ifdef __i686__
-void i686_GDT_Initialize(void)
+static inline GDTEntry gdt_make_entry(uint8_t access, uint8_t flags)
 {
-    __asm__ volatile ("lgdt %0" :: "m"(g_GDT_Ptr) : "memory");
-
-    __asm__ volatile (
-        "mov %[ds], %%ax\n"
-        "mov %%ax, %%ds\n"
-        "mov %%ax, %%es\n"
-        "mov %%ax, %%fs\n"
-        "mov %%ax, %%gs\n"
-        "mov %%ax, %%ss\n"
-        :
-        : [ds] "i"(KERNEL_DATA_SELECTOR)
-        : "ax", "memory"
-    );
-
-    __asm__ volatile (
-        "ljmp %[cs], $1f\n"
-        "1:\n"
-        :
-        : [cs] "i"(KERNEL_CODE_SELECTOR)
-        : "memory"
-    );
+    return (GDTEntry){
+        .limit_low = 0,
+        .base_low  = 0,
+        .base_mid  = 0,
+        .access    = access,
+        .flags     = flags,
+        .base_high = 0
+    };
 }
-#endif
 
 void gdt_init(void)
 {
+    g_GDT[0] = gdt_make_entry(0, 0);
+
+    g_GDT[1] = gdt_make_entry(
+        GDT_ACCESS_PRESENT | GDT_ACCESS_RING0 | GDT_ACCESS_CODE | GDT_ACCESS_RW,
+        GDT_FLAG_LONG_MODE
+    );
+
+    g_GDT[2] = gdt_make_entry(
+        GDT_ACCESS_PRESENT | GDT_ACCESS_RING0 | GDT_ACCESS_DATA | GDT_ACCESS_RW,
+        0
+    );
+
+    g_GDT[3] = gdt_make_entry(
+        GDT_ACCESS_PRESENT | GDT_ACCESS_RING3 | GDT_ACCESS_CODE | GDT_ACCESS_RW,
+        GDT_FLAG_LONG_MODE
+    );
+
+    g_GDT[4] = gdt_make_entry(
+        GDT_ACCESS_PRESENT | GDT_ACCESS_RING3 | GDT_ACCESS_DATA | GDT_ACCESS_RW,
+        0
+    );
+
+    // TSS entry placeholder, will be set later by tss.c
+    g_GDT[5] = gdt_make_entry(0, 0);
+
     g_GDT_Ptr.limit = sizeof(g_GDT) - 1;
-    g_GDT_Ptr.base  = (uintptr_t)&g_GDT;
+    g_GDT_Ptr.base  = (uint64_t)&g_GDT;
 
     gdt_flush((uint64_t)&g_GDT_Ptr);
+
+    __asm__ volatile (
+        "mov %0, %%ds\n"
+        "mov %0, %%es\n"
+        "mov %0, %%ss\n"
+        :
+        : "r"(KERNEL_DATA_SELECTOR)
+        : "memory"
+    );
 }
