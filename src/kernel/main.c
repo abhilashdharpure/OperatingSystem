@@ -46,6 +46,15 @@ void crash_me();
 
 
 extern uint32_t mb_info_ptr;
+
+static BootParams   g_bootParams;
+static VbeModeInfo  g_fbInfo;
+
+/* reasonable upper bound */
+#define MAX_MEMORY_REGIONS 64
+static MemoryRegion g_memoryRegions[MAX_MEMORY_REGIONS];
+
+
 void start(BootParams* bootParams, VbeModeInfo* fb_info);
 
 void timer(ISRFrame64* regs)
@@ -159,71 +168,98 @@ void setup_stack(void)
 {
     // Stack already set in ASM for now
 }
-// void early_kernel_main(uint64_t mb_info_phys)
-// {
-//     BootParams bootParams = {0};
-//     VbeModeInfo fb_info = {0};
 
-//     parse_multiboot2_to_bootparams(mb_info_phys, &bootParams, &fb_info);
-
-//     setup_identity_paging(&bootParams, &fb_info);
-//     setup_stack();
-
-//     start(&bootParams, &fb_info);
-// }
-
-
-
-
-void parse_multiboot2_memory_map(multiboot2_info_t* mbi)
+void parse_multiboot2_memory_map(multiboot2_info_t* mbi, BootParams* out)
 {
     uint8_t* tag_ptr = mbi->tags;
+    uintptr_t mbi_end = (uintptr_t)mbi + mbi->total_size;
 
-    log_info("Boot", "parse_multiboot2_memory_map tag_ptr = %p", tag_ptr);
-    log_info("Boot", "parse_multiboot2_memory_map mbi->total_size = %u", mbi->total_size);
+    out->Memory.RegionCount = 0;
+    out->Memory.Regions = g_memoryRegions;
 
-
-    while ((uintptr_t)tag_ptr < (uintptr_t)mbi + mbi->total_size)
+    while ((uintptr_t)tag_ptr < mbi_end)
     {
-        multiboot2_tag_header_t* tag = (multiboot2_tag_header_t*)tag_ptr;
-
-        // log_info("Boot", "parse_multiboot2_memory_map tag->type = %u", tag->type);
-
+        multiboot2_tag_header_t* tag =
+            (multiboot2_tag_header_t*)tag_ptr;
 
         if (tag->type == MULTIBOOT_TAG_TYPE_MMAP)
         {
-            multiboot2_mmap_entry_t* mmap = (multiboot2_mmap_entry_t*)(tag + 1);
-            uintptr_t end = (uintptr_t)tag + tag->size;
+            multiboot2_tag_mmap_t* mmap =
+                (multiboot2_tag_mmap_t*)tag;
 
-            for (; (uintptr_t)mmap < end; mmap = (multiboot2_mmap_entry_t*)((uintptr_t)mmap + mmap->size)) {
-                log_info("MEM", "Memory region: 0x%llx - 0x%llx type=%u",
-                    mmap->entry_addr,
-                    mmap->entry_addr + mmap->entry_len,
-                    mmap->mem_type);
+            uintptr_t entry = (uintptr_t)mmap + sizeof(*mmap);
+            uintptr_t end   = (uintptr_t)mmap + mmap->size;
+
+            while (entry < end)
+            {
+                multiboot2_mmap_entry_t* e =
+                    (multiboot2_mmap_entry_t*)entry;
+
+                if (out->Memory.RegionCount < MAX_MEMORY_REGIONS)
+                {
+                    MemoryRegion* r =
+                        &out->Memory.Regions[out->Memory.RegionCount++];
+
+                    r->Begin  = e->addr;
+                    r->Length = e->len;
+                    r->Type   = e->type;
+                    r->ACPI   = 0;
+
+                    log_info("MEM",
+                        "Memory region: 0x%llx - 0x%llx type=%u",
+                        e->addr,
+                        e->addr + e->len,
+                        e->type);
+                }
+
+                entry += mmap->entry_size;
             }
         }
 
-        // Move to next tag (8-byte aligned)
-        tag_ptr = (uint8_t*)tag + ((tag->size + 7) & ~7);
+        tag_ptr += (tag->size + 7) & ~7;
     }
 }
 
-
-void parse_multiboot2_framebuffer(multiboot2_info_t* mbi) {
+void parse_multiboot2_framebuffer(multiboot2_info_t* mbi, VbeModeInfo* fb)
+{
     uint8_t* tag_ptr = mbi->tags;
+    uintptr_t mbi_end = (uintptr_t)mbi + mbi->total_size;
 
-    while ((uintptr_t)tag_ptr < (uintptr_t)mbi + mbi->total_size) {
-        multiboot2_tag_header_t* tag = (multiboot2_tag_header_t*)tag_ptr;
+    while ((uintptr_t)tag_ptr < mbi_end)
+    {
+        multiboot2_tag_header_t* tag =
+            (multiboot2_tag_header_t*)tag_ptr;
 
-        if (tag->type == MULTIBOOT_TAG_TYPE_FRAMEBUFFER) {
-            multiboot2_fb_tag_t* fb = (multiboot2_fb_tag_t*)(tag + 1);
-            log_info("FB", "Framebuffer at 0x%llx %ux%u pitch=%u bpp=%u",
-                     fb->addr, fb->width, fb->height, fb->pitch, fb->bpp);
+        if (tag->type == MULTIBOOT_TAG_TYPE_FRAMEBUFFER)
+        {
+            multiboot2_fb_tag_t* mfb =
+                (multiboot2_fb_tag_t*)tag;
+
+            fb->framebuffer = (uint32_t*)(uintptr_t)mfb->addr;
+            fb->width   = mfb->width;
+            fb->height  = mfb->height;
+            fb->pitch   = mfb->pitch;
+            fb->bpp     = mfb->bpp;
+
+            /* RGB defaults (Multiboot does not expose masks cleanly) */
+            fb->red_mask   = 16;
+            fb->green_mask = 8;
+            fb->blue_mask  = 0;
+
+            log_info("FB",
+                "Framebuffer at %p %ux%u pitch=%u bpp=%u",
+                fb->framebuffer,
+                fb->width,
+                fb->height,
+                fb->pitch,
+                fb->bpp);
+            return;
         }
 
-        tag_ptr = (uint8_t*)tag + ((tag->size + 7) & ~7);
+        tag_ptr += (tag->size + 7) & ~7;
     }
 }
+
 
 
 // typedef struct {
@@ -248,18 +284,28 @@ void early_kernel_main(void* multiboot_info)
     serial_putc_asm('2');
 
 
-    parse_multiboot2_memory_map(mbi);
-    parse_multiboot2_framebuffer(mbi);
+
+    parse_multiboot2_memory_map(mbi, &g_bootParams);
+    parse_multiboot2_framebuffer(mbi, &g_fbInfo);
+
+    // parse_multiboot2_memory_map(mbi);
+    // parse_multiboot2_framebuffer(mbi);
+
+    g_bootParams.BootDevice = 0; // GRUB does not provide this
+
+    log_info("Boot", "Handing off to start()");
+
+    start(&g_bootParams, &g_fbInfo);
 
 
-    serial_putc_asm('B');
+    // serial_putc_asm('B');
 
-    debug_print_cs();
-    serial_write("EARLY\n");
-    serial_putc_asm('R');
+    // debug_print_cs();
+    // serial_write("EARLY\n");
+    // serial_putc_asm('R');
 
-    x64_IDT_Initialize();
-    // HAL_Initialize();
+    // x64_IDT_Initialize();
+    // // HAL_Initialize();
 
     
     // serial_putc_asm('N');
@@ -282,7 +328,17 @@ void start(BootParams* bootParams, VbeModeInfo* fb_info)
     log_info("Main", "Kernel Started");
     pmm_init(&bootParams->Memory);
 
+    for (int i = 0; i < bootParams->Memory.RegionCount; i++) 
+    {
+        log_info("Main", "MEM: start=0x%llx length=0x%llx type=%x", 
+            bootParams->Memory.Regions[i].Begin,
+            bootParams->Memory.Regions[i].Length,
+            bootParams->Memory.Regions[i].Type);
+    }
+
+
     paging_bootstrap_identity(); // sets up kernel_page_directory
+    log_info("Main", "Kernel after paging_bootstrap_identity");
 
     for (uintptr_t pa = 0; pa < 32 * 1024 * 1024; pa += PAGE_SIZE)
     {
@@ -298,6 +354,7 @@ void start(BootParams* bootParams, VbeModeInfo* fb_info)
         : "r"(stack_top_aligned)
         : "memory"
     );
+    log_info("Main", "Kernel before map_identity_page");
 
 
     // map_vga
@@ -306,22 +363,22 @@ void start(BootParams* bootParams, VbeModeInfo* fb_info)
         map_identity_page(kernel_page_directory, pa);
     }
 
+    log_info("Main", "Kernel before write_cr3");
+
     // load page directory and enable paging
     write_cr3(kernel_page_directory_phys);
+
+    log_info("Main", "Kernel before enable_paging");
+
     enable_paging();
+
+    log_info("Main", "Kernel before paging_map_high_half_kernel");
 
     paging_map_high_half_kernel(); // map high-half
 
     // _init();         // global constructors
     HAL_Initialize();
 
-    for (int i = 0; i < bootParams->Memory.RegionCount; i++) 
-    {
-        log_info("Main", "MEM: start=0x%llx length=0x%llx type=%x", 
-            bootParams->Memory.Regions[i].Begin,
-            bootParams->Memory.Regions[i].Length,
-            bootParams->Memory.Regions[i].Type);
-    }
 
     init_filesystem();
 
