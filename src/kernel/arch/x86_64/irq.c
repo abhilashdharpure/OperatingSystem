@@ -24,7 +24,11 @@ void x64_IRQ_Handler(ISRFrame64* regs)
     }
 
     /* Send End-of-Interrupt */
-    g_IRQ_Driver->SendEndOfInterrupt(irq);
+    // g_IRQ_Driver->SendEndOfInterrupt(irq);
+    if (irq >= 0 && irq < 16)
+    {
+        g_IRQ_Driver->SendEndOfInterrupt(irq);
+    }
 }
 
 /* Initialize PIC and hook IRQs to IDT */
@@ -61,8 +65,8 @@ void x64_IRQ_Initialize(void)
     g_IRQ_Driver->Unmask(HardwareIRQNo_Cascade);
     g_IRQ_Driver->Unmask(HardwareIRQNo_Mouse);
 
-    /* Enable interrupts in RFLAGS */
-    __asm__ volatile("sti");
+    // /* Enable interrupts in RFLAGS */
+    // __asm__ volatile("sti");
 }
 
 /* Register a specific IRQ handler */

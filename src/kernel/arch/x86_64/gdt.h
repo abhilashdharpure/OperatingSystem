@@ -6,7 +6,7 @@
 #define KERNEL_DATA_SELECTOR 0x10
 #define USER_CODE_SELECTOR   0x1B
 #define USER_DATA_SELECTOR   0x23
-#define TSS_SELECTOR         0x28
+// #define TSS_SELECTOR         0x28
 
 /* GDT entry (8 bytes) */
 typedef struct __attribute__((packed)) {
@@ -35,6 +35,8 @@ typedef struct __attribute__((packed)) {
     uint16_t limit;
     uint64_t base;
 } GDTR;
+
+extern GDTR g_GDT_Ptr;
 
 /* Access flags */
 #define GDT_ACCESS_PRESENT   0x80

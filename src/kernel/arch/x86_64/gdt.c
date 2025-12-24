@@ -4,7 +4,7 @@ extern void gdt_flush(uint64_t gdtr);
 extern void tss_flush(uint16_t selector);
 
 static TSSDescriptor tss_desc;
-GDTEntry g_GDT[6];   // add 6th entry for TSS
+GDTEntry g_GDT[7];   // add 6th entry for TSS
 GDTR g_GDT_Ptr;
 
 static inline GDTEntry gdt_make_entry(uint8_t access, uint8_t flags)

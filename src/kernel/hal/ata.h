@@ -36,14 +36,12 @@
 
 static inline void io_wait_400ns(void);
 
-int ata_wait_not_busy(ata_device_t *ata, uint32_t timeout_ms);
+// int ata_wait_not_busy(ata_device_t *ata, uint32_t timeout_ms);
+int ata_wait_not_busy(uint16_t io);
+
 int ata_wait_drq(ata_device_t *ata, uint32_t timeout_ms);
 
 static void ata_select_drive_master(void);
-
-static void issue_ata_read28(uint32_t lba, uint8_t count);
-
-static void read_512_bytes(void *buf);
 
 int ata_read_sectors(block_device_t *dev, uint32_t lba, uint32_t count, void *buf);
 

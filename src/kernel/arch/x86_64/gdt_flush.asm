@@ -1,5 +1,3 @@
-; gdt_flush64.asm
-
 [BITS 64]
 global gdt_flush
 
@@ -13,7 +11,7 @@ section .text
 gdt_flush:
     lgdt [rdi]
 
-    ; Reload data segments (required in long mode)
+    ; Reload data segments
     mov ax, KERNEL_DATA_SELECTOR
     mov ds, ax
     mov es, ax
@@ -21,14 +19,16 @@ gdt_flush:
     mov gs, ax
     mov ss, ax
 
-    ; Reload CS via far return
+    ; Reload CS
     push qword GDT_KERNEL_CODE
     lea rax, [rel .reload]
     push rax
-    retfq              ; FAR return in 64-bit mode
+    retfq
 
 .reload:
-    ret
+    ; DO NOT ret
+    ; execution continues back to C
+    nop
 
 
 ; BITS 64

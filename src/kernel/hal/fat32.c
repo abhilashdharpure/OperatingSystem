@@ -88,8 +88,12 @@ static uint32_t fat32_cluster_to_lba(fat32_t *fs, uint32_t cluster)
 }
 
 int fat32_mount(fat32_t *fs) {
+    log_debug("FAT32", "fat32_mount start");
     uint8_t buf[512];
+    log_debug("FAT32", "fat32_mount 1");
+
     fs->bdev->read_sectors(fs->bdev, fs->bdev->lba_base, 1, buf);
+    log_debug("FAT32", "fat32_mount 2");
 
     fs->bytes_per_sector   = buf[11] | (buf[12] << 8);
     fs->sectors_per_cluster= buf[13];
@@ -97,9 +101,11 @@ int fat32_mount(fat32_t *fs) {
     fs->num_fats           = buf[16];
     fs->sectors_per_fat    = buf[36] | (buf[37]<<8) | (buf[38]<<16) | (buf[39]<<24);
     fs->root_cluster       = buf[44] | (buf[45]<<8) | (buf[46]<<16) | (buf[47]<<24);
+    log_debug("FAT32", "fat32_mount 3");
 
     fs->fat_start_lba      = fs->bdev->lba_base + fs->reserved_sectors;
     fs->data_start_lba     = fs->fat_start_lba + fs->num_fats * fs->sectors_per_fat;
+    log_debug("FAT32", "fat32_mount 4");
 
     return 0;
 }
@@ -114,38 +120,6 @@ static int read_sector(fat32_t *fs, uint32_t lba, void *buf)
     // lba is absolute relative to disk start
     return fs->bdev->read_sectors(fs->bdev, fs->bdev->lba_base + lba, 1, buf);
 }
-
-// static int read_sector(fat32_t *fs, uint32_t lba, void *buf)
-// {
-//     if (!fs || !fs->bdev || !fs->bdev->read_sectors) {
-//         log_error("FAT32", "read_sector: invalid block device fs=%p bdev=%p", fs, fs ? fs->bdev : NULL);
-//         return -1;
-//     }
-
-//     // log_debug("FAT32", "read_sector: dev=%p lba_base=%u lba=%u count=1 buf=%p sec_size=%u",
-//     //           fs->bdev, fs->bdev->lba_base, lba, buf, fs->bdev->sector_size);
-
-
-
-//     return fs->bdev->read_sectors(
-//         fs->bdev,
-//         fs->fat_start_lba + lba,   // <-- THE FIX
-//         1,
-//         buf);
-
-//     // int ok = fs->bdev->read_sectors(fs->bdev, fs->bdev->lba_base + lba, 1, buf);
-//     // log_debug("FAT32", "readValueFromSector = %d", ok);
-
-//     // uint8_t *b = (uint8_t*)buf;
-//     // char tmp[64];
-//     // int pos = 0;
-
-//     // for (int i = 0; i < 16 && pos < (int)(sizeof(tmp)-4); i++)
-//     //     pos += append_hex(tmp + pos, b[i], sizeof(tmp) - pos);
-
-//     // log_debug("FAT32", "sector[0..15]=%s", tmp);
-//     // return ok;
-// }
 
 // read an entire cluster into buf (buf must be large enough: bytes_per_sector * sectors_per_cluster)
 static int read_cluster(fat32_t *fs, uint32_t cluster, void *buf)
@@ -167,41 +141,6 @@ static int read_cluster(fat32_t *fs, uint32_t cluster, void *buf)
     }
     return 0;
 }
-
-
-
-// static uint32_t fat_next_cluster(fat32_t *fs, uint32_t cluster) { /* ... */ }
-// read next cluster from FAT (FAT32)
-// static uint32_t fat_next_cluster(fat32_t *fs, uint32_t cluster)
-// {
-//     // log_debug("FAT32", "rfat_next_cluster start, cluster=%u", cluster);
-
-//     if (!fs) return 0x0FFFFFFF;
-
-//     // FAT32: 4 bytes per entry
-//     uint32_t fat_offset = cluster * 4;
-//     uint32_t bytes_per_sector = fs->bytes_per_sector;
-//     uint32_t fat_sector = fs->fat_start_lba + (fat_offset / bytes_per_sector);
-//     uint32_t offset_in_sector = fat_offset % bytes_per_sector;
-
-//     uint8_t sector_buf[512]; // sector-sized buffer; bytes_per_sector is normally 512
-//     if (bytes_per_sector > sizeof(sector_buf)) {
-//         // Very unusual: support larger sectors if defined
-//         // fall back to dynamic (shouldn't happen in typical systems)
-//         log_error("FAT32", "fat_next_cluster: unsupported bytes_per_sector=%u", bytes_per_sector);
-//         return 0x0FFFFFFF;
-//     }
-
-//     if (read_sector(fs, fat_sector, sector_buf) != 0) {
-//         log_error("FAT32", "fat_next_cluster: read_sector failed fat_sector=%u", fat_sector);
-//         return 0x0FFFFFFF;
-//     }
-
-//     // read 4 bytes little-endian
-//     uint32_t entry = *(uint32_t*)(sector_buf + offset_in_sector);
-//     entry &= 0x0FFFFFFF; // mask top nybble (FAT32 uses 28 bits)
-//     return entry;
-// }
 
 static uint32_t fat_next_cluster(fat32_t *fs, uint32_t cluster)
 {
@@ -225,15 +164,6 @@ static uint32_t fat_next_cluster(fat32_t *fs, uint32_t cluster)
     entry &= 0x0FFFFFFF; // mask top 4 bits
     return entry;
 }
-
-
-
-// static int is_eoc(uint32_t cl)
-// {
-//     // log_debug("FAT32", "is_eoc c = %d",cl);
-//     return cl >= 0x0FFFFFF8 && cl <= 0x0FFFFFFF;
-//     // return cl >= 0x0FFFFFF8;
-// }
 
 static int is_eoc(uint32_t cl)
 {
@@ -530,107 +460,6 @@ typedef struct {
 } mbr_part_t;
 #pragma pack(pop)
 
-// typedef struct {
-//     uint8_t boot_flag;      // 0x80 bootable
-//     uint8_t chs_start[3];
-//     uint8_t type;           // 0x0B/0x0C for FAT32 (CHS/LBA)
-//     uint8_t chs_end[3];
-//     uint32_t lba_start;     // little-endian
-//     uint32_t sectors_total; // little-endian
-// } __attribute__((packed)) mbr_part_t;
-
-// static int fat32_parse_bpb(fat32_t *fs)
-// {
-//     uint8_t sec[512];
-//     if (read_sector(fs, 0, sec) != 0) {  // lba=0 means fs->bdev->lba_base + 0
-//         log_error("FAT32", "BPB read failed");
-//         return -1;
-//     }
-
-//     // read_sector(fs, 0, sec);  
-
-//     log_debug("FAT32", "After read_sector");
-
-//     // Signature at 0x1FE
-//     uint16_t sig = *(uint16_t*)&sec[510];
-//     log_debug("FAT32", "After read_sector, sig = %d", sig);
-
-//     // if (sig != 0xAA55)
-//     // {
-//     //     log_error("FAT32", "Invalid VBR signature: 0x%04x (expected 0xAA55)", sig);
-//     //     return -1;
-//     // }
-
-
-
-//     // Parse core BPB
-//     uint16_t bytes_per_sector     = *(uint16_t*)&sec[11];
-//     uint8_t  sectors_per_cluster  = sec[13];
-//     uint16_t reserved_sectors     = *(uint16_t*)&sec[14];
-//     uint8_t  num_fats             = sec[16];
-//     uint16_t root_entry_count     = *(uint16_t*)&sec[17];
-//     uint16_t total_sectors16      = *(uint16_t*)&sec[19];
-//     uint16_t sectors_per_fat16    = *(uint16_t*)&sec[22];
-//     uint32_t total_sectors32      = *(uint32_t*)&sec[32];
-//     uint32_t sectors_per_fat32    = *(uint32_t*)&sec[36];
-//     uint32_t root_cluster         = *(uint32_t*)&sec[44];
-
-//     uint32_t total_sectors = total_sectors32 ? total_sectors32 : total_sectors16;
-
-//     log_error("FAT32", "Read sectors_per_fat32=%u", sectors_per_fat32);
-//     log_error("FAT32", "Read sectors_per_fat16=%u", sectors_per_fat16);
-
-//     uint32_t sectors_per_fat = sectors_per_fat32 ? sectors_per_fat32 : sectors_per_fat16;
-
-//     log_debug("FAT32", "BPB: bps=%u spc=%u rsv=%u fats=%u rootEnt=%u tot=%u spf=%u rootClus=%u",
-//               bytes_per_sector, sectors_per_cluster, reserved_sectors, num_fats,
-//               root_entry_count, total_sectors, sectors_per_fat, root_cluster);
-
-//     // Sanity checks
-//     if (bytes_per_sector != 512 && bytes_per_sector != 1024 &&
-//         bytes_per_sector != 2048 && bytes_per_sector != 4096) {
-//         log_error("FAT32", "Unsupported bytes_per_sector=%u", bytes_per_sector);
-//         // return -1;
-//     }
-//     if (sectors_per_cluster == 0 || (sectors_per_cluster & (sectors_per_cluster - 1)) != 0) {
-//         log_error("FAT32", "Invalid sectors_per_cluster=%u", sectors_per_cluster);
-//         // return -1;
-//     }
-//     if (num_fats < 1 || num_fats > 2) {
-//         log_error("FAT32", "Unexpected num_fats=%u", num_fats);
-//         // return -1;
-//     }
-//     if (sectors_per_fat == 0) {
-//         log_error("FAT32", "sectors_per_fat is zero");
-//         return -1;
-//     }
-//     if (root_cluster < 2) {
-//         log_error("FAT32", "root_cluster=%u invalid", root_cluster);
-//         return -1;
-//     }
-//     // FAT32 should have root_entry_count == 0; if not, still allow (hybrid images exist)
-//     if (root_entry_count != 0) {
-//         log_debug("FAT32", "Note: root_entry_count=%u (FAT12/16 style) but continuing", root_entry_count);
-//     }
-
-//     // Compute layout
-//     uint32_t fat_start_lba  = reserved_sectors;
-//     uint32_t data_start_lba = reserved_sectors + num_fats * sectors_per_fat;
-
-//     fs->bytes_per_sector    = bytes_per_sector;
-//     fs->sectors_per_cluster = sectors_per_cluster;
-//     fs->reserved_sectors    = reserved_sectors;
-//     fs->num_fats            = num_fats;
-//     fs->sectors_per_fat     = sectors_per_fat;
-//     fs->root_cluster        = root_cluster;
-//     fs->fat_start_lba       = fat_start_lba;
-//     fs->data_start_lba      = data_start_lba;
-
-//     log_debug("FAT32", "Layout: fat_start=%u data_start=%u", fs->fat_start_lba, fs->data_start_lba);
-//     return 0;
-// }
-
-
 // -----------------------------
 // Parse BPB (VBR) at given LBA
 // -----------------------------
@@ -887,8 +716,24 @@ int register_mbr_partitions(block_device_t *disk)
 {
     if (!disk || !disk->read_sectors) return -1;
 
+    if (disk->lba_base != 0)
+    {
+        log_error("PART", "Refusing to parse MBR on non-raw device (lba_base=%u)",
+                disk->lba_base);
+        return -1;
+    }
+
+
     uint8_t sec[512];
-    if (disk->read_sectors(disk, disk->lba_base + 0, 1, sec) != 0) {
+    log_error("PART", "register_mbr_partitions 1");
+
+    uint32_t lba_base = disk->lba_base;
+    log_error("PART", "register_mbr_partitions lba_base = %u", lba_base);
+
+    int res = disk->read_sectors(disk, disk->lba_base + 0, 1, sec);
+    log_debug("PART", "ata read result = %d", res);
+
+    if (res != 0) {
         log_error("PART", "Failed to read MBR (LBA 0)");
         return -1;
     }
@@ -944,67 +789,6 @@ int register_mbr_partitions(block_device_t *disk)
     log_info("PART", "Registered partition sda1 with lba_base=%u", partdev->lba_base);
     return 0;
 }
-
-
-// fat32_t* fat32_init_device(block_device_t *bdev)
-// {
-//     if (!bdev) {
-//         log_error("FAT32", "fat32_init_device: bdev=NULL");
-//         return NULL;
-//     }
-
-//     fat32_t *fs = (fat32_t*)kmalloc(sizeof(fat32_t));
-//     if (!fs) {
-//         log_error("FAT32", "fat32_init_device: fs=NULL");
-//         return NULL;
-//     }
-//     memset(fs, 0, sizeof(*fs));
-//     fs->bdev = bdev;
-
-//     // -----------------------------
-//     // Read MBR (LBA 0)
-//     // -----------------------------
-//     uint8_t mbr[512];
-//     if (read_sector(fs, 0, mbr) != 0) {
-//         log_error("FAT32", "Failed to read MBR");
-//         kfree(fs);
-//         return NULL;
-//     }
-
-//     // Check MBR signature
-//     if (mbr[510] != 0x55 || mbr[511] != 0xAA) {
-//         log_error("FAT32", "Invalid MBR signature");
-//         kfree(fs);
-//         return NULL;
-//     }
-
-//     // Find first FAT32 partition (type 0x0B or 0x0C)
-//     mbr_part_t *part = (mbr_part_t*)&mbr[0x1BE];
-//     int found = 0;
-//     for (int i = 0; i < 4; i++, part++) {
-//         if (part->type == 0x0B || part->type == 0x0C) {
-//             found = 1;
-//             // fs->bdev->lba_base = part->lba_start; // <-- crucial: VBR offset
-//             log_info("FAT32", "Found FAT32 partition: start LBA = %u", part->lba_start);
-//             break;
-//         }
-//     }
-
-//     if (!found) {
-//         log_error("FAT32", "No FAT32 partition found");
-//         kfree(fs);
-//         return NULL;
-//     }
-
-//     // Parse VBR at partition start
-//     if (fat32_parse_bpb(fs, fs->bdev->lba_base) != 0) {
-//         log_error("FAT32", "Failed to parse FAT32 VBR");
-//         kfree(fs);
-//         return NULL;
-//     }
-
-//     return fs;
-// }
 
 fat32_t* fat32_init_device(block_device_t *bdev)
 {
@@ -1075,60 +859,6 @@ fat32_t* fat32_init_device(block_device_t *bdev)
 
     return fs;
 }
-
-
-
-
-// fat32_t* fat32_init_device(block_device_t *bdev)
-// {
-//     if (!bdev) {
-//         log_error("FAT32", "fat32_init_device: bdev=NULL");
-//         return NULL;
-//     }
-
-//     fat32_t *fs = (fat32_t*)kmalloc(sizeof(fat32_t));
-//     if (!fs)
-//     {
-//         log_error("FAT32", "fat32_init_device: fs=NULL");
-//         return NULL;
-//     }
-
-//     log_error("FAT32", "fat32_init_device: fs = %d ",fs);
-
-//     memset(fs, 0, sizeof(*fs));
-//     fs->bdev = bdev;
-
-//     log_error("FAT32", "fat32_init_device: after fs = %d ",fs);
-
-
-//     // if (fat32_parse_bpb(fs) != 0)
-//     // {
-//     //     log_error("FAT32", "fat32_init_device: fat32_parse_bpb!=0");
-//     //     kfree(fs);
-//     //     return NULL;
-//     // }
-
-//     uint8_t mbr[512];
-//     if (fs->bdev->read_sectors(fs->bdev, 0, 1, mbr) != 0) {
-//         log_error("FAT32", "Failed to read MBR");
-//         return -1;
-//     }
-
-//     mbr_part_t *p = (mbr_part_t*)&mbr[446];
-
-//     if (p->type != 0x0B && p->type != 0x0C) {
-//         log_error("FAT32", "No FAT32 partition found");
-//         return -1;
-//     }
-
-//     fs->fat_start_lba = p->lba_start;
-
-//     log_debug("FAT32", "FAT32 partition starts at LBA %u", fs->fat_start_lba);
-
-
-
-//     return fs;
-// }
 
 static struct file_operations fat32_fops = {
     .open    = fat32_open,

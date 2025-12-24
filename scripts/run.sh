@@ -1,7 +1,7 @@
 #!/bin/bash
 
 if [ "$#" -ne 2 ]; then
-    echo "Usage: $0 <image_type> <image>"
+    echo "Usage: $0 <image_type> <image_file>"
     exit 1
 fi
 
@@ -14,15 +14,9 @@ if [ ! -f "$IMAGE_FILE" ]; then
     exit 1
 fi
 
-# exec qemu-system-x86_64 \
-#     -m 512 \
-#     -bios /usr/share/OVMF/OVMF_CODE.fd \
-#     -cdrom "$IMAGE_FILE" \
-#     -serial stdio \
-#     -no-reboot
-
+# Boot ISO as a virtual IDE hard disk
 qemu-system-x86_64 \
     -m 512 \
-    -cdrom "$2" \
-    -serial stdio \
+    -drive file="$IMAGE_FILE",format=raw,if=ide \
+    -serial mon:stdio \
     -no-reboot

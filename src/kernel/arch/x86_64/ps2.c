@@ -282,8 +282,13 @@ void ps2_init()
 
     init_input_system();
 
+    log_info("PS/2", "Enable interrupts..");
+
+
     // 4. Enable interrupts
-    __asm__ __volatile__("sti");
+    // __asm__ __volatile__("sti");
+    log_info("PS/2", "After Enable interrupts..");
+
     log_info("PS/2", "Keyboard & Mouse initialization complete");
 }
 

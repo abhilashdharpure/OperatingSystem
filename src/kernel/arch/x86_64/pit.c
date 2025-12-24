@@ -12,26 +12,38 @@ static uint32_t pit_frequency = 1000;   // default to 1000 Hz (1 ms per tick)
 void pit_irq_handler(ISR64Handler* regs)
 {
     pit_ticks++;
-    x64_IRQ_SendEndOfInterupt(HardwareIRQNo_PIT_Timer);
+    // x64_IRQ_SendEndOfInterupt(HardwareIRQNo_PIT_Timer);
 }
 
 void pit_init(uint32_t frequency)
 {
+    log_info("PIT", "pit_init 1");
+
     if (frequency == 0 || frequency > PIT_BASE_FREQUENCY)
         frequency = 1000; // sane default
 
     pit_frequency = frequency;
+    log_info("PIT", "pit_init 2");
 
     uint16_t divisor = (uint16_t)(PIT_BASE_FREQUENCY / frequency);
-
-    // Command byte: channel 0, lobyte/hibyte, mode 3 (square wave)
-    outb(0x43, 0x36);
-    outb(0x40, divisor & 0xFF);
-    outb(0x40, divisor >> 8);
-
+    log_info("PIT", "pit_init 3");
+    
     x64_IRQ_RegisterHandler(HardwareIRQNo_PIT_Timer, pit_irq_handler);
 
     log_info("PIT", "Initialized at %u Hz (divisor=%u)", pit_frequency, divisor);
+
+    // Command byte: channel 0, lobyte/hibyte, mode 3 (square wave)
+    outb(0x43, 0x36);
+    log_info("PIT", "pit_init 4");
+
+    outb(0x40, divisor & 0xFF);
+    log_info("PIT", "pit_init 5, divisor =%u ",divisor);
+
+    outb(0x40, divisor >> 8);
+    log_info("PIT", "pit_init 6");
+
+
+
 }
 
 uint64_t get_system_time_us(void)

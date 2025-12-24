@@ -62,21 +62,106 @@ void timer(ISRFrame64* regs)
     printf(".");
 }
 
+// void init_filesystem()
+// {
+//     log_debug("Main", "init_filesystem start");
+//     ata_init();
+//     log_debug("Main", "after ata_init");
+
+//     static fat32_t fs;
+//     fs.bdev = block_devices[0]; // ATA disk
+
+//     log_debug("Main", "before fat32_mount");
+
+//     fat32_mount(&fs);
+//     log_debug("Main", "after fat32_mount");
+
+// }
+
+void test_read_sector0(block_device_t *disk) {
+    if (!disk || !disk->read_sectors) {
+        log_error("TEST", "No disk or read_sectors function");
+        return;
+    }
+
+    uint8_t buffer[512];
+    log_debug("TEST", "Trying to read LBA 0 from disk %s", disk->name);
+
+    int ret = disk->read_sectors(disk, disk->lba_base + 0, 1, buffer);
+    log_debug("TEST", "disk->read_sectors returned %d", ret);
+
+    if (ret != 0) {
+        log_error("TEST", "Failed to read sector 0");
+        return;
+    }
+
+    log_debug("TEST", "Sector 0 first 16 bytes:");
+    for (int i = 0; i < 16; i++) {
+        log_debug("TEST", "%02x ", buffer[i]);
+    }
+
+    // Check MBR signature
+    log_debug("TEST", "MBR signature: 0x%02x 0x%02x", buffer[510], buffer[511]);
+}
+
+
 void init_filesystem()
 {
+    log_debug("Main", "init_filesystem start");
+
+    block_init();
+    log_debug("Main", "After block_init");
+
     ata_init();
+    log_debug("Main", "after ata_init");
 
-    static fat32_t fs;
-    fs.bdev = block_devices[0]; // ATA disk
 
-    fat32_mount(&fs);
+    block_device_t *disk = block_find_raw_disk();
+    if (!disk) {
+        log_error("Main", "No raw disk found");
+        return;
+    }
+    log_info("Main", "Using raw disk (lba_base=0)");
+
+    // 1. Register partitions (creates sda1)
+    register_mbr_partitions(disk);
+    log_debug("Main", "after register_mbr_partitions");
+
+    // 2. Get partition device (NOT the raw disk)
+    block_device_t *part = block_lookup_by_name("sda1");
+    if (!part) {
+        log_error("Main", "No FAT32 partition found");
+        return;
+    }
+
+
+    test_read_sector0(part);
+    log_debug("Main", "after block_lookup_by_name");
+
+    // 3. Initialize FAT32 using partition device
+    fat32_t *fs = fat32_init_device(part);
+    log_debug("Main", "after fat32_init_device");
+
+    if (!fs) {
+        log_error("Main", "fat32_init_device failed");
+        return;
+    }
+
+    // 4. Register filesystem with VFS
+    // vfs_mount("/", fs, get_fat32_fops());
+    VFS_Mount("/", get_fat32_fops(), fs);
+    log_debug("Main", "after VFS_Mount");
+
+    log_debug("Main", "FAT32 mounted successfully");
 }
+
 
 void start_userspace(BootParams* bootParams)
 {
-    // log_debug("Main", "calling start_userspace");
+    log_debug("Main", "calling start_userspace");
 
-    block_init();
+    // block_init();
+    // log_debug("Main", "After block_init");
 
     // ensure partition device is registered
     if (!register_first_fat32_partition())
@@ -92,24 +177,24 @@ void start_userspace(BootParams* bootParams)
         return;
     }
 
-    // log_info("MAIN", "Using block device sda1: lba_base=%u sector_size=%u", part->lba_base, part->sector_size);
+    // // log_info("MAIN", "Using block device sda1: lba_base=%u sector_size=%u", part->lba_base, part->sector_size);
     
-    // Initialize FAT32 fs object
-    fat32_t *fs = fat32_init_device(part);
-    // log_debug("Main", "fat32_init_device fs = %d", fs);
+    // // Initialize FAT32 fs object
+    // fat32_t *fs = fat32_init_device(part);
+    // // log_debug("Main", "fat32_init_device fs = %d", fs);
 
-    if (!fs)
-    {
-        log_error("MAIN", "FAT32 init failed");
-        return;
-    }
+    // if (!fs)
+    // {
+    //     log_error("MAIN", "FAT32 init failed");
+    //     return;
+    // }
 
     // log_info("FAT32", "Mounted FAT32: bytes_per_sector=%u spc=%u reserved=%u fats=%u sectors_per_fat=%u root_cluster=%u",
     //          fs->bytes_per_sector, fs->sectors_per_cluster, fs->reserved_sectors,
     //          fs->num_fats, fs->sectors_per_fat, fs->root_cluster);
 
     // Mount into VFS
-    VFS_Mount("/", get_fat32_fops(), fs);
+    // VFS_Mount("/", get_fat32_fops(), fs);
     uint32_t part_lba = 0;
 
     debug_list_root();           // should show bin, boot, folder, etc.
@@ -260,63 +345,26 @@ void parse_multiboot2_framebuffer(multiboot2_info_t* mbi, VbeModeInfo* fb)
     }
 }
 
-
-
-// typedef struct {
-//     uint32_t total_size;
-//     uint32_t reserved;
-//     uint8_t  tags[];
-// } multiboot2_info_t;
-
-// void early_kernel_main(BootParams* bootParams, VbeModeInfo* fb_info)
-// void early_kernel_main(void)
 void early_kernel_main(void* multiboot_info)
 {
     log_info("Boot", "early_kernel_main entered");
 
     multiboot2_info_t* mbi = (multiboot2_info_t*)multiboot_info;
     log_info("Boot", "mbi=%p total_size=%u", mbi, mbi->total_size);
-    // log_info("Boot", "early_kernel_main total_size = %u, reserved = %u, tags = %u", mbi->total_size, mbi->reserved, mbi->tags);
     log_info("Boot", "total_size=%u, reserved=%u, tags=%p", mbi->total_size, mbi->reserved, (void*)mbi->tags);
 
     serial_putc_asm('1');
     serial_init();
     serial_putc_asm('2');
 
-
-
     parse_multiboot2_memory_map(mbi, &g_bootParams);
     parse_multiboot2_framebuffer(mbi, &g_fbInfo);
-
-    // parse_multiboot2_memory_map(mbi);
-    // parse_multiboot2_framebuffer(mbi);
 
     g_bootParams.BootDevice = 0; // GRUB does not provide this
 
     log_info("Boot", "Handing off to start()");
 
     start(&g_bootParams, &g_fbInfo);
-
-
-    // serial_putc_asm('B');
-
-    // debug_print_cs();
-    // serial_write("EARLY\n");
-    // serial_putc_asm('R');
-
-    // x64_IDT_Initialize();
-    // // HAL_Initialize();
-
-    
-    // serial_putc_asm('N');
-
-    // serial_write("BEFORE UD2\n");
-    // serial_putc_asm('A');
-
-    // __asm__ volatile("ud2");
-    // serial_putc_asm('L');
-
-    // serial_write("AFTER UD2\n");
 
     for (;;) {
         __asm__ volatile("hlt");
@@ -336,65 +384,19 @@ void start(BootParams* bootParams, VbeModeInfo* fb_info)
             bootParams->Memory.Regions[i].Type);
     }
 
-
-    paging_bootstrap_identity(); // sets up kernel_page_directory
-    log_info("Main", "Kernel after paging_bootstrap_identity");
-
-    for (uintptr_t pa = 0; pa < 32 * 1024 * 1024; pa += PAGE_SIZE)
-    {
-        map_identity_page(kernel_page_directory, pa);
-    }
-
-    uintptr_t stack_top_aligned = (uintptr_t)&_kernel_stack_top;
-    stack_top_aligned = (stack_top_aligned + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
-
-    __asm__ volatile(
-        "mov %0, %%rsp\n"
-        :
-        : "r"(stack_top_aligned)
-        : "memory"
-    );
-    log_info("Main", "Kernel before map_identity_page");
-
-
-    // map_vga
-    for (uintptr_t pa = VGA_PHYS; pa < VGA_PHYS + 0x1000; pa += PAGE_SIZE)
-    {
-        map_identity_page(kernel_page_directory, pa);
-    }
-
-    log_info("Main", "Kernel before write_cr3");
-
-    // load page directory and enable paging
-    write_cr3(kernel_page_directory_phys);
-
-    log_info("Main", "Kernel before enable_paging");
-
-    enable_paging();
-
-    log_info("Main", "Kernel before paging_map_high_half_kernel");
-
-    paging_map_high_half_kernel(); // map high-half
-
     // _init();         // global constructors
     HAL_Initialize();
 
+    log_info("Main", "Kernel After HAL intialized");
 
     init_filesystem();
-
-    // log_info("Main", "This is an info msg!");
-    // log_warning("Main", "This is a warning msg!");
-    // log_error("Main", "This is an error msg!");
-    // log_critical("Main", "This is a critical msg!");
-    // printf("Welcome to One OS v0.1\n");
-    // printf("This operating system is under construction.\n");
-
+    log_info("Main", "Kernel After init_filesystem");
 
     // initialize framebuffer
     fb_init(fb_info);
     gfx_init();            // initialize graphics layer
 
-    // log_info("MAIN", "Framebuffer ready: %ux%u", fb_dev.width, fb_dev.height);
+    log_info("MAIN", "Framebuffer ready: %ux%u", fb_dev.width, fb_dev.height);
 
 
     gfx_clear(COLOR_BLACK);              // clear screen
@@ -403,7 +405,7 @@ end:
     // // Launch compositor
     // compositor_main();  // infinite loop
 
-    // log_info("Main", "Starting start_userspace!");
+    log_info("Main", "Starting start_userspace!");
     start_userspace(bootParams);
 
     // should never come here
@@ -411,3 +413,96 @@ end:
 
     for (;;);
 }
+
+
+
+// void start(BootParams* bootParams, VbeModeInfo* fb_info)
+// {   
+//     log_info("Main", "Kernel Started");
+//     pmm_init(&bootParams->Memory);
+
+//     for (int i = 0; i < bootParams->Memory.RegionCount; i++) 
+//     {
+//         log_info("Main", "MEM: start=0x%llx length=0x%llx type=%x", 
+//             bootParams->Memory.Regions[i].Begin,
+//             bootParams->Memory.Regions[i].Length,
+//             bootParams->Memory.Regions[i].Type);
+//     }
+
+//     // log_info("Main", "Kernel before paging_bootstrap_identity");
+//     // paging_bootstrap_identity(); // sets up kernel_page_directory
+//     // log_info("Main", "Kernel after paging_bootstrap_identity");
+
+//     // for (uintptr_t pa = 0; pa < 32 * 1024 * 1024; pa += PAGE_SIZE)
+//     // {
+//     //     map_identity_page(kernel_page_directory, pa);
+//     // }
+
+//     // uintptr_t stack_top_aligned = (uintptr_t)&_kernel_stack_top;
+//     // stack_top_aligned = (stack_top_aligned + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+
+//     // __asm__ volatile(
+//     //     "mov %0, %%rsp\n"
+//     //     :
+//     //     : "r"(stack_top_aligned)
+//     //     : "memory"
+//     // );
+//     // log_info("Main", "Kernel before map_identity_page");
+
+
+//     // // map_vga
+//     // for (uintptr_t pa = VGA_PHYS; pa < VGA_PHYS + 0x1000; pa += PAGE_SIZE)
+//     // {
+//     //     map_identity_page(kernel_page_directory, pa);
+//     // }
+
+//     // log_info("Main", "Kernel before write_cr3");
+
+//     // // load page directory and enable paging
+//     // write_cr3(kernel_page_directory_phys);
+
+//     // log_info("Main", "Kernel before enable_paging");
+
+//     // enable_paging();
+
+//     // log_info("Main", "Kernel before paging_map_high_half_kernel");
+
+//     // paging_map_high_half_kernel(); // map high-half
+
+//     // _init();         // global constructors
+//     HAL_Initialize();
+
+//     log_info("Main", "Kernel After HAL intialized");
+
+//     init_filesystem();
+//     log_info("Main", "Kernel After init_filesystem");
+
+//     // log_info("Main", "This is an info msg!");
+//     // log_warning("Main", "This is a warning msg!");
+//     // log_error("Main", "This is an error msg!");
+//     // log_critical("Main", "This is a critical msg!");
+//     // printf("Welcome to One OS v0.1\n");
+//     // printf("This operating system is under construction.\n");
+
+
+//     // initialize framebuffer
+//     fb_init(fb_info);
+//     gfx_init();            // initialize graphics layer
+
+//     log_info("MAIN", "Framebuffer ready: %ux%u", fb_dev.width, fb_dev.height);
+
+
+//     gfx_clear(COLOR_BLACK);              // clear screen
+// end:
+//     // compositor_init();
+//     // // Launch compositor
+//     // compositor_main();  // infinite loop
+
+//     log_info("Main", "Starting start_userspace!");
+//     start_userspace(bootParams);
+
+//     // should never come here
+//     log_critical("Main", "CRITICAL ERROR: User Space not started!");
+
+//     for (;;);
+// }

@@ -15,20 +15,29 @@ typedef struct __attribute__((packed)) {
 } MbrPart;
 
 // Scan MBR for the first FAT32 partition (0x0B or 0x0C)
-int detect_first_fat32(block_device_t *disk, uint32_t *out_lba_base) {
+int detect_first_fat32(block_device_t *disk, uint32_t *out_lba_base)
+{
+    log_info("PART", "block_lookup_by_name start");
+
     if (!disk || !disk->read_sectors || !out_lba_base) return -1;
 
     uint8_t mbr[512];
+
+    log_info("PART", "block_lookup_by_name read_sectors");
+
     if (disk->read_sectors(disk, 0, 1, mbr) != 0) {
         log_error("PART", "Failed to read MBR sector");
         return -1;
     }
+    log_info("PART", "block_lookup_by_name after read_sectors");
 
     if (mbr[510] != 0x55 || mbr[511] != 0xAA) {
         log_error("PART", "Invalid MBR signature: 0x%02x%02x", mbr[510], mbr[511]);
         return -1;
     }
 
+
+    log_info("PART", "block_lookup_by_name before MbrPart");
 
     MbrPart *parts = (MbrPart *)(mbr + 446);
     for (int i = 0; i < 4; i++) {
@@ -75,7 +84,7 @@ static block_device_t sda1 = {
 // Register first FAT32 partition
 bool register_first_fat32_partition(void)
 {
-    // log_info("PART", "register_first_fat32_partition start");
+    log_info("PART", "register_first_fat32_partition start");
 
     block_device_t *disk = block_lookup_by_name("sda"); // the whole-disk device
     if (!disk)
@@ -83,6 +92,8 @@ bool register_first_fat32_partition(void)
         log_error("PART", "Disk 'sda' not found");
         return false;
     }
+
+    log_info("PART", "After block_lookup_by_name");
 
     uint32_t lba_base = 0;
     if (detect_first_fat32(disk, &lba_base) != 0)

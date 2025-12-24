@@ -82,13 +82,18 @@ void map_identity_page(uint32_t* pd, uintptr_t pa)
 
 void paging_bootstrap_identity(void)
 {
+    log_info("Paging", "before paging_bootstrap_identity");
+
     kernel_page_directory_phys = pmm_alloc_page();
     if (kernel_page_directory_phys == 0)
     {
         panic("No memory for page directory");
     }
 
+    log_info("Paging", "paging_bootstrap_identity 1");
+
     memset((void*)kernel_page_directory_phys, 0, PAGE_SIZE);
+    log_info("Paging", "paging_bootstrap_identity 2");
 
     kernel_page_directory = (uint32_t*)kernel_page_directory_phys;
 }
