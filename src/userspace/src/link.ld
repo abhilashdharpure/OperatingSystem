@@ -1,15 +1,13 @@
-/* link.ld - Minimal linker script for 32-bit user-space init */
+/* link.ld - 64-bit user-space ELF */
 
-ENTRY(_start)           /* Entry point function */
+ENTRY(_start)
 
-/* Define memory layout */
 SECTIONS
 {
-    . = 0x08048000;
+    . = 0x0000000000400000;
 
-    .text : { *(.text) }
-    .rodata : { *(.rodata) }
-    .data : { *(.data) }
-    .bss : { *(.bss) *(COMMON) }
+    .text : { *(.text*) }
+    .rodata : { *(.rodata*) }
+    .data : { *(.data*) }
+    .bss : { *(.bss*) *(COMMON) }
 }
-ENTRY(_start)

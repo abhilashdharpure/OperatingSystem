@@ -193,11 +193,21 @@ def build_grub_iso(target, source, env):
     if workdir.exists():
         shutil.rmtree(workdir)
 
+    # create required directories
     os.makedirs(grubdir, exist_ok=True)
     os.makedirs(efidir, exist_ok=True)
+    os.makedirs(bootdir, exist_ok=True)  # make sure /boot exists
+    os.makedirs(workdir / 'bin', exist_ok=True)  # make sure /bin exists
 
     # copy kernel
     shutil.copy2(kernel, bootdir / 'kernel.elf')
+
+    # copy /bin/init from your image/root/bin/init
+    init_path = Path('image/root/bin/init')
+    if init_path.exists():
+        shutil.copy2(init_path, workdir / 'bin/init')
+    else:
+        raise FileNotFoundError("init binary not found at " + str(init_path))
 
     # grub.cfg
     grub_cfg = grubdir / 'grub.cfg'
@@ -221,6 +231,142 @@ menuentry "NBOS x86_64" {
         '-o', iso,
         str(workdir),
     ])
+
+def build_fat32_root_image(target, source, env):
+    import os, shutil, subprocess
+    from pathlib import Path
+
+    root_img = str(target[0])
+    root_dir = Path(env['BASEDIR'])
+
+    print("> creating FAT32 root image:", root_img)
+
+    # --- 1. Create empty image (adjust size here if needed) ---
+    size_mb = 64  # size of disk image
+    with open(root_img, 'wb') as f:
+        f.truncate(size_mb * 1024 * 1024)
+
+    # --- 2. Partition table & FAT32 partition ---
+    subprocess.check_call(['sudo', 'parted', root_img, '--script', 'mklabel', 'msdos'])
+    # Change start=1MiB, end=100% if you want a different layout
+    subprocess.check_call(['sudo', 'parted', root_img, '--script', 'mkpart', 'primary', 'fat32', '1MiB', '100%'])
+    subprocess.check_call(['sudo', 'parted', root_img, '--script', 'set', '1', 'boot', 'on'])
+
+    # --- 3. Setup loop device ---
+    loop_device = subprocess.check_output(['sudo', 'losetup', '--find', '--show', '-P', root_img], text=True).strip()
+    partition_dev = f"{loop_device}p1"
+    print("> loop device:", loop_device)
+    print("> partition device:", partition_dev)
+
+    try:
+        # --- 4. Format FAT32 ---
+        subprocess.check_call(['sudo', 'mkfs.fat', '-F', '32', '-n', 'NBOS', partition_dev])
+
+        # --- 5. Mount partition temporarily ---
+        tmp = Path(root_img).with_suffix('.mnt')
+        tmp.mkdir(exist_ok=True)
+        uid = os.getuid()
+        gid = os.getgid()
+        subprocess.check_call(['sudo', 'mount', '-o', f'uid={uid},gid={gid}', partition_dev, str(tmp)])
+
+        # --- 6. Copy /bin/init ---
+        bin_dir = tmp / 'bin'
+        bin_dir.mkdir(parents=True, exist_ok=True)
+        init_src = root_dir / 'bin' / 'init'
+        if not init_src.exists():
+            raise FileNotFoundError(f"/bin/init not found at {init_src}")
+        shutil.copy2(init_src, bin_dir / 'init')
+        (bin_dir / 'init').chmod(0o755)
+
+        # --- 7. Copy other root files ---
+        for f in root_dir.glob('**/*'):
+            if f.is_dir():
+                continue  # dirs handled by parents
+            if f.is_file() and f != init_src:
+                dst = tmp / f.relative_to(root_dir)
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(f, dst)
+
+    finally:
+        # --- 8. Cleanup ---
+        subprocess.check_call(['sudo', 'umount', str(tmp)])
+        tmp.rmdir()
+        subprocess.check_call(['sudo', 'losetup', '-d', loop_device])
+
+    print("> FAT32 root.img created successfully with partition")
+
+
+# def build_fat32_root_image(target, source, env):
+#     import os
+#     import subprocess
+#     import shutil
+#     from pathlib import Path
+#     import time
+
+#     root_img = str(target[0])
+#     root_dir = Path(env['BASEDIR'])
+
+#     print("> creating FAT32 root image:", root_img)
+
+#     # 1. Create empty image (64 MB)
+#     size_mb = 64
+#     with open(root_img, 'wb') as f:
+#         f.truncate(size_mb * 1024 * 1024)
+
+#     # 2. Create partition table & FAT32 partition using parted
+#     subprocess.check_call(['sudo', 'parted', root_img, '--script', 'mklabel', 'msdos'])
+#     subprocess.check_call(['sudo', 'parted', root_img, '--script', 'mkpart', 'primary', 'fat32', '1MiB', '100%'])
+#     subprocess.check_call(['sudo', 'parted', root_img, '--script', 'set', '1', 'boot', 'on'])
+
+#     # 3. Setup loop device with partition scanning
+#     loop_device = subprocess.check_output(
+#         ['sudo', 'losetup', '--find', '--show', '-P', root_img],
+#         text=True
+#     ).strip()
+#     partition_dev = f"{loop_device}p1"
+#     print("> loop device:", loop_device)
+#     print("> partition device:", partition_dev)
+
+#     try:
+#         # 4. Format FAT32
+#         subprocess.check_call(['sudo', 'mkfs.fat', '-F', '32', '-n', 'NBOS', partition_dev])
+
+#         # 5. Mount partition temporarily
+#         tmp = Path(root_img).with_suffix('.mnt')
+#         tmp.mkdir(exist_ok=True)
+#         uid = os.getuid()
+#         gid = os.getgid()
+#         subprocess.check_call([
+#             'sudo', 'mount',
+#             '-o', f'uid={uid},gid={gid}',
+#             partition_dev, str(tmp)
+#         ])
+
+#         # 6. Copy /bin/init
+#         bin_dir = tmp / 'bin'
+#         bin_dir.mkdir(parents=True, exist_ok=True)
+#         init_src = root_dir / 'bin' / 'init'
+#         if not init_src.exists():
+#             raise FileNotFoundError(f"/bin/init not found at {init_src}")
+#         shutil.copy2(init_src, bin_dir / 'init')
+#         (bin_dir / 'init').chmod(0o755)
+
+#         # 7. Copy all other root files
+#         for f in root_dir.glob('**/*'):
+#             dst = tmp / f.relative_to(root_dir)
+#             if f.is_dir():
+#                 dst.mkdir(parents=True, exist_ok=True)
+#             elif f.is_file() and f != init_src:
+#                 shutil.copy2(f, dst)
+
+#     finally:
+#         # 8. Unmount and cleanup
+#         subprocess.check_call(['sudo', 'umount', str(tmp)])
+#         tmp.rmdir()
+#         subprocess.check_call(['sudo', 'losetup', '-d', loop_device])
+
+#     print("> FAT32 root.img created successfully with a partition")
+
 
 def mount_fs(image: str, mount_dir: str):
     sh.guestmount(mount_dir, add=image, mount='/dev/sda1')
@@ -335,8 +481,9 @@ def build_image(target, source, env):
 
     if env['arch'] == 'x86_64':
         kernel = str(source[0])   # this is kernel.elf
-        build_grub_iso(target, [kernel], env)
 
+        # build boot ISO
+        build_grub_iso(target, [kernel], env)
         return
     else:
         # ---- i686 legacy path ----
@@ -364,9 +511,6 @@ else:
     inputs = [stage1, stage2, kernel] + root_content
     output_fmt = 'img'
 
-# if env['imageType'] == 'qcow3':
-#     output_fmt = 'qcow3'
-
 output = f'image.{output_fmt}'
 
 image = env.Command(output, inputs,
@@ -375,3 +519,17 @@ image = env.Command(output, inputs,
 env.Depends(image, inputs)
 
 Export('image')
+
+if env['arch'] == 'x86_64':
+    root = env.Dir('root')
+    root_content = GlobRecursive(env, '*', root)
+
+    root_img = env.Command(
+        'root.img',
+        root_content,
+        Action(build_fat32_root_image, 'Creating FAT32 root image...'),
+        BASEDIR=root.srcnode().path
+    )
+
+    env.Depends(root_img, root_content)
+    Export('root_img')

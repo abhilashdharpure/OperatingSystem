@@ -2,6 +2,7 @@
 #include "isr64.h"
 #include "debug.h"
 #include "arch/x86_64/serial.h"
+#include "arch/x86_64/irq.h"
 
 ISR64Handler g_ISR64Handlers[256];
 
@@ -10,7 +11,7 @@ void x64_ISR_InitializeGates();
 void x64_ISR_Initialize()
 {
     x64_ISR_InitializeGates();
-    log_info("Main", "i686_ISR_Initialize 2 ");
+    log_info("Main", "x64_ISR_InitializeGates");
 
     // for (int i = 0; i < 256; i++)
     //     x64_IDT_EnableGate(i);
@@ -20,12 +21,25 @@ void x64_ISR_Initialize()
         x64_IDT_EnableGate(i);
     }
 
-    for (int i = 32; i < 48; i++)
+    // for (int i = 32; i < 48; i++)
+    // {
+    //     x64_IDT_EnableGate(i);
+    // }
+
+    // Hardware IRQs (0x20–0x2F)
+    for (int i = PIC_REMAP_OFFSET; i < PIC_REMAP_OFFSET + 16; i++)
     {
         x64_IDT_EnableGate(i);
     }
     
     x64_IDT_EnableGate(0x80);
+}
+
+static inline uint64_t read_cr2(void)
+{
+    uint64_t v; 
+    __asm__ volatile("mov %%cr2, %0" : "=r"(v));
+    return v;
 }
 
 void x64_ISR_Handler(ISRFrame64* r)
@@ -40,6 +54,12 @@ void x64_ISR_Handler(ISRFrame64* r)
     log_error("ISR64", "x64_ISR_Handler Interupt r->vector = %u", r->vector);
     if (r->vector < 32)
     {
+        if (r->vector == 14)
+        {
+            uint64_t cr2 = read_cr2();
+            log_critical("PF", "Page fault: cr2=%p error=%llx", (void*)cr2, r->error);
+        }
+
         log_critical("EXC",
             "vec=%llu rip=%p cs=%llx rflags=%llx",
             r->vector,

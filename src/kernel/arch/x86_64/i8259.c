@@ -122,12 +122,14 @@ void i8259_Disable()
 
 void i8259_Mask(int irq)
 {
-    i8259_SetMask(g_PicMask | (1 << irq));
+    g_PicMask |= (1 << irq);
+    i8259_SetMask(g_PicMask);
 }
 
 void i8259_Unmask(int irq)
 {
-    i8259_SetMask(g_PicMask & ~(1 << irq));
+    g_PicMask &= ~(1 << irq);
+    i8259_SetMask(g_PicMask);
 }
 
 uint16_t i8259_ReadIrqRequestRegister()

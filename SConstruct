@@ -193,7 +193,7 @@ if TARGET_ENVIRONMENT['arch'] == 'i686':
 
 SConscript('src/kernel/SConscript', variant_dir=variantDir + '/kernel', duplicate=0)
 SConscript('src/luma-compositor/SConscript', variant_dir=variantDir + '/user', duplicate=0)
-SConscript('image/SConscript', variant_dir=variantDir, duplicate=0)
+SConscript('image/SConscript', variant_dir=variantDir, duplicate=1)
 
 Import('image')
 
@@ -207,9 +207,46 @@ Default(image)
 # -------------------------------------------------------
 # Run / Debug / Bochs use new image
 # -------------------------------------------------------
+
+Import('image', 'root_img')
+
+def run_qemu(target, source, env):
+    iso = str(source[0])
+    build_dir = Path(iso).parent
+    root_img = build_dir / "root.img"
+
+    if not Path(iso).exists():
+        print("ISO not found:", iso)
+        return 1
+    if not root_img.exists():
+        print("root.img not found:", root_img)
+        return 1
+
+    import subprocess
+    subprocess.check_call([
+        "qemu-system-x86_64",
+        "-M", "pc",
+        "-m", "512M",
+        "-cdrom", iso,
+        "-boot", "d",
+        "-drive", f"file={root_img},format=raw,if=ide,index=0",
+        "-serial", "mon:stdio",
+        "-monitor", "none",
+        "-no-reboot",
+    ])
+
+    return None
+
+
+run = HOST_ENVIRONMENT.Alias(
+    "run",
+    [image, root_img],
+    Action(run_qemu, "Running...")
+)
+HOST_ENVIRONMENT.AlwaysBuild(run)
+
 PhonyTargets(
     HOST_ENVIRONMENT,
-    run=['./scripts/run.sh', HOST_ENVIRONMENT['imageType'], image[0].path],
     debug=['./scripts/debug.sh', HOST_ENVIRONMENT['imageType'], image[0].path],
     bochs=['./scripts/bochs.sh', HOST_ENVIRONMENT['imageType'], image[0].path],
     toolchain=['./scripts/setup_toolchain.sh', HOST_ENVIRONMENT['toolchain']],

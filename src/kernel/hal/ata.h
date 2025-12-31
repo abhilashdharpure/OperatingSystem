@@ -1,48 +1,61 @@
 #pragma once
 
-#include "arch/x86_64/io.h"
-#include "hal/block.h"
+#include <stdint.h>
+#include <stdbool.h>
+#include "block.h"
 
+// Primary ATA channel I/O ports
+#define ATA_IO_BASE      0x1F0
+#define ATA_CTRL_BASE    0x3F6
 
-#define ATA_IO_BASE     0x1F0   // primary channel
-#define ATA_CTRL_BASE   0x3F6   // control/status
-
-
-#define ATA_DATA        0x00
-#define ATA_ERROR       0x01
-#define ATA_SECCNT      0x02
-#define ATA_LBA_LO      0x03
-#define ATA_LBA_MID     0x04
-#define ATA_LBA_HI      0x05
-#define ATA_DEVICE      0x06
-#define ATA_STATUS      0x07
-#define ATA_COMMAND     0x07
-
-#define ATA_CMD_READ_SECTORS 0x20
-
-#define ATA_ALT_STATUS  (ATA_CTRL_BASE + 0)
-#define ATA_DEV_CTRL    (ATA_CTRL_BASE + 0)
-
-#define ATA_BSY 0x80
-#define ATA_DRQ 0x08
-#define ATA_ERR 0x01
-#define ATA_DF  0x20
+// ATA Registers (offsets)
+#define ATA_REG_DATA     0   // Data (R/W)
+#define ATA_REG_ERROR    1   // Error (R)
+#define ATA_REG_FEATURES 1   // Features (W)
+#define ATA_REG_SECCNT   2
+#define ATA_REG_LBA_LO   3
+#define ATA_REG_LBA_MID  4
+#define ATA_REG_LBA_HI   5
+#define ATA_REG_DEVICE   6
+#define ATA_REG_STATUS   7   // Status (R)
+#define ATA_REG_COMMAND  7   // Command (W)
 
 // Status bits
-#define ST_ERR 0x01
-#define ST_DRQ 0x08
-#define ST_DF  0x20
-#define ST_BSY 0x80
+#define ATA_SR_ERR   0x01
+#define ATA_SR_DRQ   0x08
+#define ATA_SR_DF    0x20
+#define ATA_SR_DRDY  0x40
+#define ATA_SR_BSY   0x80
 
-static inline void io_wait_400ns(void);
+// Commands
+#define ATA_CMD_IDENTIFY       0xEC
+#define ATA_CMD_READ_SECTORS   0x20
 
-// int ata_wait_not_busy(ata_device_t *ata, uint32_t timeout_ms);
-int ata_wait_not_busy(uint16_t io);
+// Assumes in ata.h:
+//   #define ATA_IO_BASE   0x1F0
+//   #define ATA_CTRL_BASE 0x3F6
+//   #define ATA_REG_DATA     0x00
+//   #define ATA_REG_ERROR    0x01
+//   #define ATA_REG_SECCNT   0x02
+//   #define ATA_REG_LBA_LO   0x03
+//   #define ATA_REG_LBA_MID  0x04
+//   #define ATA_REG_LBA_HI   0x05
+//   #define ATA_REG_DEVICE   0x06
+//   #define ATA_REG_COMMAND  0x07
+//   #define ATA_REG_STATUS   0x07
+//   #define ATA_SR_BSY       0x80
+//   #define ATA_SR_DRQ       0x08
+//   #define ATA_SR_ERR       0x01
+//   #define ATA_CMD_IDENTIFY     0xEC
+//   #define ATA_CMD_READ_SECTORS 0x20
+//
+// typedef struct {
+//     uint8_t  device;    // 0=master,1=slave
+//     uint16_t io_base;
+//     uint16_t ctrl_base;
+// } ata_device_t;
+// Public API
+void ata_init(void);
 
-int ata_wait_drq(ata_device_t *ata, uint32_t timeout_ms);
-
-static void ata_select_drive_master(void);
-
-int ata_read_sectors(block_device_t *dev, uint32_t lba, uint32_t count, void *buf);
-
-void ata_init();
+// Block-layer wrapper
+int ata_read_sectors(block_device_t *bdev, uint32_t lba, uint32_t count, void *buf);

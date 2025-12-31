@@ -218,11 +218,12 @@ cp init ../../image/root/bin/
 cd ../../
 
 
+
+# Copy user space bin file
 cd src/userspace/
 scons
-../../toolchain/i686-elf/bin/i686-elf-readelf -h build/user/init
-cp build/user/init ../../image/root/bin/
 cd ../../
+cp src/userspace/bin/init/init image/root/bin/init
 clear && scons run
 
 # Check file entry address
@@ -335,3 +336,35 @@ GRUB error: invalid arch-dependent ELF magic. error: you need to load the kernel
 
 
 objdump -h build/x86_64_debug/kernel/kernel.elf
+
+
+
+
+
+
+abhilash@Abhilash:~/Project/OperatingSystem$ sudo losetup -f --show build/x86_64_debug/image.iso
+[sudo] password for abhilash: 
+/dev/loop35
+abhilash@Abhilash:~/Project/OperatingSystem$ sudo partprobe /dev/loop35
+abhilash@Abhilash:~/Project/OperatingSystem$ lsblk /dev/loop35
+NAME       MAJ:MIN RM  SIZE RO TYPE MOUNTPOINTS
+loop35       7:35   0 11.5M  0 loop 
+├─loop35p1 259:0    0  108K  0 part 
+├─loop35p2 259:1    0  2.8M  0 part 
+├─loop35p3 259:2    0  8.2M  0 part 
+└─loop35p4 259:3    0  300K  0 part 
+abhilash@Abhilash:~/Project/OperatingSystem$ sudo mount -o loop,ro,offset=$((LBA*512)) /dev/loop35 /mnt
+abhilash@Abhilash:~/Project/OperatingSystem$ ls /mnt/
+boot  boot.catalog  EFI  efi.img  mach_kernel  System
+abhilash@Abhilash:~/Project/OperatingSystem$ 
+
+
+sudo losetup -f --show build/x86_64_debug/image.iso
+sudo partprobe /dev/loop35
+lsblk /dev/loop35
+sudo mount -o loop,ro,offset=$((LBA*512)) /dev/loop35 /mnt
+ls /mnt/
+
+
+# command to check error
+toolchain/x86_64-elf/bin/x86_64-elf-addr2line -f -C  -e build/x86_64_debug/kernel/kernel.elf 0x4654

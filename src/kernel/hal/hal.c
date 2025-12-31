@@ -6,9 +6,11 @@
 #include <arch/x86_64/vga_text.h>
 #include <arch/x86_64/ps2.h>
 #include <arch/x86_64/pit.h>
+#include <arch/x86_64/io.h>
 #include "tss.h"
 #include "syscall/syscall_install.h"
 #include "debug.h"
+#include "arch/x86_64/paging_bootstrap.h"
 
 // // Allocate a 16 KB kernel stack
 // static uint8_t kernel_stack[16384];
@@ -52,7 +54,6 @@ static inline void clear_trap_flag(void)
     );
 }
 
-
 void HAL_Initialize()
 {
     log_info("HAL", "Kernel HAL_Initialize");
@@ -60,19 +61,20 @@ void HAL_Initialize()
     log_info("STACK", "kernel stack bottom = %p", _kernel_stack_bottom);
     log_info("STACK", "kernel stack top    = %p", _kernel_stack_top);
 
-
-    // __asm__ volatile ("cli");
     gdt_init();
     log_info("HAL", "After gdt_init");
-    // i686_GDT_Initialize();
-    /* kernel_stack_top: top of kernel stack (virtual address) used for ring0 on interrupts */
+
     x64_TSS_Install((uintptr_t)_kernel_stack_top);
     log_info("HAL", "After x64_TSS_Install");
 
     x64_IDT_Initialize();
     log_info("HAL", "After x64_IDT_Initialize");
 
-    // i686_ISR_Initialize();
+    paging_init_long_mode_globals();
+    log_info("HAL", "After paging_init_long_mode_globals");
+
+    
+
     x64_ISR_Initialize();
     log_info("HAL", "After x64_ISR_Initialize");
 
@@ -85,22 +87,82 @@ void HAL_Initialize()
     x64_syscall_install();
     log_info("HAL", "After x64_syscall_install");
 
-    // test_int80_kernel();
-    // __asm__ volatile ("sti");
-    // init keyboard
-    ps2_init();  
-    log_info("HAL", "After ps2_init");
-
-    // init timer
+    // Init PIT **before enabling interrupts**
     uint32_t frequency = 1000;
     pit_init(frequency);
     log_info("HAL", "After pit_init");
 
+    // Clear trap flag and enable interrupts
     clear_trap_flag();
-    __asm__ volatile("sti");
-    log_info("HAL", "Interrupts enabled");
-    
+    // enable_interrupts();
+
+    // __asm__ volatile("sti");
+    // log_info("HAL", "Interrupts enabled");
+
+    uint64_t t0 = pit_get_ticks();
+    for (volatile int i = 0; i < 1000000; i++);
+    uint64_t t1 = pit_get_ticks();
+    log_info("PIT", "Ticks: %llu -> %llu", t0, t1);
+
+    // Init keyboard/mouse
+    ps2_init();
+    log_info("HAL", "After ps2_init");
+
     VGA_clrscr();
     log_info("HAL", "After VGA_clrscr");
-
 }
+
+
+// void HAL_Initialize()
+// {
+//     log_info("HAL", "Kernel HAL_Initialize");
+
+//     log_info("STACK", "kernel stack bottom = %p", _kernel_stack_bottom);
+//     log_info("STACK", "kernel stack top    = %p", _kernel_stack_top);
+
+
+//     // __asm__ volatile ("cli");
+//     gdt_init();
+//     log_info("HAL", "After gdt_init");
+//     // i686_GDT_Initialize();
+//     /* kernel_stack_top: top of kernel stack (virtual address) used for ring0 on interrupts */
+//     x64_TSS_Install((uintptr_t)_kernel_stack_top);
+//     log_info("HAL", "After x64_TSS_Install");
+
+//     x64_IDT_Initialize();
+//     log_info("HAL", "After x64_IDT_Initialize");
+
+//     // i686_ISR_Initialize();
+//     x64_ISR_Initialize();
+//     log_info("HAL", "After x64_ISR_Initialize");
+
+//     x64_IRQ_Initialize();
+//     log_info("HAL", "After x64_IRQ_Initialize");
+
+//     InitializeDevNull();
+//     log_info("HAL", "After InitializeDevNull");
+
+//     x64_syscall_install();
+//     log_info("HAL", "After x64_syscall_install");
+
+//     // test_int80_kernel();
+//     // __asm__ volatile ("sti");
+//     // init keyboard
+//     ps2_init();  
+//     log_info("HAL", "After ps2_init");
+
+//     // init timer
+//     uint32_t frequency = 1000;
+//     pit_init(frequency);
+//     log_info("HAL", "After pit_init");
+
+//     clear_trap_flag();
+//     log_info("HAL", "Interrupts enabled");
+
+//     enable_interrupts();
+//     log_info("HAL", "After enable_interrupts");
+
+//     VGA_clrscr();
+//     log_info("HAL", "After VGA_clrscr");
+
+// }

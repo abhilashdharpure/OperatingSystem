@@ -12,23 +12,25 @@
 IRQHandler g_IRQHandlers[16] = {0};
 const PICDriver* g_IRQ_Driver = NULL;
 
-/* IRQ handler called by ISR64 wrapper */
-void x64_IRQ_Handler(ISRFrame64* regs)
+void x64_IRQ_Handler(ISRFrame64* r)
 {
-    int irq = (int)(regs->vector - PIC_REMAP_OFFSET);
+    int vector = r->vector;
+    int irq = vector - PIC_REMAP_OFFSET;
 
-    if (irq >= 0 && irq < 16 && g_IRQHandlers[irq] != NULL) {
-        g_IRQHandlers[irq](regs);
-    } else {
-        log_warning(MODULE, "Unhandled IRQ %d...", irq);
+    if (irq < 0 || irq >= 16) {
+        log_error("IRQ", "Invalid IRQ vector %u", vector);
+        return;
     }
 
-    /* Send End-of-Interrupt */
-    // g_IRQ_Driver->SendEndOfInterrupt(irq);
-    if (irq >= 0 && irq < 16)
-    {
-        g_IRQ_Driver->SendEndOfInterrupt(irq);
+    if (g_IRQHandlers[irq]) {
+        g_IRQHandlers[irq](r);
     }
+
+    if (irq == 7 || irq == 15) {
+        x64_IRQ_SendEndOfInterupt(irq);
+        return;
+    }
+    x64_IRQ_SendEndOfInterupt(irq);
 }
 
 /* Initialize PIC and hook IRQs to IDT */
@@ -37,6 +39,7 @@ void x64_IRQ_Initialize(void)
     const PICDriver* drivers[] = {
         i8259_GetDriver(),
     };
+
 
     /* find first available PIC driver */
     for (int i = 0; i < SIZE(drivers); i++) {
@@ -53,6 +56,7 @@ void x64_IRQ_Initialize(void)
 
     log_info(MODULE, "Found %s PIC.", g_IRQ_Driver->Name);
     g_IRQ_Driver->Initialize(PIC_REMAP_OFFSET, PIC_REMAP_OFFSET + 8, false);
+    
 
     /* Register ISR64 handlers for IRQ vectors (0x20–0x2F) */
     for (int i = 0; i < 16; i++) {
@@ -64,6 +68,7 @@ void x64_IRQ_Initialize(void)
     g_IRQ_Driver->Unmask(HardwareIRQNo_Keyboard);
     g_IRQ_Driver->Unmask(HardwareIRQNo_Cascade);
     g_IRQ_Driver->Unmask(HardwareIRQNo_Mouse);
+    
 
     // /* Enable interrupts in RFLAGS */
     // __asm__ volatile("sti");
@@ -72,8 +77,24 @@ void x64_IRQ_Initialize(void)
 /* Register a specific IRQ handler */
 void x64_IRQ_RegisterHandler(int irq, IRQHandler handler)
 {
+    if (irq < 0 || irq >= 16)
+        return;
+
+    // g_IRQHandlers[irq] = handler;
+
+    // int vector = PIC_REMAP_OFFSET + irq;
+    // x64_IDT_EnableGate(vector);
+
+    int vector = PIC_REMAP_OFFSET + irq;
     g_IRQHandlers[irq] = handler;
+    x64_IDT_EnableGate(vector);
 }
+
+void x64_IRQ_Unmask(int irq)
+{
+    g_IRQ_Driver->Unmask(irq);
+}
+
 
 /* Send EOI to PIC/APIC */
 void x64_IRQ_SendEndOfInterupt(int irq)

@@ -1,499 +1,335 @@
+// paging.c – 64-bit paging for kernel + userspace
+
 #include "paging.h"
-#include <string.h>
-#include <stdio.h>
-#include <arch/x86_64/irq.h>
-#include <debug.h>
-#include "hal/process.h"
-#include <arch/x86_64/cpu.h>
-
 #include <stdint.h>
-#include <stdbool.h>
+#include <stddef.h>
+#include <string.h>
+#include <debug.h>
+#include <arch/x86_64/cpu.h>
+#include <hal/process.h>
 
-// High-half kernel base
-#define KERNEL_VMA   0xC0000000
-#define TEMP_VMA       0xFFC01000   // temporary mapping for new user PD
-#define TEMP_KPD_VMA   0xFFC02000   // temporary mapping for kernel PD access
+// --------- Assumptions / MUST align with your bootstrap + linker ----------
+//
+// 1) You are in long mode with 4-level paging.
+// 2) The kernel is mapped in the higher half (canonical addresses >= 0xFFFF8000...),
+//    and the current CR3 points to a PML4 that already has all kernel mappings set up.
+// 3) Your bootstrap code exposes the current kernel PML4 like this:
+//
+//      extern uint64_t kernel_pml4_phys;
+//      extern uint64_t *kernel_pml4_virt;
+//
+//    and ensures kernel_pml4_virt is a valid *kernel virtual* pointer to that PML4.
+//
+// 4) KERNEL_PML4_INDEX is the index in the PML4 where your kernel’s higher-half
+//    mappings live. For a typical layout where kernel is at 0xFFFF800000000000,
+//    that index is 256. Adjust if your linker script uses a different base.
+// -------------------------------------------------------------------------
+
+#define PAGE_SIZE            4096ULL
+
+#define PML4_INDEX(va)       (((uint64_t)(va) >> 39) & 0x1FF)
+#define PDP_INDEX(va)        (((uint64_t)(va) >> 30) & 0x1FF)
+#define PD_INDEX(va)         (((uint64_t)(va) >> 21) & 0x1FF)
+#define PT_INDEX(va)         (((uint64_t)(va) >> 12) & 0x1FF)
+
+#define PAGE_PRESENT         (1ULL << 0)
+#define PAGE_RW              (1ULL << 1)
+#define PAGE_USER            (1ULL << 2)
+
+// Adjust this to your actual kernel PML4 index (from linker/boot paging setup).
+#define KERNEL_PML4_INDEX    256
+
+// We allow userspace to use the lower half (0..255) PML4 entries.
+#define USER_PML4_START      0
+#define USER_PML4_END        KERNEL_PML4_INDEX
+
+// Provided by your bootstrap (must be implemented there)
+extern uint64_t kernel_pml4_phys;
+extern uint64_t *kernel_pml4_virt;
 
 
-#define KERNEL_PD_IDX   (KERNEL_VMA >> 22)
-
-// Physical addresses for initial PD/PT
-// #define KERNEL_PD_PHYS 0x001F4000
-#define KERNEL_PD_PHYS (kernel_page_directory_phys)
-
-#define KERNEL_PT_PHYS 0x001F5000
-
-// extern char _kernel_start, _kernel_end;
-extern char _kernel_start[];
-extern char _kernel_end[];
-extern char _kernel_stack_bottom[];
-extern char _kernel_stack_top[];
-
-// Globals
-uint32_t kernel_page_directory_phys;
-uint32_t *kernel_page_directory;
-
-// Kernel stack
-#define KERNEL_STACK_SIZE (16*1024)
-#define KERNEL_STACK_TOP  (0x00800000) // 8MB top
-
-#define PHYS_FROM_VIRT 1
-
-uint32_t *kernel_page_directory = 0;
-
-extern uint32_t pmm_alloc_page(void);      /* must be provided by your PMM */
-extern void phys_free_page(uint32_t pa);
-extern void *phys_to_virt(uint32_t pa);     /* kernel virtual address for physical page */
-extern uint32_t virt_to_phys(void *v);      /* optional */
-
-// extern void write_cr3(uint32_t pa);
-extern void enter_user_mode(Process *p);
-
-
-// void write_cr3(uint32_t pa)
-// {
-//     __asm__ volatile("mov %0, %%cr3" :: "r"(pa) : "memory");
-
-//     log_info("VERIFY", "write_cr3 pa=0x%x", pa);
-// }
-
-void map_identity_page(uint32_t* pd, uintptr_t pa)
+// Simple phys<->virt helpers for kernel space
+// If you already have better ones, hook them here.
+static inline void *phys_to_virt(uint64_t pa)
 {
-    uint32_t pd_idx = (pa >> 22) & 0x3FF;
-    uint32_t pt_idx = (pa >> 12) & 0x3FF;
-
-    uint32_t* pt;
-
-    if (!(pd[pd_idx] & 0x1)) // If page table not present
-    {
-        pt = (uint32_t*)pmm_alloc_page();  // Allocate a page for page table
-        for (int i = 0; i < 1024; i++)
-            pt[i] = 0;
-
-        pd[pd_idx] = ((uintptr_t)pt) | 0x3; // Present + RW
-    }
-    else
-    {
-        pt = (uint32_t*)(pd[pd_idx] & ~0xFFF);
-    }
-
-    pt[pt_idx] = pa | 0x3; // Present + RW
+    // If kernel is identity-mapped for low memory, this is fine.
+    // Otherwise, add your kernel base offset here.
+    return (void *)(uintptr_t)pa;
 }
 
-void paging_bootstrap_identity(void)
+static inline uint64_t virt_to_phys(void *va)
 {
-    log_info("Paging", "before paging_bootstrap_identity");
-
-    kernel_page_directory_phys = pmm_alloc_page();
-    if (kernel_page_directory_phys == 0)
-    {
-        panic("No memory for page directory");
-    }
-
-    log_info("Paging", "paging_bootstrap_identity 1");
-
-    memset((void*)kernel_page_directory_phys, 0, PAGE_SIZE);
-    log_info("Paging", "paging_bootstrap_identity 2");
-
-    kernel_page_directory = (uint32_t*)kernel_page_directory_phys;
+    // Same caveat: adjust if kernel virtual != physical in low memory.
+    return (uint64_t)(uintptr_t)va;
 }
 
-void paging_map_high_half_kernel(void)
+// ----------------------------------------------------------------------
+// PML4 walking helpers
+// ----------------------------------------------------------------------
+
+static uint64_t *get_or_alloc_pdp(uint64_t *pml4, uint64_t va, uint64_t flags)
 {
-    uint32_t pd_phys = kernel_page_directory_phys;
-    uint32_t *pd = (uint32_t*)pd_phys;   // identity-mapped PD
+    uint64_t idx = PML4_INDEX(va);
+    uint64_t e = pml4[idx];
 
-    uintptr_t kernel_phys_start = (uintptr_t)&_kernel_start;
-    uintptr_t kernel_phys_end   = (uintptr_t)&_kernel_end;
+    if (!(e & PAGE_PRESENT)) {
+        uint64_t pa = pmm_alloc_page();
+        if (!pa) return NULL;
 
-    uintptr_t va = KERNEL_VMA;
-    uintptr_t pa = kernel_phys_start;
-
-    // Map kernel image high-half
-    while (pa < kernel_phys_end)
-    {
-        uint32_t pd_idx = (va >> 22) & 0x3FF;
-        uint32_t pt_idx = (va >> 12) & 0x3FF;
-
-        if (!(pd[pd_idx] & PAGE_PRESENT))
-        {
-            uint32_t new_pt_pa = pmm_alloc_page();
-            memset((void*)new_pt_pa, 0, PAGE_SIZE);
-            pd[pd_idx] = new_pt_pa | PAGE_PRESENT | PAGE_RW;
-        }
-
-        uint32_t *pt = (uint32_t*)(pd[pd_idx] & 0xFFFFF000); 
-        pt[pt_idx] = pa | PAGE_PRESENT | PAGE_RW;
-
-        va += PAGE_SIZE;
-        pa += PAGE_SIZE;
-    }
-
-    // 1) Ensure PD is identity-mapped (you already do this, it's fine)
-    map_identity_page((uint32_t*)pd_phys, pd_phys);
-
-    // 2) Map PD into high-half explicitly
-    uintptr_t pd_vaddr = pd_phys + KERNEL_VMA;
-    uint32_t pd_idx = (pd_vaddr >> 22) & 0x3FF;
-    uint32_t pt_idx = (pd_vaddr >> 12) & 0x3FF;
-
-    if (!(pd[pd_idx] & PAGE_PRESENT))
-    {
-        uint32_t new_pt_pa = pmm_alloc_page();
-        memset((void*)new_pt_pa, 0, PAGE_SIZE);
-        pd[pd_idx] = new_pt_pa | PAGE_PRESENT | PAGE_RW;
-    }
-
-    uint32_t *pt = (uint32_t*)(pd[pd_idx] & 0xFFFFF000);
-    pt[pt_idx] = pd_phys | PAGE_PRESENT | PAGE_RW;
-
-    // Now this high-half pointer is actually backed by a mapping
-    kernel_page_directory = (uint32_t*)pd_vaddr;
-
-    log_info("Paging",
-        "High-half kernel mapped successfully: VA=0x%x -> PA=0x%x, kernel_page_directory=%p",
-        KERNEL_VMA, kernel_phys_start, kernel_page_directory);
-}
-
-void enable_paging(void)
-{
-    uint64_t cr0;
-    __asm__ volatile("mov %%cr0, %0" : "=r"(cr0));
-
-    cr0 |= 0x80000000;
-    __asm__ volatile("mov %0, %%cr0" :: "r"(cr0));
-}
-
-uint32_t virt_to_phys(void *virt)
-{
-    return (uint32_t)virt;
-}
-
-void *phys_to_virt(uint32_t phys)
-{
-    return (void *)(phys);
-}
-
-static inline uint32_t alloc_zeroed_page_phys(void)
-{
-    uint32_t pa = pmm_alloc_page();
-    if (!pa) return 0;
-    memset(phys_to_virt(pa), 0, PAGE_SIZE); // zero the page via kernel VA
-    return pa;
-}
-
-// Map a single physical page temporarily at TEMP_VMA
-static void map_temp_page(uintptr_t phys_page, uintptr_t vaddr)
-{
-    uint32_t pd_idx = (vaddr >> 22) & 0x3FF;
-    uint32_t pt_idx = (vaddr >> 12) & 0x3FF;
-
-    // Get or create PT for this PDE
-    uint32_t *pt;
-    if (!(kernel_page_directory[pd_idx] & 0x1))
-    {
-        uint32_t pt_pa = pmm_alloc_page();
-        pt = (uint32_t*)(pt_pa);
-        memset(pt, 0, PAGE_SIZE);
-        kernel_page_directory[pd_idx] = pt_pa | 0x3; // present+rw
-    }
-    else
-    {
-        uint32_t pt_pa = kernel_page_directory[pd_idx] & ~0xFFF;
-        pt = (uint32_t*)(pt_pa);
-    }
-
-    pt[pt_idx] = phys_page | 0x3;  // present+rw
-    __asm__ volatile("invlpg (%0)" :: "r"(vaddr) : "memory");
-}
-
-static void map_temp_kernel_pd(uint32_t pd_phys)
-{
-    // Map the physical page of kernel PD to TEMP_KPD_VMA
-    uint32_t pd_idx = (TEMP_KPD_VMA >> 22) & 0x3FF;
-    uint32_t pt_idx = (TEMP_KPD_VMA >> 12) & 0x3FF;
-
-    // Allocate page table if missing
-    uint32_t *pt;
-    if (!(kernel_page_directory[pd_idx] & 0x1)) {
-        uint32_t pt_pa = pmm_alloc_page();
-        pt = (uint32_t*)(KERNEL_VMA + pt_pa);
-        memset(pt, 0, PAGE_SIZE);
-        kernel_page_directory[pd_idx] = pt_pa | 0x3;
+        memset(phys_to_virt(pa), 0, PAGE_SIZE);
+        pml4[idx] = pa | flags | PAGE_PRESENT;
+        return (uint64_t *)phys_to_virt(pa);
     } else {
-        uint32_t pt_pa = kernel_page_directory[pd_idx] & ~0xFFF;
-        pt = (uint32_t*)(KERNEL_VMA + pt_pa);
+        uint64_t pa = e & ~0xFFFULL;
+        return (uint64_t *)phys_to_virt(pa);
     }
-
-    // Map the PD physical page at TEMP_KPD_VMA
-    pt[pt_idx] = pd_phys | 0x3;
-    __asm__ volatile("invlpg (%0)" :: "r"(TEMP_KPD_VMA) : "memory");
 }
 
-static void map_temp_page_identity(uint32_t pt_pa, uintptr_t vaddr)
+static uint64_t *get_or_alloc_pd(uint64_t *pdp, uint64_t va, uint64_t flags)
 {
-    uint32_t pd_idx = (vaddr >> 22) & 0x3FF;
-    uint32_t pt_idx = (vaddr >> 12) & 0x3FF;
+    uint64_t idx = PDP_INDEX(va);
+    uint64_t e   = pdp[idx];
+    uint64_t pa  = e & ~0xFFFULL;
 
-    uint32_t *pt;
+    // Treat 'present with pa==0' as not-present/corrupt and allocate fresh
+    if (!(e & PAGE_PRESENT) || pa == 0) {
+        uint64_t new_pa = pmm_alloc_page();
+        log_info("Paging",
+                 "get_or_alloc_pd (alloc): idx=%llu va=0x%llx new_pa=0x%llx e=0x%llx",
+                 (unsigned long long)idx,
+                 (unsigned long long)va,
+                 (unsigned long long)new_pa,
+                 (unsigned long long)e);
 
-    if (!(kernel_page_directory[pd_idx] & 0x1)) {
-        uint32_t new_pt_pa = pmm_alloc_page();
-        pt = (uint32_t*)(KERNEL_VMA + new_pt_pa);
-        memset(pt, 0, PAGE_SIZE);
-        kernel_page_directory[pd_idx] = new_pt_pa | 0x3;  // Present+RW
+        if (!new_pa) return NULL;
+
+        void *v = phys_to_virt(new_pa);
+        log_info("Paging", "get_or_alloc_pd: phys_to_virt(new_pa)=%p", v);
+        memset(v, 0, PAGE_SIZE);
+        pdp[idx] = new_pa | flags | PAGE_PRESENT;
+        return (uint64_t *)v;
     } else {
-        uint32_t pt_pa = kernel_page_directory[pd_idx] & ~0xFFF;
-        pt = (uint32_t*)(KERNEL_VMA + pt_pa);
+        log_info("Paging", "get_or_alloc_pd: else");
+        // Existing valid PD
+        return (uint64_t *)phys_to_virt(pa);
+    }
+}
+
+static uint64_t *get_or_alloc_pt(uint64_t *pd, uint64_t va, uint64_t flags)
+{
+    uint64_t idx = PD_INDEX(va);
+    uint64_t e   = pd[idx];
+    uint64_t pa  = e & ~0xFFFULL;
+
+    if (!(e & PAGE_PRESENT) || pa == 0) {
+        uint64_t new_pa = pmm_alloc_page();
+        log_info("Paging",
+                 "get_or_alloc_pt (alloc): idx=%llu va=0x%llx new_pa=0x%llx e=0x%llx",
+                 (unsigned long long)idx,
+                 (unsigned long long)va,
+                 (unsigned long long)new_pa,
+                 (unsigned long long)e);
+        if (!new_pa) return NULL;
+
+        void *v = phys_to_virt(new_pa);
+        log_info("Paging", "get_or_alloc_pt: phys_to_virt(new_pa)=%p", v);
+        memset(v, 0, PAGE_SIZE);
+        pd[idx] = new_pa | flags | PAGE_PRESENT;
+        return (uint64_t *)v;
+    } else {
+        log_info("Paging", "get_or_alloc_pt: else");
+        return (uint64_t *)phys_to_virt(pa);
+    }
+}
+
+
+// Non-allocating lookup – used by get_mapped_phys
+static uint64_t *get_pdp(uint64_t *pml4, uint64_t va)
+{
+    uint64_t e = pml4[PML4_INDEX(va)];
+    if (!(e & PAGE_PRESENT)) return NULL;
+    return (uint64_t *)phys_to_virt(e & ~0xFFFULL);
+}
+
+static uint64_t *get_pd(uint64_t *pdp, uint64_t va)
+{
+    uint64_t e = pdp[PDP_INDEX(va)];
+    if (!(e & PAGE_PRESENT)) return NULL;
+    return (uint64_t *)phys_to_virt(e & ~0xFFFULL);
+}
+
+static uint64_t *get_pt(uint64_t *pd, uint64_t va)
+{
+    uint64_t e = pd[PD_INDEX(va)];
+    if (!(e & PAGE_PRESENT)) return NULL;
+    return (uint64_t *)phys_to_virt(e & ~0xFFFULL);
+}
+
+// ----------------------------------------------------------------------
+// Low-level map / unmap / query
+// ----------------------------------------------------------------------
+
+int map_page(uint64_t *pml4, uint64_t va, uint64_t pa, uint64_t flags)
+{
+    uint64_t *pdp = get_or_alloc_pdp(pml4, va, flags);
+    if (!pdp) {
+        log_critical("Paging", "map_page: get_or_alloc_pdp failed for VA=0x%llx", va);
+        return -1;
     }
 
-    pt[pt_idx] = pt_pa | 0x3;  // Present+RW
-    __asm__ volatile("invlpg (%0)" :: "r"(vaddr) : "memory");
+    uint64_t *pd = get_or_alloc_pd(pdp, va, flags);
+    if (!pd) {
+        log_critical("Paging", "map_page: get_or_alloc_pd failed for VA=0x%llx", va);
+        return -1;
+    }
+    log_info("Paging", "map_page: get_or_alloc_pd done");
+
+    uint64_t *pt = get_or_alloc_pt(pd, va, flags);
+    if (!pt) {
+        log_critical("Paging", "map_page: get_or_alloc_pt failed for VA=0x%llx", va);
+        return -1;
+    }
+
+    log_info("Paging", "map_page: get_or_alloc_pt done");
+
+
+    uint64_t idx = PT_INDEX(va);
+    pt[idx] = (pa & ~0xFFFULL) | (flags & (PAGE_PRESENT | PAGE_RW | PAGE_USER));
+    log_info("Paging", "map_page: after pt[idx]  done");
+
+    __asm__ volatile("invlpg (%0)" :: "r"(va) : "memory");
+    log_info("Paging", "map_page: after invlpg");
+
+    return 0;
 }
+
+uint64_t get_mapped_phys(uint64_t *pml4, uint64_t va)
+{
+    uint64_t *pdp = get_pdp(pml4, va);
+    if (!pdp) return 0;
+
+    uint64_t *pd = get_pd(pdp, va);
+    if (!pd) return 0;
+
+    uint64_t *pt = get_pt(pd, va);
+    if (!pt) return 0;
+
+    uint64_t e = pt[PT_INDEX(va)];
+    if (!(e & PAGE_PRESENT)) return 0;
+
+    return (e & ~0xFFFULL) | (va & 0xFFFULL);
+}
+
+// ----------------------------------------------------------------------
+// User page table creation (replaces old 32-bit create_user_pd)
+// ----------------------------------------------------------------------
 
 page_dir_t create_user_pd(void)
 {
-    uint32_t pd_pa    = pmm_alloc_page();        
-    uint32_t *pd_virt = (uint32_t*)TEMP_VMA;
+    log_info("Paging", "create_user_pd (64-bit) start");
 
-    // Map the *new* PD into TEMP_VMA in the current (kernel) PD
-    map_temp_page(pd_pa, TEMP_VMA);
-
-    // Map the *real* kernel PD (the one in CR3) into TEMP_KPD_VMA
-    map_temp_page(kernel_page_directory_phys, TEMP_KPD_VMA);
-
-    memset(pd_virt, 0, PAGE_SIZE);
-
-    uint32_t *kernel_pd_temp = (uint32_t*)TEMP_KPD_VMA;
-    for (int i = KERNEL_PD_IDX; i < 1024; i++)
-    {
-        pd_virt[i] = kernel_pd_temp[i];
+    uint64_t new_pml4_pa = pmm_alloc_page();
+    if (!new_pml4_pa) {
+        log_critical("Paging", "create_user_pd: no memory for PML4");
+        return (page_dir_t){ .pd_phys = 0, .pd_virt = NULL };
     }
 
-    // Clone low identity mappings (0..32MB) for kernel stack etc.
-    const int IDENTITY_PDE_LIMIT = (32 * 1024 * 1024) / (4 * 1024 * 1024); // 8
+    uint64_t *new_pml4 = (uint64_t *)phys_to_virt(new_pml4_pa);
 
-    for (int i = 0; i < IDENTITY_PDE_LIMIT; i++) {
-        uint32_t pde = kernel_pd_temp[i];
+    uint64_t cur_pml4_pa = read_cr3();
+    uint64_t *cur_pml4   = (uint64_t *)phys_to_virt(cur_pml4_pa);
 
-        if (pde & PAGE_PRESENT) {
-            // Preserve everything else, just ensure USER bit is set
-            pd_virt[i] = pde | PAGE_USER;
-        } else {
-            pd_virt[i] = 0;
-        }
-    }
+    // Clone the whole kernel address space
+    memcpy(new_pml4, cur_pml4, PAGE_SIZE);
 
-    // Clone high-half kernel mappings (can also force USER if you want user to see them)
-    for (int i = KERNEL_PD_IDX; i < 1024; i++)
-    {
-        uint32_t pde = kernel_pd_temp[i];
-        if (pde & PAGE_PRESENT)
-        {
-            pd_virt[i] = pde | PAGE_USER;
-        } else {
-            pd_virt[i] = 0;
-        }
-    }
+    log_info("Paging", "create_user_pd done: new_pml4_pa=0x%llx new_pml4=%p",
+             new_pml4_pa, new_pml4);
 
-    return (page_dir_t){ .pd_phys = pd_pa, .pd_virt = pd_virt };
+    return (page_dir_t){
+        .pd_phys = new_pml4_pa,
+        .pd_virt = new_pml4
+    };
 }
 
-uint32_t* pt_from_pde(uint32_t pde)
+void clone_kernel_mappings(uint64_t *user_pml4)
 {
-    uint32_t pt_pa = pde & 0xFFFFF000;
-    return phys_to_virt(pt_pa);
+    (void)user_pml4;
 }
+// ----------------------------------------------------------------------
+// Enter user mode (unchanged semantics – uses p->cr3 and enter_user_mode(p))
+// ----------------------------------------------------------------------
 
-int map_page(uint32_t *pd, uintptr_t va, uintptr_t pa, uint32_t flags)
-{
-    uint32_t pd_idx = (va >> 22) & 0x3FF;
-    uint32_t pt_idx = (va >> 12) & 0x3FF;
-
-    uint32_t pde = pd[pd_idx];
-    uint32_t *pt;
-
-    if (!(pde & PAGE_PRESENT))
-    {
-        uintptr_t pt_pa = pmm_alloc_page();
-        if (!pt_pa)
-        {
-            return -1;
-        }
-
-        // Zero the physical page via a kernel mapping
-        uint8_t *pt_kva = (uint8_t *)phys_to_virt((uint32_t)pt_pa);
-        memset(pt_kva, 0, PAGE_SIZE);
-
-        // If phys_to_virt uses TEMP_KVA, unmap after use
-        #ifdef TEMP_KVA_USED
-        unmap_kernel_temp();
-        #endif
-
-        // Install PDE with the physical address of the new page table
-        pd[pd_idx] = (uint32_t)pt_pa | PAGE_PRESENT | PAGE_RW | PAGE_USER;
-        // log_info("Paging", "map_page pd[pd_idx] = %p", pd[pd_idx]);
-
-        // Get a kernel pointer to the page table so we can write PTEs
-        pt = (uint32_t *)phys_to_virt((uint32_t)pt_pa);
-    }
-    else
-    {
-        uintptr_t pt_pa = pde & 0xFFFFF000;
-        pt = (uint32_t *)phys_to_virt((uint32_t)pt_pa);
-    }
-
-    // Now write the PTE into the page table via the kernel mapping
-    pt[pt_idx] = (pa & 0xFFFFF000) | (flags & (PAGE_PRESENT | PAGE_RW | PAGE_USER));
-
-    // If phys_to_virt used TEMP_KVA, unmap the page table mapping now
-    #ifdef TEMP_KVA_USED
-    unmap_kernel_temp();
-    #endif
-
-    __asm__ volatile("invlpg (%0)" :: "r"(va) : "memory");
-    return 0;
-}
-
-// Unmap a single virtual page in the given page directory (kernel PD assumed)
-void unmap_page(uint32_t *page_directory, uint32_t va)
-{
-    uint32_t pd_index = (va >> 22) & 0x3FF;
-    uint32_t pt_index = (va >> 12) & 0x3FF;
-
-    uint32_t pde = page_directory[pd_index];
-    if (!(pde & 1)) {
-        // no page table present
-        return;
-    }
-
-    uint32_t pt_pa = pde & 0xFFFFF000;
-    uint32_t *pt = (uint32_t *)phys_to_virt(pt_pa); // use your phys_to_virt
-
-    pt[pt_index] = 0; // clear PTE
-
-    // Invalidate TLB for this VA
-    __asm__ volatile("invlpg (%0)" :: "r"((void*)va) : "memory");
-}
-
-/* map_region: map [va, va+len) to consecutive physical frames starting at pa_start
- * len must be multiple of PAGE_SIZE (caller responsibility if convenient)
- */
-int map_region(uint32_t *pd_phys_ptr, uint32_t va, uint32_t pa_start, uint32_t len, uint32_t flags) {
-    if (!pd_phys_ptr) return -1;
-    if (va & (PAGE_SIZE - 1)) return -1; /* require page aligned VA */
-    uint32_t pages = (len + PAGE_SIZE - 1) / PAGE_SIZE;
-    uint32_t cur_va = va;
-    uint32_t cur_pa = pa_start;
-    for (uint32_t i = 0; i < pages; ++i) {
-        if (map_page(pd_phys_ptr, cur_va, cur_pa, flags) != 0) {
-            log_info("paging", "map_region: map_page fail at va=0x%08x\n", cur_va);
-            return -1;
-        }
-        cur_va += PAGE_SIZE;
-        cur_pa += PAGE_SIZE;
-    }
-    return 0;
-}
-
-void clone_kernel_mappings(uint32_t *user_pd)
-{
-    // kernel usually mapped in high 1GB: 0xC0000000+
-    for (uint32_t i = 768; i < 1024; i++)
-    {
-        user_pd[i] = kernel_page_directory[i];
-    }
-}
+extern void write_cr3(uint64_t pa);
+extern void enter_user_mode(Process *p);
 
 void enter_user_mode_from_process(Process *p)
 {
     if (!p || !p->page_directory) {
-        // log_error("EXEC", "enter_user_mode: invalid process or missing page_directory");
-        return;
-
-    }
-
-    uint32_t pd_phys = p->cr3;
-
-    if (!pd_phys) {
-        log_error("EXEC", "enter_user_mode: virt_to_phys failed");
+        log_error("EXEC", "enter_user_mode: invalid process or missing page_directory");
         return;
     }
 
-    // log_info("EXEC", "enter_user_mode_from_process write_cr3, pd_phys = %p", pd_phys);
+    uint64_t pml4_pa = p->cr3;
+    if (!pml4_pa) {
+        log_error("EXEC", "enter_user_mode: missing cr3");
+        return;
+    }
 
-    uint32_t k_esp; 
-    __asm__ volatile("mov %%esp, %0" : "=r"(k_esp));
-    log_info("EXEC", "Before write_cr3: ESP=0x%x, EIP(entry)=0x%x, pd_phys=0x%x", k_esp, p->regs.eip, pd_phys);
+    uint64_t k_rsp;
+    __asm__ volatile("mov %%rsp, %0" : "=r"(k_rsp));
 
-    /* Switch to process page directory */
-    write_cr3(pd_phys);
+    log_info("EXEC", "Before write_cr3: RSP=0x%llx, RIP(entry)=0x%llx, cr3=0x%llx",
+            k_rsp, (uint64_t)p->regs.rip, pml4_pa);
 
-    log_info("EXEC", "enter_user_mode_from_process After write_cr3");
+    write_cr3(pml4_pa);
+
+    log_info("EXEC", "enter_user_mode_from_process: after write_cr3, jumping to user");
 
     enter_user_mode(p);
 
-    // /*
-    //  * Load user data selectors while still in ring 0.
-    //  * SS MUST NOT be loaded here — it must be loaded by IRET.
-    //  */
-    // __asm__ volatile (
-    //     "movw %[udsel], %%ax\n\t"
-    //     "movw %%ax, %%ds\n\t"
-    //     "movw %%ax, %%es\n\t"
-    //     "movw %%ax, %%fs\n\t"
-    //     "movw %%ax, %%gs\n\t"
-    //     :
-    //     : [udsel] "i" (USER_DS)
-    //     : "ax", "memory"
-    // );
 
-    // log_info("EXEC", "enter_user_mode_from_process switching to user mode");
-
-    // /*
-    //  * Build a *safe* EFLAGS value for ring 3.
-    //  * We MUST NOT reuse kernel EFLAGS directly.
-    //  */
-    // uint32_t user_eflags;
-    // __asm__ volatile (
-    //     "pushf\n\t"
-    //     "pop %0\n\t"
-    //     : "=r"(user_eflags)
-    // );
-
-    // /* Enable interrupts in user mode */
-    // user_eflags |= (1 << 9);        /* IF = 1 */
-
-    // /* Clear IOPL (must be 0 for ring 3) */
-    // user_eflags &= ~(3 << 12);      /* IOPL = 0 */
-
-    // /*
-    //  * Now switch to user mode using IRET.
-    //  * Stack frame layout (top → bottom):
-    //  *   SS
-    //  *   ESP
-    //  *   EFLAGS
-    //  *   CS
-    //  *   EIP
-    //  */
-    // __asm__ volatile (
-    //     "cli\n\t"                         /* no interrupts during transition */
-    //     "pushl %[udsel]\n\t"             /* SS */
-    //     "pushl %[esp]\n\t"               /* ESP */
-    //     "pushl %[eflags]\n\t"            /* sanitized EFLAGS */
-    //     "pushl %[ucsel]\n\t"             /* CS */
-    //     "pushl %[eip]\n\t"               /* EIP */
-    //     "iret\n\t"
-    //     :
-    //     : [udsel]  "r" ((uint32_t)USER_DS),
-    //       [esp]    "r" ((uint32_t)p->regs.esp),
-    //       [eflags] "r" (user_eflags),
-    //       [ucsel]  "r" ((uint32_t)USER_CS),
-    //       [eip]    "r" ((uint32_t)p->regs.eip)
-    //     : "memory"
-    // );
-
-    /* We should NEVER reach here */
-    log_critical("EXEC", "enter_user_mode: iret returned unexpectedly");
+    log_critical("EXEC", "enter_user_mode: returned unexpectedly from user mode");
     for (;;);
 }
+
+
+// ----------------------------------------------------------------------
+// Clone kernel mappings (for compatibility with existing exec_elf_mem)
+// ----------------------------------------------------------------------
+
+// void clone_kernel_mappings(uint64_t *user_pml4)
+// {
+//     // For compatibility with your existing call in exec_elf_mem, we’ll ensure
+//     // kernel higher-half entries are present. If create_user_pd already did this,
+//     // this is effectively a no-op.
+//     for (uint64_t i = KERNEL_PML4_INDEX; i < 512; i++) {
+//         user_pml4[i] = kernel_pml4_virt[i];
+//     }
+// }
+
+
+
+// // ----------------------------------------------------------------------
+// // map_region – helper used by your ELF loader
+// // ----------------------------------------------------------------------
+
+// int map_region(uint64_t *pml4, uint64_t va, uint64_t pa_start, uint64_t len, uint64_t flags)
+// {
+//     if (!pml4) return -1;
+//     if (va & (PAGE_SIZE - 1)) return -1;
+
+//     uint64_t pages = (len + PAGE_SIZE - 1) / PAGE_SIZE;
+//     uint64_t cur_va = va;
+//     uint64_t cur_pa = pa_start;
+
+//     for (uint64_t i = 0; i < pages; i++) {
+//         if (map_page(pml4, cur_va, cur_pa, flags) != 0) {
+//             log_error("Paging", "map_region: map_page failed at VA=0x%llx", cur_va);
+//             return -1;
+//         }
+//         cur_va += PAGE_SIZE;
+//         cur_pa += PAGE_SIZE;
+//     }
+//     return 0;
+// }
+

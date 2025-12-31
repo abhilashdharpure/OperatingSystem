@@ -12,6 +12,9 @@ void x64_IRQ_Initialize(void);
 /* Register a handler for a specific IRQ line */
 void x64_IRQ_RegisterHandler(int irq, IRQHandler handler);
 
+void x64_IRQ_Unmask(int irq);
+
+
 /* Send EOI to PIC/APIC */
 void x64_IRQ_SendEndOfInterupt(int irq);
 

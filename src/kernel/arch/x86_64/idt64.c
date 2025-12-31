@@ -2,6 +2,7 @@
 #include "idt64.h"
 #include "debug.h"
 #include "arch/x86_64/serial.h"
+#include "arch/x86_64/irq.h"
 #include <util/binary.h>
 
 #define IDT64_ENTRIES 256
@@ -30,20 +31,6 @@ void x64_IDT_SetGate(int interrupt, void* base, uint16_t segmentSelector, uint8_
     g_IDT64[interrupt].Reserved  = 0;
 }
 
-// void dump_syscall_idt_entry(void)
-// {
-//     log_info("SYSCALL", "IDT[0x80].Flags=0x%02x BaseLo=0x%04x BaseHi=0x%04x",
-//              g_IDT[0x80].Flags,
-//              g_IDT[0x80].BaseLow,
-//              g_IDT[0x80].BaseHigh);
-
-//     uint32_t idt_addr = g_IDT[0x80].BaseLow | (g_IDT[0x80].BaseHigh << 16);
-//     log_info("SYSCALL", "IDT[0x80] addr = 0x%x flags=0x%x", idt_addr, g_IDT[0x80].Flags);
-
-//     uint32_t isr_addr = (uint32_t)i686_ISR128;
-//     log_info("SYSCALL", "symbol i686_ISR128 = 0x%x", isr_addr);
-// }
-
 void x64_IDT_Initialize(void)
 {
     // Clear all entries
@@ -61,6 +48,11 @@ void x64_IDT_Initialize(void)
     // For now, route CPU exceptions 0..31 to a single common stub
     uint8_t flags = IDT_FLAG_PRESENT | IDT_FLAG_RING0 | IDT_FLAG_GATE_32BIT_INT; // 0x80 | 0x00 | 0xE = 0x8E
     for (int vec = 0; vec < 32; ++vec)
+    {
+        x64_IDT_SetGate(vec, x64_isr_common, 0x08, flags, 0);
+    }
+
+    for (int vec = PIC_REMAP_OFFSET; vec < PIC_REMAP_OFFSET + 16; ++vec)
     {
         x64_IDT_SetGate(vec, x64_isr_common, 0x08, flags, 0);
     }

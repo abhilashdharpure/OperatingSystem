@@ -19,4 +19,4 @@ void pmm_init(MemoryInfo* mem);
 void pmm_mark_all_used(void);
 int pmm_free_page(uintptr_t addr);
 void pmm_reserve_region(uintptr_t base, uintptr_t size);
-uintptr_t pmm_alloc_page(void);
+uint64_t pmm_alloc_page(void);

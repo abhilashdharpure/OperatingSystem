@@ -14,6 +14,9 @@
 // #define MEM_USABLE 1
 /* kernel is mapped at 0xC0000000 */
 #define KERNEL_VIRT_OFFSET 0xC0000000
+#define PMM_FREE_START   0x00100000ULL   // 1 MiB
+#define PMM_MAX_IDENTITY 0x01000000ULL   // 16 MiB
+
 
 typedef struct free_page {
     uint32_t next_pa; // physical address of next
@@ -36,10 +39,6 @@ static size_t free_count = 0;
 static uint8_t bitmap[MAX_PAGES / 8];
 
 /* helpers */
-// static inline uint32_t align_up(uint32_t v)   { return (v + PAGE_SIZE - 1) & ~(PAGE_SIZE-1); }
-// static inline uint32_t align_down(uint32_t v) { return v & ~(PAGE_SIZE-1); }
-
-/* helpers */
 static inline uintptr_t align_up(uintptr_t v)
 {
     return (v + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
@@ -52,43 +51,40 @@ static inline uintptr_t align_down(uintptr_t v)
 
 void pmm_init(MemoryInfo *mem)
 {
-    pmm_mark_all_used();
+    free_count = 0;  // ← reset completely
 
-    // log_info("PMM", "mem->RegionCount = %u", mem->RegionCount);
-
-    /* 1) Free all usable RAM */
-    for (uint32_t i = 0; i < mem->RegionCount; i++)
-    {
+    for (uint32_t i = 0; i < mem->RegionCount; i++) {
         MemoryRegion *r = &mem->Regions[i];
-
         if (r->Type != MEM_USABLE)
-        {
             continue;
-        }
 
         uintptr_t start = align_up(r->Begin);
         uintptr_t end   = align_down(r->Begin + r->Length);
-        // log_info("PMM", "Stack page: start = %u, end = %u", start, end);
+
+        if (start < PMM_FREE_START)
+            start = PMM_FREE_START;
+        if (end > PMM_MAX_IDENTITY)
+            end = PMM_MAX_IDENTITY;
+
+        if (start >= end)
+            continue;
 
         for (uintptr_t pa = start; pa < end; pa += PAGE_SIZE)
-        {
             pmm_free_page(pa);
-        }
     }
 
-    /* 2) Reserve first 1MB (BIOS, DMA, bootloader) */
-    pmm_reserve_region(0, 0x100000);
-
-    /* 3) Reserve kernel image (convert VA → PA!) */
+    // Optionally reserve kernel range if KERNEL_VIRT_OFFSET is accurate
     uintptr_t kernel_phys_start =
         (uintptr_t)&_kernel_start - KERNEL_VIRT_OFFSET;
     uintptr_t kernel_phys_end =
-        (uintptr_t)&_kernel_end - KERNEL_VIRT_OFFSET;
+        (uintptr_t)&_kernel_end   - KERNEL_VIRT_OFFSET;
 
     pmm_reserve_region(kernel_phys_start,
                        kernel_phys_end - kernel_phys_start);
 
-    // log_info("PMM", "Initialized, free pages=%u", free_count);
+    log_info("PMM", "free_count=%u (pages), approx %u KiB",
+             (unsigned)free_count,
+             (unsigned)(free_count * 4));
 }
 
 void pmm_mark_all_used(void) {
@@ -103,19 +99,50 @@ int pmm_free_page(uintptr_t phys)
     // log_info("PMM", "PMM Stack[%d] = 0x%x", free_count, phys);
 
     freelist[free_count++] = phys;
+
+    // log_debug("PMM", "free page: pa=0x%llx free_count(before)=%u",
+    //       (unsigned long long)phys,
+    //       (unsigned)free_count);
+
     return 0;
 }
 
-uintptr_t pmm_alloc_page(void)
+uint64_t pmm_alloc_page(void)
 {
-    if (free_count == 0)
-    {
+    if (free_count == 0) {
         log_info("PMM", "out of pages!");
         return 0;
     }
 
-    return freelist[--free_count];
+    uintptr_t pa = freelist[free_count - 1];
+
+    if ((pa & (PAGE_SIZE - 1)) != 0 ||
+        pa < PMM_FREE_START ||
+        pa >= PMM_MAX_IDENTITY)
+    {
+        log_critical("PMM",
+            "CORRUPT freelist[%u] = 0x%x (free_count=%u)",
+            (unsigned)(free_count - 1),
+            (uint32_t)pa,
+            (unsigned)free_count);
+
+        // dump a window
+        for (int i = -4; i <= 4; i++) {
+            int idx = (int)free_count - 1 + i;
+            if (idx < 0 || (size_t)idx >= free_count) continue;
+            log_critical("PMM",
+                "  freelist[%d] = 0x%x",
+                idx,
+                (uint32_t)freelist[idx]);
+        }
+
+        panic("PMM freelist corrupted");
+    }
+
+    free_count--;
+    return (uint64_t)pa;
 }
+
 
 void pmm_reserve_region(uintptr_t start, uintptr_t length)
 {

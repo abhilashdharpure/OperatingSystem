@@ -2,17 +2,17 @@
 
 import os
 
-TOOLCHAIN = "../../toolchain/i686-elf/bin"
-CC = os.path.join(TOOLCHAIN, "i686-elf-gcc")
-AS = os.path.join(TOOLCHAIN, "i686-elf-as")
-LD = os.path.join(TOOLCHAIN, "i686-elf-ld")
+TOOLCHAIN = "../../toolchain/x86_64-elf/bin"
+CC = os.path.join(TOOLCHAIN, "x86_64-elf-gcc")
+AS = os.path.join(TOOLCHAIN, "x86_64-elf-as")
+LD = os.path.join(TOOLCHAIN, "x86_64-elf-ld")
 
 env = Environment(
     CC=CC,
     AS=AS,
     LD=LD,
-    CFLAGS="-m32 -ffreestanding -nostdlib -fno-pie -fno-stack-protector -Wall -Wextra -Ilibc/include",
-    LINKFLAGS="-nostdlib -Wl,-m,elf_i386"
+    CFLAGS="-m64 -ffreestanding -nostdlib -fno-pie -fno-stack-protector -Wall -Wextra -Ilibc/include",
+    LINKFLAGS="-nostdlib -Wl,-m,elf_x86_64"
 )
 
 # Build libc first
@@ -21,63 +21,3 @@ SConscript("libc/SConscript", exports="env")
 # Build user programs
 SConscript("bin/init/SConscript", exports="env")
 SConscript("bin/test/SConscript", exports="env")
-
-
-# # SConstruct - minimal user-space build for /bin/init
-# import os
-
-# # Toolchain paths
-# TOOLCHAIN = "../../toolchain/i686-elf/bin"
-# CC = os.path.join(TOOLCHAIN, "i686-elf-gcc")
-# LD = os.path.join(TOOLCHAIN, "i686-elf-ld")
-# OBJCOPY = os.path.join(TOOLCHAIN, "i686-elf-objcopy")
-
-# # Source and build dirs
-# SRC = "src"
-# BUILD_DIR = "build/user"
-# os.makedirs(BUILD_DIR, exist_ok=True)
-
-# # Source files
-# SOURCE_C = os.path.join(SRC, "main.c")
-# SOURCE_ASM = os.path.join(SRC, "user_syscall.asm")
-
-# # Output files
-# OBJECT_C = os.path.join(BUILD_DIR, "main.o")
-# OBJECT_ASM = os.path.join(BUILD_DIR, "user_syscall.o")
-# ELF_FILE = os.path.join(BUILD_DIR, "init")
-# # BIN_FILE = os.path.join(BUILD_DIR, "init")
-
-# # Compiler flags
-# CFLAGS = "-m32 -ffreestanding -nostdlib -fno-pie -fno-stack-protector -Wall -Wextra"
-
-# # Linker script or direct entry base
-# USER_BASE = "0x08048000"  # <-- User-space base address
-# LINKER_SCRIPT = os.path.join(SRC, "link.ld")  # optional, can still use your linker script
-
-# env = Environment()
-
-# # Compile main.c -> main.o
-# main_obj = env.Command(
-#     OBJECT_C,
-#     SOURCE_C,
-#     f"{CC} {CFLAGS} -c $SOURCE -o $TARGET"
-# )
-
-# # Assemble user_syscall.asm -> user_syscall.o
-# asm_obj = env.Command(
-#     OBJECT_ASM,
-#     SOURCE_ASM,
-#     f"nasm -f elf32 -o $TARGET $SOURCE"
-# )
-
-# # Link ELF at fixed user-space base
-# elf = env.Command(
-#     ELF_FILE,
-#     [main_obj, asm_obj],
-#     f"{LD} -m elf_i386 -Ttext={USER_BASE} -o $TARGET $SOURCES"
-# )
-
-# # Default target
-# Default(elf)
-
-# print(f"Build complete. User ELF -> {elf}")
