@@ -14,6 +14,8 @@ typedef struct {
 #define PAGE_RW        (1ULL << 1)
 #define PAGE_USER      (1ULL << 2)
 
+void debug_dump_va_mapping(uint64_t *pml4, uint64_t va);
+
 // Core mapping functions (64-bit)
 int      map_page(uint64_t *pml4, uint64_t va, uint64_t pa, uint64_t flags);
 // void     unmap_page(uint64_t *pml4, uint64_t va);

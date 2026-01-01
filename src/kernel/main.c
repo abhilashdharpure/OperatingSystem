@@ -26,6 +26,7 @@
 #include <hal/elf.h>
 #include <hal/process.h>
 #include <hal/scheduler.h>
+#include <paging.h>
 
 #include "hal/block.h"
 #include "hal/fat32.h"
@@ -45,6 +46,8 @@ static VbeModeInfo  g_fbInfo;
 #define MAX_MEMORY_REGIONS 64
 static MemoryRegion g_memoryRegions[MAX_MEMORY_REGIONS];
 
+// FOr Framebuffer
+#define KERNEL_FB_VA 0xFFFFFFFFC0000000ULL
 
 void start(BootParams* bootParams, VbeModeInfo* fb_info);
 
@@ -79,6 +82,32 @@ void test_read_sector0(block_device_t *disk) {
     log_debug("TEST", "MBR signature: 0x%02x 0x%02x", buffer[510], buffer[511]);
 }
 
+// extern uint64_t *kernel_pml4_phys; 
+// void map_framebuffer(VbeModeInfo* fb)
+// {
+//     uint64_t pa = (uint64_t)fb->framebuffer;
+//     uint64_t size = fb->pitch * fb->height;
+//     uint64_t pages = (size + 0xFFF) / 0x1000;
+
+//     for (uint64_t i = 0; i < pages; i++)
+//     {
+//         // map_page(KERNEL_FB_VA + i*0x1000,
+//         //          pa + i*0x1000,
+//         //          PAGE_PRESENT | PAGE_WRITABLE);
+
+//         // map_page(KERNEL_FB_VA + i*0x1000,
+//         //  pa + i*0x1000,
+//         //  PAGE_PRESENT | PAGE_RW);
+
+//           map_page(kernel_pml4_phys, KERNEL_FB_VA + i*0x1000, pa + i*0x1000, PAGE_PRESENT | PAGE_RW);
+//     }
+
+//     fb->framebuffer = (uint32_t*)KERNEL_FB_VA;
+// }
+
+// #define KERNEL_FB_VA 0xFFFFFFFFC0000000ULL   // choose a free kernel VA range
+
+
 void init_filesystem(void)
 {
     log_debug("Main", "init_filesystem start");
@@ -105,8 +134,6 @@ void init_filesystem(void)
 void start_userspace(BootParams* bootParams)
 {
     log_info("Main", "calling start_userspace");
-
-    __asm__ volatile("sti");
 
     uint32_t part_lba = 0;
 
@@ -198,7 +225,7 @@ void parse_multiboot2_framebuffer(multiboot2_info_t* mbi, VbeModeInfo* fb)
             multiboot2_fb_tag_t* mfb =
                 (multiboot2_fb_tag_t*)tag;
 
-            fb->framebuffer = (uint32_t*)(uintptr_t)mfb->addr;
+            fb->framebuffer = (uintptr_t)mfb->addr;
             fb->width   = mfb->width;
             fb->height  = mfb->height;
             fb->pitch   = mfb->pitch;
@@ -223,6 +250,29 @@ void parse_multiboot2_framebuffer(multiboot2_info_t* mbi, VbeModeInfo* fb)
     }
 }
 
+extern uint64_t *kernel_pml4_virt;
+
+void map_framebuffer(VbeModeInfo* fb)
+{
+    uint64_t pa    = (uint64_t)fb->framebuffer;        // physical from GRUB
+    uint64_t size  = fb->pitch * fb->height;           // bytes
+    uint64_t pages = (size + 0xFFF) / 0x1000;          // round up
+
+    for (uint64_t i = 0; i < pages; i++)
+    {
+        uint64_t va   = KERNEL_FB_VA + i * 0x1000;
+        uint64_t pa_i = pa + i * 0x1000;
+
+        int r = map_page(kernel_pml4_virt, va, pa_i, PAGE_PRESENT | PAGE_RW);
+        if (r != 0) {
+            log_critical("FB", "map_page failed: va=%llx pa=%llx err=%d", va, pa_i, r);
+            break;
+        }
+    }
+
+    fb->framebuffer = (uintptr_t)KERNEL_FB_VA;
+}
+
 void early_kernel_main(void* multiboot_info)
 {
     log_info("Boot", "early_kernel_main entered");
@@ -237,6 +287,8 @@ void early_kernel_main(void* multiboot_info)
 
     parse_multiboot2_memory_map(mbi, &g_bootParams);
     parse_multiboot2_framebuffer(mbi, &g_fbInfo);
+
+    log_info("Boot", "after parse_multiboot2_framebuffer");
 
     g_bootParams.BootDevice = 0; // GRUB does not provide this
 
@@ -270,12 +322,11 @@ void start(BootParams* bootParams, VbeModeInfo* fb_info)
     init_filesystem();
     log_info("Main", "Kernel After init_filesystem");
 
-    // enable_interrupts();
+    map_framebuffer(&g_fbInfo);
+    log_info("Boot", "after map_framebuffer");
 
-    // __asm__ volatile("sti");
-    log_info("HAL", "Interrupts enabled");
+    debug_dump_va_mapping(kernel_pml4_virt, KERNEL_FB_VA);
 
-    // initialize framebuffer
     fb_init(fb_info);
     gfx_init();            // initialize graphics layer
 
@@ -284,6 +335,12 @@ void start(BootParams* bootParams, VbeModeInfo* fb_info)
 
     gfx_clear(COLOR_BLACK);              // clear screen
 end:
+
+    // Enable Interrupts
+    __asm__ volatile("sti");
+    log_info("HAL", "Interrupts enabled");
+
+    // // test_mouse_keyboard_read();
     // compositor_init();
     // // Launch compositor
     // compositor_main();  // infinite loop
@@ -296,96 +353,3 @@ end:
 
     for (;;);
 }
-
-
-
-// void start(BootParams* bootParams, VbeModeInfo* fb_info)
-// {   
-//     log_info("Main", "Kernel Started");
-//     pmm_init(&bootParams->Memory);
-
-//     for (int i = 0; i < bootParams->Memory.RegionCount; i++) 
-//     {
-//         log_info("Main", "MEM: start=0x%llx length=0x%llx type=%x", 
-//             bootParams->Memory.Regions[i].Begin,
-//             bootParams->Memory.Regions[i].Length,
-//             bootParams->Memory.Regions[i].Type);
-//     }
-
-//     // log_info("Main", "Kernel before paging_bootstrap_identity");
-//     // paging_bootstrap_identity(); // sets up kernel_page_directory
-//     // log_info("Main", "Kernel after paging_bootstrap_identity");
-
-//     // for (uintptr_t pa = 0; pa < 32 * 1024 * 1024; pa += PAGE_SIZE)
-//     // {
-//     //     map_identity_page(kernel_page_directory, pa);
-//     // }
-
-//     // uintptr_t stack_top_aligned = (uintptr_t)&_kernel_stack_top;
-//     // stack_top_aligned = (stack_top_aligned + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
-
-//     // __asm__ volatile(
-//     //     "mov %0, %%rsp\n"
-//     //     :
-//     //     : "r"(stack_top_aligned)
-//     //     : "memory"
-//     // );
-//     // log_info("Main", "Kernel before map_identity_page");
-
-
-//     // // map_vga
-//     // for (uintptr_t pa = VGA_PHYS; pa < VGA_PHYS + 0x1000; pa += PAGE_SIZE)
-//     // {
-//     //     map_identity_page(kernel_page_directory, pa);
-//     // }
-
-//     // log_info("Main", "Kernel before write_cr3");
-
-//     // // load page directory and enable paging
-//     // write_cr3(kernel_page_directory_phys);
-
-//     // log_info("Main", "Kernel before enable_paging");
-
-//     // enable_paging();
-
-//     // log_info("Main", "Kernel before paging_map_high_half_kernel");
-
-//     // paging_map_high_half_kernel(); // map high-half
-
-//     // _init();         // global constructors
-//     HAL_Initialize();
-
-//     log_info("Main", "Kernel After HAL intialized");
-
-//     init_filesystem();
-//     log_info("Main", "Kernel After init_filesystem");
-
-//     // log_info("Main", "This is an info msg!");
-//     // log_warning("Main", "This is a warning msg!");
-//     // log_error("Main", "This is an error msg!");
-//     // log_critical("Main", "This is a critical msg!");
-//     // printf("Welcome to One OS v0.1\n");
-//     // printf("This operating system is under construction.\n");
-
-
-//     // initialize framebuffer
-//     fb_init(fb_info);
-//     gfx_init();            // initialize graphics layer
-
-//     log_info("MAIN", "Framebuffer ready: %ux%u", fb_dev.width, fb_dev.height);
-
-
-//     gfx_clear(COLOR_BLACK);              // clear screen
-// end:
-//     // compositor_init();
-//     // // Launch compositor
-//     // compositor_main();  // infinite loop
-
-//     log_info("Main", "Starting start_userspace!");
-//     start_userspace(bootParams);
-
-//     // should never come here
-//     log_critical("Main", "CRITICAL ERROR: User Space not started!");
-
-//     for (;;);
-// }

@@ -47,6 +47,40 @@ static inline uint64_t virt_to_phys(void *va)
     return (uint64_t)(uintptr_t)va;
 }
 
+void debug_dump_va_mapping(uint64_t *pml4, uint64_t va)
+{
+    uint64_t pml4_i = PML4_INDEX(va);
+    uint64_t pdpt_i = PDP_INDEX(va);
+    uint64_t pd_i   = PD_INDEX(va);
+    uint64_t pt_i   = PT_INDEX(va);
+
+    uint64_t pml4e = pml4[pml4_i];
+    log_info("PGDBG", "VA=%llx PML4[%llu]=%llx", va, pml4_i, pml4e);
+    if (!(pml4e & PAGE_PRESENT)) return;
+
+    uint64_t *pdpt = (uint64_t*)(pml4e & ~0xFFFULL);
+    uint64_t pdpte = pdpt[pdpt_i];
+    log_info("PGDBG", "  PDPT[%llu]=%llx", pdpt_i, pdpte);
+    if (!(pdpte & PAGE_PRESENT)) return;
+    if (pdpte & PAGE_PS) {
+        log_info("PGDBG", "  1GB page: base_pa=%llx", pdpte & ~0x3FFFFFFFULL);
+        return;
+    }
+
+    uint64_t *pd = (uint64_t*)(pdpte & ~0xFFFULL);
+    uint64_t pde = pd[pd_i];
+    log_info("PGDBG", "  PD[%llu]=%llx", pd_i, pde);
+    if (!(pde & PAGE_PRESENT)) return;
+    if (pde & PAGE_PS) {
+        log_info("PGDBG", "  2MB page: base_pa=%llx", pde & ~0x1FFFFFULL);
+        return;
+    }
+
+    uint64_t *pt = (uint64_t*)(pde & ~0xFFFULL);
+    uint64_t pte = pt[pt_i];
+    log_info("PGDBG", "  PT[%llu]=%llx", pt_i, pte);
+}
+
 // ----------------------------------------------------------------------
 // PML4 walking helpers
 // ----------------------------------------------------------------------

@@ -202,6 +202,12 @@ def build_grub_iso(target, source, env):
     # copy kernel
     shutil.copy2(kernel, bootdir / 'kernel.elf')
 
+    fontdir = grubdir / 'fonts'
+    os.makedirs(fontdir, exist_ok=True) 
+    
+    # Copy GRUB's default font
+    shutil.copy2('/usr/share/grub/unicode.pf2', fontdir / 'unicode.pf2')
+
     # copy /bin/init from your image/root/bin/init
     init_path = Path('image/root/bin/init')
     if init_path.exists():
@@ -214,8 +220,20 @@ def build_grub_iso(target, source, env):
     grub_cfg.write_text(
         """set timeout=2
 set default=0
-set gfxpayload=text
+#set gfxpayload=text
 terminal_output console
+
+# Enable GRUB graphics
+insmod gfxterm
+insmod vbe
+insmod video_bochs
+insmod video_cirrus
+
+loadfont /boot/grub/fonts/unicode.pf2
+terminal_output gfxterm
+
+set gfxmode=1024x768x32
+set gfxpayload=1024x768x32
 
 menuentry "NBOS x86_64" {
     echo "Loading NBOS kernel..."
