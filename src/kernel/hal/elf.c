@@ -13,7 +13,7 @@
 // #define ELF_MAGIC3 'F'
 // #define PAGE_SIZE  4096
 
-#define USER_STACK_TOP  0x080FF000U
+// #define USER_STACK_TOP  0x080FF000U
 #define USER_STACK_SIZE 0x00010000U  // 64 KB
 
 #define PT_LOAD 1
@@ -27,7 +27,6 @@ pid_t exec_elf_mem(void *data, size_t size, BootParams* bootParams)
     (void)size;
 
     log_info("EXEC", "exec_elf_mem start");
-
     Elf64_Ehdr *eh = (Elf64_Ehdr*)data;
 
     // Basic sanity: 64-bit ELF, executable
@@ -94,9 +93,15 @@ pid_t exec_elf_mem(void *data, size_t size, BootParams* bootParams)
     log_info("ELF", "Selected User Region: start=0x%llx length=0x%llx type=%x",
              user_region->Begin, user_region->Length, user_region->Type);
 
-    // Stack: keep using low canonical region for now
-    uint64_t stack_top    = 0x0000000001FE0000ULL;
+    // // Stack: keep using low canonical region for now
+    // uint64_t stack_top    = 0x0000000001FE0000ULL;
+    // uint64_t stack_bottom = stack_top - USER_STACK_SIZE;
+
+    const uint64_t USER_BASE      = 0x0000000040000000ULL; // example
+    const uint64_t USER_STACK_TOP = USER_BASE + 0x100000ULL; // 1 MiB above base, or wherever
+    uint64_t stack_top    = USER_STACK_TOP;
     uint64_t stack_bottom = stack_top - USER_STACK_SIZE;
+
 
     log_info("ELF", "Stack Top == 0x%llx stack_bottom=0x%llx",
              stack_top, stack_bottom);

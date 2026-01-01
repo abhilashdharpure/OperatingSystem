@@ -51,7 +51,13 @@ void x64_ISR_Handler(ISRFrame64* r)
         return;
     }
 
-    log_error("ISR64", "x64_ISR_Handler Interupt r->vector = %u", r->vector);
+    // Temporary skiping PIT
+    if (r->vector != 32)
+    {
+        log_error("ISR64", "x64_ISR_Handler Interupt r->vector = %u", r->vector);
+    }
+
+
     if (r->vector < 32)
     {
         if (r->vector == 14)

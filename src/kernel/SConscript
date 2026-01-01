@@ -16,6 +16,7 @@ env.Append(
         '-Wl,-T', env.File('linker.ld').srcnode().path,
         '-Wl,-Map=' + env.File('kernel.map').path,
         '-Wl,-z,max-page-size=0x1000',
+        '-Wl,--no-relax',          # disable relaxation for high-half kernel
     ],
     CPPPATH=[
         env.Dir('.').srcnode(),
@@ -28,16 +29,6 @@ env.Append(
 # -------------------------------------------------------
 all_c_cpp = GlobRecursive(env, '*.c') + GlobRecursive(env, '*.cpp')
 all_asm   = GlobRecursive(env, '*.asm')
-
-# # --- Flatten all_asm because GlobRecursive may return nested lists ---
-# flat_asm = []
-# for item in all_asm:
-#     if isinstance(item, list):
-#         flat_asm.extend(item)
-#     else:
-#         flat_asm.append(item)
-# all_asm = flat_asm
-
 
 # -------------------------------------------------------
 # Split ASM: 32-bit stub vs 64-bit kernel
@@ -61,34 +52,26 @@ else:
     # i686: all ASM is 32-bit
     asm32_sources = all_asm
 
-
-# asm32_sources = []
-# asm64_sources = []
-
-# if arch == 'x86_64':
-#     for src in all_asm:
-#         path = src.srcnode().path
-#         print("ASM file:", path)
-
-#         base = os.path.basename(path)
-#         if base in ("boot32.asm", "multiboot_header.asm"):
-#             print(" -> 32-bit ASM")
-#             asm32_sources.append(src)
-#         else:
-#             print(" -> 64-bit ASM")
-#             asm64_sources.append(src)
-# else:
-#     asm32_sources = all_asm
-
-
 # -------------------------------------------------------
 # Build C/C++ (64-bit for x86_64, 32-bit for i686)
 # -------------------------------------------------------
 if arch == 'x86_64':
-    env.Append(CCFLAGS=['-m64', '-ffreestanding', '-fno-pic', '-fno-plt',
-                        '-mno-red-zone', '-mcmodel=kernel'])
+    env.Append(CCFLAGS=[
+        '-m64',
+        '-ffreestanding',
+        '-fno-pic',
+        '-fno-pie',
+        '-fno-plt',
+        '-mno-red-zone',
+        '-mcmodel=large',   # IMPORTANT: large model for 0xFFFF8000... base
+    ])
 else:
-    env.Append(CCFLAGS=['-m32', '-ffreestanding'])
+    env.Append(CCFLAGS=[
+        '-m32',
+        '-ffreestanding',
+        '-fno-pic',
+        '-fno-pie',
+    ])
 
 c_objects = env.Object(all_c_cpp)
 

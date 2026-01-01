@@ -73,14 +73,24 @@ void pmm_init(MemoryInfo *mem)
             pmm_free_page(pa);
     }
 
-    // Optionally reserve kernel range if KERNEL_VIRT_OFFSET is accurate
-    uintptr_t kernel_phys_start =
-        (uintptr_t)&_kernel_start - KERNEL_VIRT_OFFSET;
-    uintptr_t kernel_phys_end =
-        (uintptr_t)&_kernel_end   - KERNEL_VIRT_OFFSET;
+    // // Optionally reserve kernel range if KERNEL_VIRT_OFFSET is accurate
+    // uintptr_t kernel_phys_start =
+    //     (uintptr_t)&_kernel_start - KERNEL_VIRT_OFFSET;
+    // uintptr_t kernel_phys_end =
+    //     (uintptr_t)&_kernel_end   - KERNEL_VIRT_OFFSET;
+
+    // For current identity-mapped kernel: VA == PA for kernel image and low memory.
+    // No virtual offset – physical = virtual for kernel sections.
+    uintptr_t kernel_phys_start = (uintptr_t)&_kernel_start;
+    uintptr_t kernel_phys_end   = (uintptr_t)&_kernel_end;
 
     pmm_reserve_region(kernel_phys_start,
-                       kernel_phys_end - kernel_phys_start);
+                    kernel_phys_end - kernel_phys_start);
+
+    log_info("PMM", "Reserving kernel region: [0x%llx, 0x%llx)",
+            (unsigned long long)kernel_phys_start,
+            (unsigned long long)kernel_phys_end);
+
 
     log_info("PMM", "free_count=%u (pages), approx %u KiB",
              (unsigned)free_count,
@@ -115,7 +125,7 @@ uint64_t pmm_alloc_page(void)
     }
 
     uintptr_t pa = freelist[free_count - 1];
-
+    log_info("PMM", "alloc_page -> 0x%llx", (unsigned long long)pa);
     if ((pa & (PAGE_SIZE - 1)) != 0 ||
         pa < PMM_FREE_START ||
         pa >= PMM_MAX_IDENTITY)

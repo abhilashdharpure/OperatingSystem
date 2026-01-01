@@ -10,3 +10,11 @@ static inline uint64_t read_cr3(void)
     __asm__ volatile("mov %%cr3, %0" : "=r"(val));
     return val;
 }
+
+static inline void cli(void) {
+    __asm__ volatile ("cli");
+}
+
+static inline void sti(void) {
+    __asm__ volatile ("sti");
+}

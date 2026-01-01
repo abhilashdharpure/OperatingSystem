@@ -178,6 +178,8 @@ void start_userspace(BootParams* bootParams)
 {
     log_debug("Main", "calling start_userspace");
 
+    __asm__ volatile("sti");
+
     // // ensure partition device is registered
     // if (!register_first_fat32_partition())
     // {
@@ -214,6 +216,7 @@ void start_userspace(BootParams* bootParams)
     VFS_Close(fd);
     log_debug("Main", "vfs close");
 
+    
     // Hand off to ELF loader
     pid_t pid = exec_elf_mem(mf->data, mf->size, bootParams);
     if (pid < 0)

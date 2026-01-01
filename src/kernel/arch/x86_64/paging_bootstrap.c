@@ -25,11 +25,15 @@ void paging_init_long_mode_globals(void)
     log_info("Paging", "kernel_pml4_phys=0x%llx kernel_pml4_virt=%p",
              kernel_pml4_phys, kernel_pml4_virt);
 
+    // Dump PML4[0]
+    uint64_t e0 = kernel_pml4_virt[0];
+    log_info("Paging", "PML4[0]=0x%llx", (unsigned long long)e0);
 
-    for (uint64_t pa = 0x00100000; pa < 0x02000000; pa += 0x00100000) {
-        uint64_t va = pa;  // identity
-        uint64_t mapped = get_mapped_phys(kernel_pml4_virt, va);
-        log_info("MAPCHK", "VA=0x%llx -> PA=0x%llx", va, mapped);
+    if (e0 & 1) {
+        uint64_t pdpt_pa = e0 & ~0xFFFULL;
+        uint64_t *pdpt = (uint64_t *)phys_to_virt_bootstrap(pdpt_pa);
+        uint64_t pdpte0 = pdpt[0];
+        log_info("Paging", "PDPT[0]=0x%llx", (unsigned long long)pdpte0);
     }
-
 }
+
