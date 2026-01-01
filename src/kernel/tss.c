@@ -56,32 +56,32 @@ void gdt_set_tss64_descriptor(int index, uint64_t base, uint32_t limit)
     log_info("TSS", "TSS descriptor written: index=%d base=%p limit=%u", index, (void*)base, limit);
 }
 
-static inline void gdt_reload(void)
-{
-    log_info("TSS", "gdt_reload 1");
+// static inline void gdt_reload(void)
+// {
+//     log_info("TSS", "gdt_reload 1");
 
-    __asm__ volatile("lgdt %0" :: "m"(g_GDT_Ptr));
-    log_info("TSS", "gdt_reload 2");
+//     __asm__ volatile("lgdt %0" :: "m"(g_GDT_Ptr));
+//     log_info("TSS", "gdt_reload 2");
 
-    // Reload CS with a far return (lretq) to the new code selector 0x08 (typical kernel code selector)
-    // then update data segment registers. We use rax as temporary.
-    __asm__ volatile (
-        "pushq $0x08\n"          // code selector (adjust if your kernel code selector differs)
-        "leaq 1f(%%rip), %%rax\n"
-        "pushq %%rax\n"
-        "lretq\n"                // this reloads CS
-        "1:\n"
-        "mov $0x10, %%ax\n"     // kernel data selector
-        "mov %%ax, %%ds\n"
-        "mov %%ax, %%es\n"
-        "mov %%ax, %%ss\n"
-        :
-        :
-        : "rax", "memory"
-    );
+//     // Reload CS with a far return (lretq) to the new code selector 0x08 (typical kernel code selector)
+//     // then update data segment registers. We use rax as temporary.
+//     __asm__ volatile (
+//         "pushq $0x08\n"          // code selector (adjust if your kernel code selector differs)
+//         "leaq 1f(%%rip), %%rax\n"
+//         "pushq %%rax\n"
+//         "lretq\n"                // this reloads CS
+//         "1:\n"
+//         "mov $0x10, %%ax\n"     // kernel data selector
+//         "mov %%ax, %%ds\n"
+//         "mov %%ax, %%es\n"
+//         "mov %%ax, %%ss\n"
+//         :
+//         :
+//         : "rax", "memory"
+//     );
 
-    log_info("TSS", "gdt_reload 3");
-}
+//     log_info("TSS", "gdt_reload 3");
+// }
 
 
 /* Install TSS for x86_64 */
@@ -94,8 +94,12 @@ void x64_TSS_Install(uintptr_t stack_top) {
 
     gdt_set_tss64_descriptor(TSS_GDT_INDEX, (uint64_t)&the_tss, sizeof(the_tss) - 1);
 
+    // log_info("TSS", "Reloading GDT");
+    // gdt_reload(); // reload GDTR and segment registers
+
     log_info("TSS", "Reloading GDT");
-    gdt_reload(); // reload GDTR and segment registers
+    gdt_flush((uint64_t)&g_GDT_Ptr);
+
 
     log_info("TSS", "Loading TSS selector 0x%x", TSS_SELECTOR);
     __asm__ volatile ("ltr %0" :: "r"((uint16_t)TSS_SELECTOR));

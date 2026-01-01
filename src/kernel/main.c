@@ -62,22 +62,6 @@ void timer(ISRFrame64* regs)
     printf(".");
 }
 
-// void init_filesystem()
-// {
-//     log_debug("Main", "init_filesystem start");
-//     ata_init();
-//     log_debug("Main", "after ata_init");
-
-//     static fat32_t fs;
-//     fs.bdev = block_devices[0]; // ATA disk
-
-//     log_debug("Main", "before fat32_mount");
-
-//     fat32_mount(&fs);
-//     log_debug("Main", "after fat32_mount");
-
-// }
-
 void test_read_sector0(block_device_t *disk) {
     if (!disk || !disk->read_sectors) {
         log_error("TEST", "No disk or read_sectors function");
@@ -127,65 +111,11 @@ void init_filesystem(void)
     log_info("MAIN", "FAT32 mounted at / from sda1");
 }
 
-
-// void init_filesystem()
-// {
-//     log_debug("Main", "init_filesystem start");
-
-//     // 1. Initialize block layer
-//     block_init();
-//     log_debug("Main", "After block_init");
-
-//     // 2. Initialize ATA
-//     ata_init();
-//     log_debug("Main", "after ata_init");
-
-//     block_device_t *part = NULL;
-
-//     // 3. Try to register first FAT32 partition via MBR
-//     if (!register_first_fat32_partition()) {
-//         log_error("MAIN", "No FAT32 partition found via MBR, trying raw disk");
-
-//         // fallback: raw disk as FAT32
-//         part = block_lookup_by_name("sda");
-//         if (!part) {
-//             log_error("MAIN", "No raw disk found to mount FAT32");
-//             return;
-//         }
-//     } else {
-//         // get first partition (sda1)
-//         part = block_lookup_by_name("sda1");
-//         if (!part) {
-//             log_error("MAIN", "FAT32 partition found but cannot access sda1");
-//             return;
-//         }
-//     }
-
-//     // 4. Initialize FAT32
-//     fat32_t *fs = fat32_init_device(part);
-//     if (!fs) {
-//         log_error("MAIN", "FAT32 init failed");
-//         return;
-//     }
-
-//     // 5. Mount to VFS
-//     VFS_Mount("/", get_fat32_fops(), fs);
-//     log_info("MAIN", "FAT32 mounted successfully at /");
-// }
-
-
 void start_userspace(BootParams* bootParams)
 {
     log_debug("Main", "calling start_userspace");
 
     __asm__ volatile("sti");
-
-    // // ensure partition device is registered
-    // if (!register_first_fat32_partition())
-    // {
-    //     log_error("MAIN", "No FAT32 partition found during startup");
-    //     // return or continue with diagnostics
-    // }
 
     uint32_t part_lba = 0;
 
@@ -224,137 +154,6 @@ void start_userspace(BootParams* bootParams)
         panic("Failed to exec init");
     }
 }
-
-
-// void init_filesystem()
-// {
-//     log_debug("Main", "init_filesystem start");
-
-//     block_init();
-//     log_debug("Main", "After block_init");
-
-//     ata_init();
-//     log_debug("Main", "after ata_init");
-
-
-//         // ensure partition device is registered
-//     if (!register_first_fat32_partition())
-//     {
-//         log_error("MAIN", "No FAT32 partition found during startup");
-//         // return or continue with diagnostics
-//     }
-
-
-//     // block_device_t *disk = block_find_raw_disk();
-//     // if (!disk) {
-//     //     log_error("Main", "No raw disk found");
-//     //     return;
-//     // }
-//     // log_info("Main", "Using raw disk (lba_base=0)");
-
-//     // // 1. Register partitions (creates sda1)
-//     // register_mbr_partitions(disk);
-//     // log_debug("Main", "after register_mbr_partitions");
-
-//     // // 2. Get partition device (NOT the raw disk)
-//     // block_device_t *part = block_lookup_by_name("sda1");
-//     // if (!part) {
-//     //     log_error("Main", "No FAT32 partition found");
-//     //     return;
-//     // }
-
-
-//     // test_read_sector0(part);
-//     // log_debug("Main", "after block_lookup_by_name");
-
-//     // // 3. Initialize FAT32 using partition device
-//     // fat32_t *fs = fat32_init_device(part);
-//     // log_debug("Main", "after fat32_init_device");
-
-//     // if (!fs) {
-//     //     log_error("Main", "fat32_init_device failed");
-//     //     return;
-//     // }
-
-//     // // 4. Register filesystem with VFS
-//     // // vfs_mount("/", fs, get_fat32_fops());
-//     // VFS_Mount("/", get_fat32_fops(), fs);
-//     // log_debug("Main", "after VFS_Mount");
-
-//     // log_debug("Main", "FAT32 mounted successfully");
-// }
-
-
-// void start_userspace(BootParams* bootParams)
-// {
-//     log_debug("Main", "calling start_userspace");
-
-//     // block_init();
-//     // log_debug("Main", "After block_init");
-
-//     // ensure partition device is registered
-//     if (!register_first_fat32_partition())
-//     {
-//         log_error("MAIN", "No FAT32 partition found during startup");
-//         // return or continue with diagnostics
-//     }
-
-//     // block_device_t *part = block_lookup_by_name("sda1");
-//     // if (!part)
-//     // {
-//     //     log_error("MAIN", "Partition sda1 not found");
-//     //     return;
-//     // }
-
-//     // // log_info("MAIN", "Using block device sda1: lba_base=%u sector_size=%u", part->lba_base, part->sector_size);
-    
-//     // // Initialize FAT32 fs object
-//     // fat32_t *fs = fat32_init_device(part);
-//     // // log_debug("Main", "fat32_init_device fs = %d", fs);
-
-//     // if (!fs)
-//     // {
-//     //     log_error("MAIN", "FAT32 init failed");
-//     //     return;
-//     // }
-
-//     // log_info("FAT32", "Mounted FAT32: bytes_per_sector=%u spc=%u reserved=%u fats=%u sectors_per_fat=%u root_cluster=%u",
-//     //          fs->bytes_per_sector, fs->sectors_per_cluster, fs->reserved_sectors,
-//     //          fs->num_fats, fs->sectors_per_fat, fs->root_cluster);
-
-//     // Mount into VFS
-//     // VFS_Mount("/", get_fat32_fops(), fs);
-//     uint32_t part_lba = 0;
-
-//     debug_list_root();           // should show bin, boot, folder, etc.
-
-//     int fd = VFS_Open("/bin/init", O_RDONLY);
-//     if (fd < 0) panic("Cannot start user space");
-
-//     size_t max_size = 65536;
-//     memfile_t *mf = kmalloc(sizeof(memfile_t));
-//     mf->data = kmalloc(max_size);
-
-//     size_t total = 0;
-//     while (total < max_size)
-//     {
-//         int n = VFS_Read(fd, (uint8_t*)mf->data + total, 4096);
-
-//         if (n <= 0) break;
-//         total += (size_t)n;
-//     }
-
-//     mf->size = total;
-//     VFS_Close(fd);
-
-//     // Hand off to ELF loader
-//     pid_t pid = exec_elf_mem(mf->data, mf->size, bootParams);
-//     if (pid < 0)
-//     {
-//         panic("Failed to exec init");
-//     }
-// }
-
 
 void parse_multiboot2(void *mb_info_ptr) 
 { 

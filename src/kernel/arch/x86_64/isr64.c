@@ -44,22 +44,32 @@ static inline uint64_t read_cr2(void)
 
 void x64_ISR_Handler(ISRFrame64* r)
 {
-
     if (r->vector == 1)
     {
         log_warning("EXC", "#DB ignored (TF was set)");
         return;
     }
 
-    // Temporary skiping PIT
-    if (r->vector != 32)
-    {
-        log_error("ISR64", "x64_ISR_Handler Interupt r->vector = %u", r->vector);
-    }
-
+    // // Temporary skiping PIT
+    // if (r->vector != 32)
+    // {
+    //     log_error("ISR64", "x64_ISR_Handler Interupt r->vector = %u", r->vector);
+    // }
 
     if (r->vector < 32)
     {
+        if (r->vector == 13)
+        {
+            log_critical("GP",
+                "#GP: error=%llx rip=%p cs=%llx ss=%llx rflags=%llx",
+                r->error,
+                (void*)r->cpu.rip,
+                r->cpu.cs,
+                r->cpu.ss,
+                r->cpu.rflags
+            );
+        }
+
         if (r->vector == 14)
         {
             uint64_t cr2 = read_cr2();

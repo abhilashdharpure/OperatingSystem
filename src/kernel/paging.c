@@ -340,6 +340,29 @@ extern uint64_t *kernel_pml4_virt;
 //         }
 //     }
 // }
+// void clone_kernel_mappings(uint64_t *user_pml4)
+// {
+//     // Copy top-level entries
+//     for (int i = 0; i < 512; ++i) {
+//         user_pml4[i] = kernel_pml4_virt[i];
+//     }
+
+//     // For index 0, allocate a new PDPT and copy contents,
+//     uint64_t e0 = kernel_pml4_virt[0];
+//     if (e0 & PAGE_PRESENT) {
+//         uint64_t new_pdpt_pa = pmm_alloc_page();
+//         memset(phys_to_virt(new_pdpt_pa), 0, PAGE_SIZE);
+
+//         uint64_t *pdpt_src = (uint64_t *)phys_to_virt(e0 & ~0xFFFULL);
+//         uint64_t *pdpt_dst = (uint64_t *)phys_to_virt(new_pdpt_pa);
+
+//         for (int i = 0; i < 512; ++i) {
+//             pdpt_dst[i] = pdpt_src[i];
+//         }
+
+//         user_pml4[0] = new_pdpt_pa | (e0 & 0xFFFULL);
+//     }
+// }
 void clone_kernel_mappings(uint64_t *user_pml4)
 {
     // Copy top-level entries
@@ -351,6 +374,8 @@ void clone_kernel_mappings(uint64_t *user_pml4)
     uint64_t e0 = kernel_pml4_virt[0];
     if (e0 & PAGE_PRESENT) {
         uint64_t new_pdpt_pa = pmm_alloc_page();
+        if (!new_pdpt_pa) panic("clone_kernel_mappings: failed to alloc PDPT");
+
         memset(phys_to_virt(new_pdpt_pa), 0, PAGE_SIZE);
 
         uint64_t *pdpt_src = (uint64_t *)phys_to_virt(e0 & ~0xFFFULL);
@@ -360,7 +385,8 @@ void clone_kernel_mappings(uint64_t *user_pml4)
             pdpt_dst[i] = pdpt_src[i];
         }
 
-        user_pml4[0] = new_pdpt_pa | (e0 & 0xFFFULL);
+        // Copy original flags but ADD PAGE_USER so user can walk PML4[0]
+        user_pml4[0] = new_pdpt_pa | (e0 & 0xFFFULL) | PAGE_USER;
     }
 }
 

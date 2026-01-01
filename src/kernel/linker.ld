@@ -2,8 +2,8 @@ OUTPUT_FORMAT(elf64-x86-64)
 OUTPUT_ARCH(i386:x86-64)
 ENTRY(multiboot_entry)
 
-/* Kernel will live at low virtual addresses, identity mapped */
-KERNEL_PHYS_BASE = 0x00100000;   /* 1 MiB, for example */
+/* Kernel lives at low virtual addresses, identity mapped */
+KERNEL_PHYS_BASE = 0x00100000;   /* 1 MiB */
 
 SECTIONS
 {
@@ -13,15 +13,15 @@ SECTIONS
         KEEP(*(.multiboot_header))
     }
 
-    /* Early 32-bit and 64-bit boot code at 0x00100000 */
-    .boot 0x00100000 : AT(0x00100000)
+    /* Early boot code at 1 MiB */
+    .boot KERNEL_PHYS_BASE : AT(KERNEL_PHYS_BASE)
     {
         KEEP(*(.boot32))
         KEEP(*(.boot64_stub))
     }
 
-    /* Page tables at 0x00101000 */
-    .data.boot 0x00101000 : AT(0x00101000)
+    /* Early boot data (page tables, etc.) */
+    .data.boot (KERNEL_PHYS_BASE + 0x1000) : AT(KERNEL_PHYS_BASE + 0x1000)
     {
         KEEP(*(.data.boot))
     }
@@ -29,32 +29,37 @@ SECTIONS
     /* Mark kernel start */
     _kernel_start = .;
 
-    /* Rest of the kernel just after .boot, all low, identity-mapped */
-    .text : AT(ADDR(.text))
+    /* Kernel .text */
+    .text ALIGN(0x1000) : AT(ADDR(.text))
     {
         *(.text*)
     }
 
-    .rodata : AT(ADDR(.rodata))
+    /* Read‑only data */
+    .rodata ALIGN(0x1000) : AT(ADDR(.rodata))
     {
         *(.rodata*)
     }
 
-    .data : AT(ADDR(.data))
+    /* Writable data */
+    .data ALIGN(0x1000) : AT(ADDR(.data))
     {
         *(.data*)
     }
 
-    .bss (NOLOAD) :
+    /* BSS */
+    .bss ALIGN(0x1000) (NOLOAD) :
     {
         *(.bss*)
         *(COMMON)
     }
 
+    /* Kernel stack */
     . = ALIGN(16);
     _kernel_stack_bottom = .;
-    . += 0x4000;
+    . += 0x4000;        /* 16 KB stack */
     _kernel_stack_top = .;
 
+    /* Kernel end */
     _kernel_end = .;
 }

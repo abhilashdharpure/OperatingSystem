@@ -58,57 +58,52 @@ static fd_t map_user_fd_to_vfs(int user_fd)
     }
 }
 
-// /* Replace kernel_putchar with your actual routine if needed (e.g. framebuffer/serial writer).
-//    Here we rely on VFS_Write so nothing else is needed. */
-// void i686_syscall_handler(Registers* regs)
-// {
-//     log_info("SYSCALL",
-//              "### syscall: eax=%u ebx=%u ecx=%p edx=%u cs=%x eip=%x",
-//              regs->eax, regs->ebx, regs->ecx, regs->edx,
-//              regs->cs, regs->eip);
-
-//     if (regs->eax == 1)
-//     {
-//         switch (regs->eax) {
-//             case SYS_WRITE:
-//                 syscall_write(regs);
-//                 break;
-
-//             default:
-//                 log_error("SYSCALL", "Unknown syscall %u", regs->eax);
-//                 break;
-//         }
-
-//         return;
-//     }
-
-//     log_error("SYSCALL", "Unknown syscall %u", regs->eax);
-// }
-
-void x64_syscall_handler(ISRFrame64* regs)
+uint64_t sys_write(uint64_t fd, const char *buf, uint64_t len)
 {
-    log_info("SYSCALL", "TODO Not implemente x64_syscall_handler...");
-    // log_info("SYSCALL",
-    //          "### syscall: eax=%u ebx=%u ecx=%p edx=%u cs=%x eip=%x",
-    //          regs->eax, regs->ebx, regs->ecx, regs->edx,
-    //          regs->cs, regs->eip);
+    (void)fd; // ignore fd for now, always write to serial
 
-    // if (regs->eax == 1)
-    // {
-    //     switch (regs->eax) {
-    //         case SYS_WRITE:
-    //             syscall_write(regs);
-    //             break;
+    for (uint64_t i = 0; i < len; ++i) {
+        serial_putc(buf[i]);
+    }
 
-    //         default:
-    //             log_error("SYSCALL", "Unknown syscall %u", regs->eax);
-    //             break;
-    //     }
+    return len;
+}
 
-    //     return;
-    // }
+void sys_exit(uint64_t status)
+{
+    log_info("SYSCALL", "Process exited with code %llu",
+             (unsigned long long)status);
 
-    // log_error("SYSCALL", "Unknown syscall %u", regs->eax);
+    // TODO: real process teardown; for now hang
+    for (;;) {
+        __asm__ volatile ("hlt");
+    }
+}
+
+
+void x64_syscall_handler(ISRFrame64* r)
+{
+    // log_info("SYSCALL", "x64_syscall_handler entered");
+
+    uint64_t num = r->rax;
+    uint64_t a0  = r->rbx;
+    uint64_t a1  = r->rcx;
+    uint64_t a2  = r->rdx;
+
+    switch (num) {
+    case 1: // write(fd, buf, len)
+        r->rax = sys_write(a0, (const char*)a1, a2);
+        break;
+
+    case 2: // exit(status)
+        sys_exit(a0);
+        break; // not reached
+
+    default:
+        log_error("SYSCALL", "Unknown syscall %llu", num);
+        r->rax = (uint64_t)-1;
+        break;
+    }
 }
 
 static void syscall_write(ISRFrame64 *regs)

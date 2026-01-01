@@ -6,7 +6,7 @@ int main() {
     printf("Hello from userspace!\n");
     while (1)
     {
-        printf("Hello from userspace, while loop!\n");
+        // printf("Hello from userspace, while loop!\n");
     }
     return 0;
 }

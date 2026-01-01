@@ -1,13 +1,24 @@
-/* link.ld - 64-bit user-space ELF */
-
 ENTRY(_start)
 
 SECTIONS
 {
-    . = 0x0000000000400000;
+    . = 0x40000000;
 
-    .text : { *(.text*) }
-    .rodata : { *(.rodata*) }
-    .data : { *(.data*) }
-    .bss : { *(.bss*) *(COMMON) }
+    .text : {
+        *(.text.crt0)   /* ensure crt0 comes first */
+        *(.text*)
+    }
+
+    .rodata : {
+        *(.rodata*)
+    }
+
+    .data : {
+        *(.data*)
+    }
+
+    .bss : {
+        *(.bss*)
+        *(COMMON)
+    }
 }

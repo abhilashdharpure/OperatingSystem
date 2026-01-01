@@ -12,7 +12,7 @@ env = Environment(
     AS=AS,
     LD=LD,
     CFLAGS="-m64 -ffreestanding -nostdlib -fno-pie -fno-stack-protector -Wall -Wextra -Ilibc/include",
-    LINKFLAGS="-nostdlib -Wl,-m,elf_x86_64"
+    LINKFLAGS="-nostdlib -Wl,-m,elf_x86_64 -Wl,-z,max-page-size=0x1000"
 )
 
 # Build libc first

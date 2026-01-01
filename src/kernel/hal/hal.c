@@ -54,6 +54,31 @@ static inline void clear_trap_flag(void)
     );
 }
 
+extern GDTEntry g_GDT[];
+void gdt_debug_dump(void)
+{
+    uint64_t *raw = (uint64_t *)&g_GDT[0];
+    for (int i = 0; i < 7; ++i) {
+        // log_info("GDT", "entry[%d] = 0x%016llx",
+        //          i, (unsigned long long)raw[i]);
+
+        log_info("GDT", "entry[%d] = 0x%llx",i, (unsigned long long)raw[i]);
+
+    }
+}
+
+// extern void read_gdtr(uint64_t *low, uint64_t *high);
+
+// void dump_gdtr(const char* tag)
+// {
+//     uint64_t low, high;
+//     read_gdtr(&low, &high);
+//     log_info("GDT", "%s: GDTR low=0x%llx high=0x%llx", tag,
+//              (unsigned long long)low,
+//              (unsigned long long)high);
+// }
+
+
 void HAL_Initialize()
 {
     log_info("HAL", "Kernel HAL_Initialize");
@@ -63,9 +88,13 @@ void HAL_Initialize()
 
     gdt_init();
     log_info("HAL", "After gdt_init");
+    gdt_debug_dump();
+    // dump_gdtr("after gdt_init");
 
     x64_TSS_Install((uintptr_t)_kernel_stack_top);
     log_info("HAL", "After x64_TSS_Install");
+    // dump_gdtr("after TSS");
+
 
     x64_IDT_Initialize();
     log_info("HAL", "After x64_IDT_Initialize");

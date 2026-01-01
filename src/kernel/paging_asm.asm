@@ -8,8 +8,9 @@ global enter_user_mode
 %define OFFSET_REGS_RIP  0    ; adjust if Process has fields before regs
 %define OFFSET_REGS_RSP  8
 
-%define USER_CS  0x1B
-%define USER_DS  0x23
+%define USER_CS  0x1B   ; user code
+%define USER_DS  0x23   ; user data
+
 
 section .text
 enter_user_mode:

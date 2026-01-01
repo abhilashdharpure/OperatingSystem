@@ -9,42 +9,41 @@ GDTR g_GDT_Ptr;
 
 static inline GDTEntry gdt_make_entry(uint8_t access, uint8_t flags)
 {
+    // flags: bits 0-3 -> limit high (usually 0), bits 4-7 -> actual flags (L, D, G)
+    uint8_t gran = (flags & 0xF0);  // limit_high = 0, flags in high nibble
+
     return (GDTEntry){
         .limit_low = 0,
         .base_low  = 0,
         .base_mid  = 0,
         .access    = access,
-        .flags     = flags,
+        .gran      = gran,
         .base_high = 0
     };
 }
 
 void gdt_init(void)
 {
-    g_GDT[0] = gdt_make_entry(0, 0);
+    uint64_t* g = (uint64_t*)g_GDT;
 
-    g_GDT[1] = gdt_make_entry(
-        GDT_ACCESS_PRESENT | GDT_ACCESS_RING0 | GDT_ACCESS_CODE | GDT_ACCESS_RW,
-        GDT_FLAG_LONG_MODE
-    );
+    // 0: null
+    g[0] = 0x0000000000000000ull;
 
-    g_GDT[2] = gdt_make_entry(
-        GDT_ACCESS_PRESENT | GDT_ACCESS_RING0 | GDT_ACCESS_DATA | GDT_ACCESS_RW,
-        0
-    );
+    // 1: kernel code (base=0, limit=0, 64-bit, DPL=0, RW)
+    g[1] = 0x00209A0000000000ull;
 
-    g_GDT[3] = gdt_make_entry(
-        GDT_ACCESS_PRESENT | GDT_ACCESS_RING3 | GDT_ACCESS_CODE | GDT_ACCESS_RW,
-        GDT_FLAG_LONG_MODE
-    );
+    // 2: kernel data (base=0, limit=0, DPL=0, RW)
+    g[2] = 0x0000920000000000ull;
 
-    g_GDT[4] = gdt_make_entry(
-        GDT_ACCESS_PRESENT | GDT_ACCESS_RING3 | GDT_ACCESS_DATA | GDT_ACCESS_RW,
-        0
-    );
+    // 3: user code (DPL=3, 64-bit, RW)
+    g[3] = 0x0020FA0000000000ull;
 
-    // TSS entry placeholder, will be set later by tss.c
-    g_GDT[5] = gdt_make_entry(0, 0);
+    // 4: user data (DPL=3, RW)
+    g[4] = 0x0000F20000000000ull;
+
+    // 5 + 6: zero for now (TSS placeholder)
+    g[5] = 0x0000000000000000ull;
+    g[6] = 0x0000000000000000ull;
 
     g_GDT_Ptr.limit = sizeof(g_GDT) - 1;
     g_GDT_Ptr.base  = (uint64_t)&g_GDT;
