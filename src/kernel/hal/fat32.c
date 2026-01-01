@@ -2,7 +2,6 @@
 #include "fat32.h"
 #include "block.h"
 #include "debug.h"
-#include "memory.h"
 #include "string.h"
 
 #define MAX_CLUSTER_BYTES 8192

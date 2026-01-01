@@ -147,9 +147,6 @@ pid_t exec_elf_mem(void *data, size_t size, BootParams* bootParams)
         if (ph[i].p_type != PT_LOAD)
             continue;
 
-        // uint64_t seg_start = ph[i].p_vaddr & ~(PAGE_SIZE - 1);
-        // uint64_t seg_end   = (ph[i].p_vaddr + ph[i].p_memsz + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
-
         uint64_t seg_start = ph[i].p_vaddr & ~(PAGE_SIZE - 1);
         uint64_t last_byte = ph[i].p_vaddr + ph[i].p_memsz - 1;
         uint64_t seg_end = (last_byte & ~(PAGE_SIZE - 1)) + PAGE_SIZE;
@@ -159,37 +156,6 @@ pid_t exec_elf_mem(void *data, size_t size, BootParams* bootParams)
 
         // You can derive RW from p_flags if you want; for now: RW+USER for simplicity
         uint64_t seg_flags = user_rw_flags;
-
-        // for (uint64_t va = seg_start; va < seg_end; va += PAGE_SIZE) {
-        //     uint64_t pa = pmm_alloc_page();
-        //     if (!pa) {
-        //         log_critical("EXEC", "Out of pages while mapping ELF segment");
-        //         return -1;
-        //     }
-
-        //     uint8_t *kva = (uint8_t*)(uintptr_t)pa;
-        //     memset(kva, 0, PAGE_SIZE);
-
-        //     if (map_page(p->page_directory,
-        //                  va,
-        //                  pa,
-        //                  seg_flags) != 0)
-        //     {
-        //         log_critical("EXEC", "map_page failed for ELF VA=0x%llx", va);
-        //         return -1;
-        //     }
-
-        //     uint64_t offset_in_segment = va - seg_start;
-        //     if (offset_in_segment < ph[i].p_filesz) {
-        //         uint64_t to_copy = PAGE_SIZE;
-        //         if (offset_in_segment + to_copy > ph[i].p_filesz)
-        //             to_copy = ph[i].p_filesz - offset_in_segment;
-
-        //         memcpy(kva,
-        //                (uint8_t*)data + ph[i].p_offset + offset_in_segment,
-        //                to_copy);
-        //     }
-        // }
 
         for (uint64_t va = seg_start; va < seg_end; va += PAGE_SIZE)
         {
@@ -251,12 +217,9 @@ pid_t exec_elf_mem(void *data, size_t size, BootParams* bootParams)
         log_critical("EXEC", "ELF pages not mapped!");
     }
 
-
     log_info("EXEC", "ELF64 loaded entry=0x%llx", eh->e_entry);
 
     debug_dump_user_bytes(p, p->regs.rip, 8);
-
-
 
     enter_user_mode_from_process(p);
     return 0;

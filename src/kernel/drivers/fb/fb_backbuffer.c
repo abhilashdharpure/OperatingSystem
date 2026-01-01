@@ -1,5 +1,4 @@
 #include "fb_backbuffer.h"
-#include "memory.h"
 #include "kmalloc.h"
 
 static uint32_t* backbuffer = NULL;

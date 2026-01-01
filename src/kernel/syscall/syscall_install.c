@@ -4,12 +4,6 @@
 #include "arch/x86_64/gdt.h"
 #include "debug.h"
 
-
-// #include "arch/x86_64/isrs_gen.c"
-
-// void i686_syscall_handler(Registers* regs); 
-
-// implemented below in syscall.c
 void x64_syscall_handler(ISRFrame64* regs);
 
 void x64_syscall_install(void)

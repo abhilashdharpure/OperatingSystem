@@ -14,5 +14,3 @@ static int copy_from_user(void *dst, const void *uaddr, uint32_t len);
 static fd_t map_user_fd_to_vfs(int user_fd);
 // void i686_syscall_handler(Registers* regs);
 void x64_syscall_handler(ISRFrame64* regs);
-
-

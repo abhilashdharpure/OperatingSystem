@@ -38,7 +38,4 @@ static int fat32_close(struct file *f);
 static int fat32_readdir(struct file *f, dirent_t *e);
 static int fat32_read(struct file *f, void *buf, size_t size);
 
-
-
-
 struct file_operations *get_fat32_fops(void);

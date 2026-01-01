@@ -2,10 +2,6 @@
 #pragma once
 #include <stdint.h>
 
-// Reuse your IDT_FLAGS enum for type/DPL/P bits.
-// The gate type values are the same; we just treat them as 64-bit gates.
-// #include "idt.h"  // for IDT_FLAGS
-
 typedef enum
 {
     IDT_FLAG_GATE_TASK              = 0x5,

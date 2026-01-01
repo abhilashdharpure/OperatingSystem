@@ -14,20 +14,8 @@ void x64_IRQ_RegisterHandler(int irq, IRQHandler handler);
 
 void x64_IRQ_Unmask(int irq);
 
-
 /* Send EOI to PIC/APIC */
 void x64_IRQ_SendEndOfInterupt(int irq);
 
 /* PIC driver interface (internal) */
 struct PICDriver;
-// extern const struct PICDriver* g_IRQ_Driver;
-
-
-// #pragma once
-// #include "isr64.h"
-
-// typedef void (*IRQHandler)(Registers* regs);
-
-// void i686_IRQ_Initialize();
-// void i686_IRQ_RegisterHandler(int irq, IRQHandler handler);
-// void i686_IRQ_SendEndOfInterupt(int irq);

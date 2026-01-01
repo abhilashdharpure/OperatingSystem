@@ -31,29 +31,6 @@
 #define ATA_CMD_IDENTIFY       0xEC
 #define ATA_CMD_READ_SECTORS   0x20
 
-// Assumes in ata.h:
-//   #define ATA_IO_BASE   0x1F0
-//   #define ATA_CTRL_BASE 0x3F6
-//   #define ATA_REG_DATA     0x00
-//   #define ATA_REG_ERROR    0x01
-//   #define ATA_REG_SECCNT   0x02
-//   #define ATA_REG_LBA_LO   0x03
-//   #define ATA_REG_LBA_MID  0x04
-//   #define ATA_REG_LBA_HI   0x05
-//   #define ATA_REG_DEVICE   0x06
-//   #define ATA_REG_COMMAND  0x07
-//   #define ATA_REG_STATUS   0x07
-//   #define ATA_SR_BSY       0x80
-//   #define ATA_SR_DRQ       0x08
-//   #define ATA_SR_ERR       0x01
-//   #define ATA_CMD_IDENTIFY     0xEC
-//   #define ATA_CMD_READ_SECTORS 0x20
-//
-// typedef struct {
-//     uint8_t  device;    // 0=master,1=slave
-//     uint16_t io_base;
-//     uint16_t ctrl_base;
-// } ata_device_t;
 // Public API
 void ata_init(void);
 

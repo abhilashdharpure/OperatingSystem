@@ -26,5 +26,3 @@ block_device_t *block_lookup_by_name(const char *name);
 // block_device_t* block_lookup_by_lba(uint32_t lba);
 int ata_data_ready(uint16_t io);
 void ata_read_words(uint16_t io, uint16_t *buf);
-
-

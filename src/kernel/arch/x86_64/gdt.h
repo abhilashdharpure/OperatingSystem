@@ -6,17 +6,6 @@
 #define KERNEL_DATA_SELECTOR 0x10
 #define USER_CODE_SELECTOR   0x1B
 #define USER_DATA_SELECTOR   0x23
-// #define TSS_SELECTOR         0x28
-
-/* GDT entry (8 bytes) */
-// typedef struct __attribute__((packed)) {
-//     uint16_t limit_low;
-//     uint16_t base_low;
-//     uint8_t  base_mid;
-//     uint8_t  access;
-//     uint8_t  flags;
-//     uint8_t  base_high;
-// } GDTEntry;
 
 typedef struct __attribute__((packed)) {
     uint16_t limit_low;
@@ -26,7 +15,6 @@ typedef struct __attribute__((packed)) {
     uint8_t  gran;       // high 4 bits: flags, low 4 bits: limit_high
     uint8_t  base_high;
 } GDTEntry;
-
 
 /* TSS descriptor (16 bytes in x86_64) */
 typedef struct __attribute__((packed)) {

@@ -71,5 +71,4 @@ void x64_IDT_EnableGate(int interrupt)
 void x64_IDT_DisableGate(int interrupt)
 {
     FLAG_UNSET(g_IDT64[interrupt].Flags, IDT_FLAG_PRESENT);
-
 }

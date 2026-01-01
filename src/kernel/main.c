@@ -1,6 +1,5 @@
 #include <stdint.h>
 #include "stdio.h"
-#include "memory.h"
 #include "drivers/fb/fb.h"
 #include "drivers/fb/fb_graphics.h"
 #include "drivers/gfx/gfx.h"
@@ -12,7 +11,6 @@
 #include "drivers/input/input.h"
 #include "drivers/input/input_manager.h"
 #include "compositor/compositor.h"
-#include "hal/vfs_memfile.h"
 #include <arch/x86_64/io.h>
 
 #include "multiboot2_defines.h"
@@ -33,17 +31,11 @@
 #include "hal/fat32.h"
 #include "hal/fat.h"
 
-// #define PAGE_SIZE 4096
-
 extern uint8_t _kernel_stack_top;
 
 #define VGA_PHYS 0xB8000
 
-
-// extern void _init();
-
 void crash_me();
-
 
 extern uint32_t mb_info_ptr;
 
@@ -153,33 +145,6 @@ void start_userspace(BootParams* bootParams)
     {
         panic("Failed to exec init");
     }
-}
-
-void parse_multiboot2(void *mb_info_ptr) 
-{ 
-    (void)mb_info_ptr; // TODO: implement real Multiboot2 parsing for x86_64 
-    
-}
-
-void parse_multiboot2_to_bootparams(uint64_t mb_info_phys,
-                                    BootParams* bp,
-                                    VbeModeInfo* fb)
-{
-    // TEMP: just parse memory map later
-    (void)mb_info_phys;
-    (void)bp;
-    (void)fb;
-}
-
-void setup_identity_paging(BootParams* bp, VbeModeInfo* fb)
-{
-    (void)bp;
-    (void)fb;
-}
-
-void setup_stack(void)
-{
-    // Stack already set in ASM for now
 }
 
 void parse_multiboot2_memory_map(multiboot2_info_t* mbi, BootParams* out)
