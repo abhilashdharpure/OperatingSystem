@@ -86,21 +86,26 @@ static uint64_t *get_or_alloc_pd(uint64_t *pdp, uint64_t va, uint64_t flags)
 
     if (!(e & PAGE_PRESENT) || pa == 0) {
         uint64_t new_pa = pmm_alloc_page();
-                log_info("Paging",
-                 "get_or_alloc_pd (alloc): idx=%llu va=0x%llx new_pa=0x%llx e=0x%llx",
-                 (unsigned long long)idx,
-                 (unsigned long long)va,
-                 (unsigned long long)new_pa,
-                 (unsigned long long)e);
+        // log_info("Paging",
+        //         "get_or_alloc_pd (alloc): idx=%llu va=0x%llx new_pa=0x%llx e=0x%llx",
+        //         (unsigned long long)idx,
+        //         (unsigned long long)va,
+        //         (unsigned long long)new_pa,
+        //         (unsigned long long)e);
 
-        if (!new_pa) return NULL;
+        if (!new_pa)
+        {
+            return NULL;
+        }
 
         void *v = phys_to_virt(new_pa);
-        log_info("Paging", "get_or_alloc_pd: phys_to_virt(new_pa)=%p", v);
+        // log_info("Paging", "get_or_alloc_pd: phys_to_virt(new_pa)=%p", v);
         memset(v, 0, PAGE_SIZE);
         pdp[idx] = new_pa | flags | PAGE_PRESENT;
         return (uint64_t *)phys_to_virt(new_pa);
-    } else {
+    }
+    else
+    {
         return (uint64_t *)phys_to_virt(pa);
     }
 }
@@ -108,55 +113,35 @@ static uint64_t *get_or_alloc_pd(uint64_t *pdp, uint64_t va, uint64_t flags)
 static uint64_t *get_or_alloc_pt(uint64_t *pd, uint64_t va, uint64_t flags)
 {
     uint64_t cr3 = read_cr3();
-    log_info("Paging", "get_or_alloc_pt: CR3=0x%llx", (unsigned long long)cr3);
+    // log_info("Paging", "get_or_alloc_pt: CR3=0x%llx", (unsigned long long)cr3);
 
     uint64_t idx = PD_INDEX(va);
     uint64_t e   = pd[idx];
     uint64_t pa  = e & ~0xFFFULL;
 
-    if (!(e & PAGE_PRESENT) || pa == 0) {
+    if (!(e & PAGE_PRESENT) || pa == 0)
+    {
         uint64_t new_pa = pmm_alloc_page();
-        log_info("Paging",
-                 "get_or_alloc_pt (alloc): idx=%llu va=0x%llx new_pa=0x%llx e=0x%llx",
-                 (unsigned long long)idx,
-                 (unsigned long long)va,
-                 (unsigned long long)new_pa,
-                 (unsigned long long)e);
-        if (!new_pa) return NULL;
+        // log_info("Paging",
+        //          "get_or_alloc_pt (alloc): idx=%llu va=0x%llx new_pa=0x%llx e=0x%llx",
+        //          (unsigned long long)idx,
+        //          (unsigned long long)va,
+        //          (unsigned long long)new_pa,
+        //          (unsigned long long)e);
 
-        log_info("Paging", "get_or_alloc_pt: before phys_to_virt");
-
-        // void *v = phys_to_virt(new_pa);
-        // log_info("Paging", "get_or_alloc_pt: phys_to_virt(new_pa)=%p", v);
-        // memset(v, 0, PAGE_SIZE);
-        // pd[idx] = new_pa | flags | PAGE_PRESENT;
-        // return (uint64_t *)v;
-
+        if (!new_pa)
+        {
+            return NULL;
+        }
 
         void *v = phys_to_virt(new_pa);
-        log_info("Paging", "get_or_alloc_pt: phys_to_virt(new_pa)=%p", v);
-
-        // DEBUG: check mapping of v in *kernel* CR3, not user_pml4
-        extern uint64_t *kernel_pml4_virt;
-        uint64_t mapped = get_mapped_phys(kernel_pml4_virt, (uint64_t)v);
-        log_info("Paging", "KERNEL MAPCHK: VA=0x%llx -> PA=0x%llx",
-                (unsigned long long)(uint64_t)v,
-                (unsigned long long)mapped);
-
-        // TEMPORARY: replace memset with manual zeroing
-        uint8_t *p = (uint8_t *)v;
-        log_info("Paging", "get_or_alloc_pt: 2");
-
-        for (size_t i = 0; i < PAGE_SIZE; i++) {
-            p[i] = 0;
-        }
-        log_info("Paging", "get_or_alloc_pt: 3");
-
+        // log_info("Paging", "get_or_alloc_pt: phys_to_virt(new_pa)=%p", v);
+        memset(v, 0, PAGE_SIZE);
         pd[idx] = new_pa | flags | PAGE_PRESENT;
         return (uint64_t *)v;
-
-    } else {
-        log_info("Paging", "get_or_alloc_pt: else");
+    }
+    else
+    {
         return (uint64_t *)phys_to_virt(pa);
     }
 }

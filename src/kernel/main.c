@@ -29,7 +29,6 @@
 
 #include "hal/block.h"
 #include "hal/fat32.h"
-#include "hal/fat.h"
 
 extern uint8_t _kernel_stack_top;
 
@@ -105,15 +104,11 @@ void init_filesystem(void)
 
 void start_userspace(BootParams* bootParams)
 {
-    log_debug("Main", "calling start_userspace");
+    log_info("Main", "calling start_userspace");
 
     __asm__ volatile("sti");
 
     uint32_t part_lba = 0;
-
-    // debug_list_root();           // should show bin, boot, folder, etc.
-
-    log_debug("Main", "opening /bin/init");
 
     int fd = VFS_Open("/bin/init", O_RDONLY);
     if (fd < 0) panic("Cannot start user space");
@@ -123,7 +118,6 @@ void start_userspace(BootParams* bootParams)
     mf->data = kmalloc(max_size);
 
     size_t total = 0;
-    log_debug("Main", "reading /bin/init");
 
     while (total < max_size)
     {
@@ -132,13 +126,10 @@ void start_userspace(BootParams* bootParams)
         if (n <= 0) break;
         total += (size_t)n;
     }
-    log_debug("Main", "reading Done");
 
     mf->size = total;
     VFS_Close(fd);
-    log_debug("Main", "vfs close");
 
-    
     // Hand off to ELF loader
     pid_t pid = exec_elf_mem(mf->data, mf->size, bootParams);
     if (pid < 0)
@@ -182,12 +173,6 @@ void parse_multiboot2_memory_map(multiboot2_info_t* mbi, BootParams* out)
                     r->Length = e->len;
                     r->Type   = e->type;
                     r->ACPI   = 0;
-
-                    log_info("MEM",
-                        "Memory region: 0x%llx - 0x%llx type=%u",
-                        e->addr,
-                        e->addr + e->len,
-                        e->type);
                 }
 
                 entry += mmap->entry_size;

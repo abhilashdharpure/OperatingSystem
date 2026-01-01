@@ -219,7 +219,7 @@ pid_t exec_elf_mem(void *data, size_t size, BootParams* bootParams)
 
     log_info("EXEC", "ELF64 loaded entry=0x%llx", eh->e_entry);
 
-    debug_dump_user_bytes(p, p->regs.rip, 8);
+    // debug_dump_user_bytes(p, p->regs.rip, 8);
 
     enter_user_mode_from_process(p);
     return 0;

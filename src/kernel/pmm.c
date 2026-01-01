@@ -91,7 +91,8 @@ void pmm_init(MemoryInfo *mem)
              (unsigned)(free_count * 4));
 }
 
-void pmm_mark_all_used(void) {
+void pmm_mark_all_used(void)
+{
     free_count = 0;
 }
 
@@ -114,7 +115,7 @@ uint64_t pmm_alloc_page(void)
     }
 
     uintptr_t pa = freelist[free_count - 1];
-    log_info("PMM", "alloc_page -> 0x%llx", (unsigned long long)pa);
+    // log_info("PMM", "alloc_page -> 0x%llx", (unsigned long long)pa);
     if ((pa & (PAGE_SIZE - 1)) != 0 ||
         pa < PMM_FREE_START ||
         pa >= PMM_MAX_IDENTITY)
