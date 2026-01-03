@@ -4,34 +4,32 @@ global x64_syscall_entry
 extern syscall_dispatch
 
 section .text
-
 x64_syscall_entry:
-    ; On entry: RCX=user RIP, R11=user RFLAGS, RAX=syscall number,
-    ;           RDI,RSI,RDX,R10,R8,R9=args
+    swapgs
 
-    push r11
-    push rcx
+    ; Save user context
+    push rdi
+    push rsi
+    push rdx
+    push r10
+    push r8
+    push r9
+    push r11        ; saved RFLAGS
+    push rcx        ; saved RIP
 
-    ; Arrange arguments for syscall_dispatch(num, a0,a1,a2,a3,a4)
-    mov rdi, rax        ; num
-    mov rsi, rdi        ; a0 already in RDI from caller if you want Linux ABI,
-                        ; or move from RDI/RSI/... however you choose.
-
-    ; For a clean start, assume:
-    ;   RAX=syscall number
-    ;   RDI,RSI,RDX,R10,R8,R9 = arg0..arg5 (Linux-style)
-    ; Then:
-    ;   rdi = num
-    ;   rsi = arg0
-    ;   rdx = arg1
-    ;   rcx = arg2
-    ;   r8  = arg3
-    ;   r9  = arg4
-    ;
-    mov rsi, rdi        ; incorrect as written; you'll wire this properly
-    ; For now, just forward num and ignore args:
+    mov rdi, rsp    ; syscall_regs_t *
     call syscall_dispatch
 
-    pop rcx             ; restore user RIP
-    pop r11             ; restore user RFLAGS
+    ; Return value already in RAX
+
+    pop rcx
+    pop r11
+    pop r9
+    pop r8
+    pop r10
+    pop rdx
+    pop rsi
+    pop rdi
+
+    swapgs
     sysretq

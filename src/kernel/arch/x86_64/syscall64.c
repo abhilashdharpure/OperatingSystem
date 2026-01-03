@@ -1,5 +1,6 @@
 // syscall64.c
 #include "syscall64.h"
+#include "syscall_numbers.h"
 #include "msr.h"
 #include "debug.h"
 
@@ -19,9 +20,18 @@ void x64_SYSCALL_Initialize(void)
     uint16_t kernel_cs = 0x08;        // your 64-bit code segment
     uint16_t user_cs   = 0x1B;        // TODO: define ring3 CS in GDT later
 
-    uint64_t star = 0;
-    star |= ((uint64_t)kernel_cs << 32);
-    star |= ((uint64_t)user_cs   << 48);
+    // uint64_t star = 0;
+    // star |= ((uint64_t)kernel_cs << 32);
+    // star |= ((uint64_t)user_cs   << 48);
+
+    // uint64_t star =
+    //     ((uint64_t)0x08 << 32) |   // kernel CS
+    //     ((uint64_t)0x10 << 48);    // user CS base (user CS - 16)
+
+    uint64_t star =
+        ((uint64_t)0x08 << 32) |   // kernel CS
+        ((uint64_t)(0x23 - 0x10) << 48); // user CS base
+
     wrmsr(IA32_STAR, star);
 
     wrmsr(IA32_LSTAR, (uint64_t)&x64_syscall_entry);
@@ -35,27 +45,50 @@ void x64_SYSCALL_Initialize(void)
              (unsigned long long)efer);
 }
 
-uint64_t syscall_dispatch(uint64_t num,
-                          uint64_t arg0,
-                          uint64_t arg1,
-                          uint64_t arg2,
-                          uint64_t arg3,
-                          uint64_t arg4)
+uint64_t syscall_dispatch(syscall_regs_t *r)
 {
-    log_debug("SYSCALL", "syscall %llu(%llu,%llu,%llu,%llu,%llu)",
-              (unsigned long long)num,
-              (unsigned long long)arg0,
-              (unsigned long long)arg1,
-              (unsigned long long)arg2,
-              (unsigned long long)arg3,
-              (unsigned long long)arg4);
+    uint64_t syscall_nr;
+    __asm__ volatile ("mov %%rax, %0" : "=r"(syscall_nr));
 
-    switch (num) {
-        case 0:
-            log_info("SYSCALL", "syscall 0 invoked");
-            return 0;
-        default:
-            log_warning("SYSCALL", "unknown syscall %llu", (unsigned long long)num);
-            return (uint64_t)-1;
+    switch (syscall_nr) {
+    case SYS_write:
+        return sys_write(
+            (int)r->rdi,
+            (const void*)r->rsi,
+            (size_t)r->rdx
+        );
+
+    case SYS_test:
+        log_info("SYSCALL", "SYS_test from userspace!");
+        return 123;
+
+    case SYS_exit:
+        sys_exit((int)r->rdi);
+        __builtin_unreachable();
     }
+
+    return (uint64_t)-1;
 }
+
+
+// uint64_t syscall_dispatch(syscall_regs_t *r)
+// {
+//     switch (r->rax) {
+//     case SYS_write:
+//         return sys_write(
+//             (int)r->rdi,        // fd
+//             (const void*)r->rsi,// buf
+//             (size_t)r->rdx      // len
+//         );
+
+//     case SYS_test:
+//         log_info("SYSCALL", "SYS_test from userspace!");
+//         return 123;
+
+//     case SYS_exit:
+//         sys_exit((int)r->rdi);
+//         __builtin_unreachable();
+//     }
+
+//     return -1;
+// }

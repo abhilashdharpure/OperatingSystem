@@ -4,5 +4,6 @@
         "stdio.h": "c"
     },
     "makefile.configureOnOpen": false,
-    "makefile.buildEnvironment": {}
+    "makefile.buildEnvironment": {},
+    "cmake.sourceDirectory": "/home/abhilash/Project/OperatingSystem/toolchain/binutils-2.37/zlib"
 }

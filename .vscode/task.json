@@ -1,0 +1,57 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Userspace: clean",
+            "type": "shell",
+            "command": "scons -c",
+            "options": {
+                "cwd": "${workspaceFolder}/src/userspace"
+            },
+            "problemMatcher": [],
+            "group": "build"
+        },
+        {
+            "label": "Userspace: build",
+            "type": "shell",
+            "command": "scons",
+            "options": {
+                "cwd": "${workspaceFolder}/src/userspace"
+            },
+            "problemMatcher": [],
+            "group": "build"
+        },
+        {
+            "label": "Userspace: clean + build",
+            "type": "shell",
+            "command": "scons -c && scons",
+            "options": {
+                "cwd": "${workspaceFolder}/src/userspace"
+            },
+            "problemMatcher": [],
+            "group": "build"
+        },
+        {
+            "label": "Copy init to image",
+            "type": "shell",
+            "command": "cp src/userspace/bin/init/init image/root/bin/init",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "OS: run (clean, build, run)",
+            "type": "shell",
+            "command": "scons -c && clear && scons run",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": [],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
+        }
+    ]
+}

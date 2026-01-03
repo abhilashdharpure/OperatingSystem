@@ -224,7 +224,7 @@ cd src/userspace/
 scons
 cd ../../
 cp src/userspace/bin/init/init image/root/bin/init
-clear && scons run
+scons -c && clear && scons run
 
 # Check file entry address
 readelf -h image/root/bin/init
@@ -310,11 +310,16 @@ userspace/
         ├── SConscript
         └── test_syscall.c
 
+# Copy user space bin file
 cd src/userspace/
-readelf -h bin/init/init 
-cp bin/init/init ../../image/root/bin/
+scons -c
+scons
 cd ../../
-clear && scons run
+cp src/userspace/bin/init/init image/root/bin/init
+scons -c && clear && scons run
+
+# Check file entry address
+readelf -h image/root/bin/init
 
 
 
@@ -368,3 +373,8 @@ ls /mnt/
 
 # command to check error
 toolchain/x86_64-elf/bin/x86_64-elf-addr2line -f -C  -e build/x86_64_debug/kernel/kernel.elf 0x4654
+
+# Check mount
+losetup -a
+Detach like this, if wan to detach loo35:
+sudo losetup -d /dev/loop35

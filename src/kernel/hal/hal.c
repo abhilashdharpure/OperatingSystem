@@ -67,6 +67,9 @@ void HAL_Initialize()
     paging_init_long_mode_globals();
     log_info("HAL", "After paging_init_long_mode_globals");
 
+    x64_SYSCALL_Initialize();
+    log_info("HAL", "After x64_SYSCALL_Initialize");
+
     x64_ISR_Initialize();
     log_info("HAL", "After x64_ISR_Initialize");
 
