@@ -77,6 +77,9 @@ uint64_t syscall_dispatch(uint64_t nr,
     case SYS_munmap:
         return sys_munmap(a0, a1);
 
+    case SYS_mprotect:
+        return sys_mprotect(a0, a1, a2);
+
     case SYS_test:
         return 123;
     }

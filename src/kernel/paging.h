@@ -20,6 +20,8 @@ void debug_dump_va_mapping(uint64_t *pml4, uint64_t va);
 int      map_page(uint64_t *pml4, uint64_t va, uint64_t pa, uint64_t flags);
 void     unmap_page(uint64_t *pml4, uint64_t va);
 uint64_t get_mapped_phys(uint64_t *pml4, uint64_t va);
+int set_page_flags(uint64_t *pml4, uint64_t va, uint64_t flags);
+
 // int      map_region(uint64_t *pml4, uint64_t va, uint64_t pa_start, uint64_t len, uint64_t flags);
 
 // User page table creation

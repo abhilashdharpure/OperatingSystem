@@ -7,6 +7,7 @@
 #include "paging.h"
 
 #define PAGE_SIZE 0x1000
+// const uint64_t PAGE_SIZE = 0x1000;
 
 // Prot flags (mirror Linux for future compatibility)
 #define PROT_READ   0x1
@@ -177,4 +178,54 @@ uint64_t sys_munmap(uint64_t addr, uint64_t length)
     }
 
     return 0; // success
+}
+
+uint64_t sys_mprotect(uint64_t addr, uint64_t length, uint64_t prot)
+{
+    log_info("SYSCALL", "sys_mprotect addr=%llx len=%llx prot=%llx",
+             (unsigned long long)addr,
+             (unsigned long long)length,
+             (unsigned long long)prot);
+
+    if (!current_process) {
+        log_error("SYSCALL", "sys_mprotect: current_process is NULL");
+        return (uint64_t)-1;
+    }
+
+    if (addr == 0 || length == 0) {
+        log_error("SYSCALL", "sys_mprotect: invalid addr/len");
+        return (uint64_t)-1;
+    }
+
+    // For now, support only readable, and optionally writable
+    if (!(prot & PROT_READ)) {
+        log_error("SYSCALL", "sys_mprotect: pages must be readable");
+        return (uint64_t)-1;
+    }
+
+    // Build PTE flags from prot
+    uint64_t flags = PAGE_PRESENT | PAGE_USER;
+    if (prot & PROT_WRITE)
+        flags |= PAGE_RW;
+    // You can later add PROT_EXEC handling and NX bit here.
+
+    uint64_t start = addr & ~(PAGE_SIZE - 1);
+    uint64_t end   = (addr + length + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+
+    for (uint64_t va = start; va < end; va += PAGE_SIZE) {
+        uint64_t pa = get_mapped_phys(current_process->page_directory, va);
+        if (!pa) {
+            log_error("SYSCALL", "sys_mprotect: VA 0x%llx not mapped",
+                      (unsigned long long)va);
+            continue; // or return -1 if you want strict behavior
+        }
+
+        if (set_page_flags(current_process->page_directory, va, flags) != 0) {
+            log_error("SYSCALL", "sys_mprotect: failed to set flags for VA 0x%llx",
+                      (unsigned long long)va);
+            return (uint64_t)-1;
+        }
+    }
+
+    return 0;
 }

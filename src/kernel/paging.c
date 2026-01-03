@@ -281,6 +281,32 @@ uint64_t get_mapped_phys(uint64_t *pml4, uint64_t va)
     return (e & ~0xFFFULL) | (va & 0xFFFULL);
 }
 
+int set_page_flags(uint64_t *pml4, uint64_t va, uint64_t flags)
+{
+    uint64_t pml4_i = PML4_INDEX(va);
+    uint64_t pdp_i  = PDP_INDEX(va);
+    uint64_t pd_i   = PD_INDEX(va);
+    uint64_t pt_i   = PT_INDEX(va);
+
+    uint64_t *pdp = (uint64_t *)(pml4[pml4_i] & ~0xFFFULL);
+    if (!pdp || !(pml4[pml4_i] & PAGE_PRESENT)) return -1;
+
+    uint64_t *pd = (uint64_t *)(pdp[pdp_i] & ~0xFFFULL);
+    if (!pd || !(pdp[pdp_i] & PAGE_PRESENT)) return -1;
+
+    uint64_t *pt = (uint64_t *)(pd[pd_i] & ~0xFFFULL);
+    if (!pt || !(pd[pd_i] & PAGE_PRESENT)) return -1;
+
+    if (!(pt[pt_i] & PAGE_PRESENT)) return -1;
+
+    // Preserve physical address, change only flags:
+    uint64_t pa = pt[pt_i] & ~0xFFFULL;
+    pt[pt_i] = pa | flags;
+
+    __asm__ volatile("invlpg (%0)" :: "r"(va) : "memory");
+    return 0;
+}
+
 // ----------------------------------------------------------------------
 // User page table creation
 // ----------------------------------------------------------------------

@@ -27,13 +27,26 @@ void test_mmap(void) {
 
     for (int i = 0; i < 4; ++i)
         p[i] = "ABCD"[i];
-
     p[4] = '\0';
+
     printf("mmap buffer: '%s'\n", p);
 
-     int r = munmap(p, len);
-     printf("munmap returned %d\n", r);
+    // Make it read-only
+    int r = mprotect(p, len, PROT_READ);
+    printf("mprotect (RO) returned %d\n", r);
+
+    // This write should now fault with a user-mode page fault
+    // p[0] = 'Z'; // leave disabled for now
+    int r2 = mprotect(p, len, PROT_READ | PROT_WRITE);
+    printf("mprotect (RW) returned %d\n", r2);
+
+    // If you want to avoid crashing for now, comment out the write and instead:
+    // r = mprotect(p, len, PROT_READ | PROT_WRITE);
+    // printf("mprotect (RW) returned %d\n", r);
+
+    munmap(p, len);
 }
+
 
 
 int main() {
