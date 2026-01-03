@@ -141,3 +141,40 @@ uint64_t sys_mmap(uint64_t addr,
 
     return va_start;
 }
+
+uint64_t sys_munmap(uint64_t addr, uint64_t length)
+{
+    log_info("SYSCALL", "sys_munmap addr=%llx len=%llx",
+             (unsigned long long)addr,
+             (unsigned long long)length);
+
+    if (!current_process) {
+        log_error("SYSCALL", "sys_munmap: current_process is NULL");
+        return (uint64_t)-1;
+    }
+
+    if (addr == 0 || length == 0) {
+        log_error("SYSCALL", "sys_munmap: invalid addr/len");
+        return (uint64_t)-1;
+    }
+
+    // Align addr down, length up to page boundaries
+    uint64_t start = addr & ~(PAGE_SIZE - 1);
+    uint64_t end   = (addr + length + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+
+    for (uint64_t va = start; va < end; va += PAGE_SIZE)
+    {
+        uint64_t pa = get_mapped_phys(current_process->page_directory, va);
+        if (!pa) {
+            log_error("SYSCALL", "sys_munmap: VA 0x%llx not mapped",
+                    (unsigned long long)va);
+            continue;
+        }
+
+        // Unmap and free
+        unmap_page(current_process->page_directory, va);
+        pmm_free_page(pa);
+    }
+
+    return 0; // success
+}

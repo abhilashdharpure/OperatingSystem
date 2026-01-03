@@ -241,6 +241,29 @@ int map_page(uint64_t *pml4, uint64_t va, uint64_t pa, uint64_t flags)
     return 0;
 }
 
+void unmap_page(uint64_t *pml4, uint64_t va)
+{
+    uint64_t pml4_i = PML4_INDEX(va);
+    uint64_t pdp_i  = PDP_INDEX(va);
+    uint64_t pd_i   = PD_INDEX(va);
+    uint64_t pt_i   = PT_INDEX(va);
+
+    uint64_t *pdp = (uint64_t *)(pml4[pml4_i] & ~0xFFFULL);
+    if (!pdp) return;
+
+    uint64_t *pd = (uint64_t *)(pdp[pdp_i] & ~0xFFFULL);
+    if (!pd) return;
+
+    uint64_t *pt = (uint64_t *)(pd[pd_i] & ~0xFFFULL);
+    if (!pt) return;
+
+    pt[pt_i] = 0;  // clear PTE
+
+    // Optional: flush TLB for this VA
+    __asm__ volatile("invlpg (%0)" :: "r"(va) : "memory");
+}
+
+
 uint64_t get_mapped_phys(uint64_t *pml4, uint64_t va)
 {
     uint64_t *pdp = get_pdp(pml4, va);

@@ -30,6 +30,9 @@ void test_mmap(void) {
 
     p[4] = '\0';
     printf("mmap buffer: '%s'\n", p);
+
+     int r = munmap(p, len);
+     printf("munmap returned %d\n", r);
 }
 
 
