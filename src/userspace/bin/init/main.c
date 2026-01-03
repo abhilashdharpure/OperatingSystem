@@ -4,6 +4,35 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+#include <sys/mman.h>
+
+// Prot flags (mirror Linux for future compatibility)
+#define PROT_READ   0x1
+#define PROT_WRITE  0x2
+
+// Map flags
+#define MAP_PRIVATE   0x02
+#define MAP_ANONYMOUS 0x20
+
+void test_mmap(void) {
+    size_t len = 4096;
+    char *p = mmap(NULL, len, PROT_READ | PROT_WRITE,
+                   MAP_PRIVATE | MAP_ANONYMOUS,
+                   -1, 0);
+
+    if (p == (void *)-1) {
+        printf("mmap failed\n");
+        return;
+    }
+
+    for (int i = 0; i < 4; ++i)
+        p[i] = "ABCD"[i];
+
+    p[4] = '\0';
+    printf("mmap buffer: '%s'\n", p);
+}
+
+
 int main() {
     printf("Hello from userspace!\n");
 
@@ -29,6 +58,9 @@ int main() {
 
         close(fd);
     }
+
+    printf("Testing mmap...\n");
+    test_mmap();
 
     printf("About to call SYS_exit via SYSCALL\n");
     syscall(SYS_exit, 0, 0, 0);

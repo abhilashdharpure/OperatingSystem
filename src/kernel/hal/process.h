@@ -11,10 +11,11 @@ typedef struct regs {
 } regs_t;
 
 typedef struct Process {
-    regs_t    regs;
-    uint64_t *page_directory;   // PML4 kernel-virtual
-    uint64_t  cr3;              // PML4 physical (for CR3)
-    pid_t     pid;
+    regs_t      regs;
+    uint64_t*   page_directory;   // PML4 kernel-virtual
+    uint64_t    cr3;              // PML4 physical (for CR3)
+    pid_t       pid;
+    uint64_t    mmap_base; // next free VA for mmap
 } Process;
 
 Process *process_create(const char *name);

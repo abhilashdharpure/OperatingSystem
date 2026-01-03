@@ -7,6 +7,8 @@
 #include "debug.h"
 #include "paging.h"
 
+#define USER_MMAP_BASE 0x50000000
+
 #define USER_STACK_SIZE 0x00010000U  // 64 KB
 #define PT_LOAD 1
 
@@ -14,6 +16,7 @@
 #define PF_W  (1 << 1)   // Write
 #define PF_R  (1 << 2)   // Read
 
+extern Process *current_process;
 
 // User VA base (must match user linker script)
 static const uint64_t USER_BASE      = 0x0000000040000000ULL;
@@ -80,9 +83,12 @@ pid_t exec_elf_mem(void *data, size_t size, BootParams* bootParams)
 
     log_info("EXEC", "exec_elf_mem create_user_pd");
 
+    current_process = p;
+
     page_dir_t pd = create_user_pd();
     p->page_directory = pd.pd_virt;  // PML4 VA
     p->cr3            = pd.pd_phys;  // PML4 PA
+    p->mmap_base      = USER_MMAP_BASE;
 
     log_info("EXEC", "exec_elf_mem clone_kernel_mappings");
     // clone_kernel_mappings(p->page_directory);

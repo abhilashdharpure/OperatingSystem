@@ -9,6 +9,7 @@ enum {
     SYS_open   = 3,
     SYS_read   = 4,
     SYS_close  = 5,
+    SYS_mmap   = 6
     // later: SYS_mmap, SYS_poll, SYS_socket, ...
 };
 

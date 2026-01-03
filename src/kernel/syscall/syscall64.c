@@ -31,10 +31,22 @@ void x64_SYSCALL_Initialize(void)
     wrmsr(IA32_FMASK, fmask);
 }
 
+uint64_t sys_mmap_simple(uint64_t length,
+                         uint64_t prot,
+                         uint64_t flags)
+{
+    // addr = 0, fd = -1, offset = 0
+    return sys_mmap(0, length, prot, flags, (uint64_t)-1, 0);
+}
+
+
 uint64_t syscall_dispatch(uint64_t nr,
                           uint64_t a0,
                           uint64_t a1,
-                          uint64_t a2)
+                          uint64_t a2,
+                          uint64_t a3,
+                          uint64_t a4,
+                          uint64_t a5)
 {
     // log_info("SYSCALL", "syscall_dispatch: nr=%llu a0=%llx a1=%llx a2=%llx",
     //          (unsigned long long)nr,
@@ -58,6 +70,10 @@ uint64_t syscall_dispatch(uint64_t nr,
 
     case SYS_close:
         return sys_close(a0);
+
+    case SYS_mmap:
+        return sys_mmap_simple(a0, a1, a2);
+
 
     case SYS_test:
         return 123;

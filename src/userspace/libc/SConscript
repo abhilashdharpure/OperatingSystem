@@ -9,6 +9,7 @@ sources = [
     "src/unistd/open.c",
     "src/unistd/read.c",
     "src/unistd/close.c",
+    "src/sys/mman/mmap.c",
     "src/syscall/syscall.c",
     # "crt/crtbegin.c",
 ]
