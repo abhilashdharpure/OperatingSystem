@@ -6,6 +6,9 @@ sources = [
     "src/stdio/printf.c",
     "src/unistd/write.c",
     "src/unistd/exit.c",
+    "src/unistd/open.c",
+    "src/unistd/read.c",
+    "src/unistd/close.c",
     "src/syscall/syscall.c",
     # "crt/crtbegin.c",
 ]

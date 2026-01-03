@@ -31,7 +31,6 @@ void x64_SYSCALL_Initialize(void)
     wrmsr(IA32_FMASK, fmask);
 }
 
-
 uint64_t syscall_dispatch(uint64_t nr,
                           uint64_t a0,
                           uint64_t a1,
@@ -45,19 +44,57 @@ uint64_t syscall_dispatch(uint64_t nr,
 
     switch (nr) {
     case SYS_write:
-        // log_info("SYSCALL", "SYS_write via SYSCALL");
         return sys_write(a0, (const char *)a1, a2);
 
     case SYS_exit:
-        // log_info("SYSCALL", "SYS_exit via SYSCALL!");
-        sys_exit(a0);              // never returns
+        sys_exit(a0);
         __builtin_unreachable();
 
+    case SYS_open:
+        return sys_open((const char *)a0, a1, a2);
+
+    case SYS_read:
+        return sys_read(a0, (void *)a1, a2);
+
+    case SYS_close:
+        return sys_close(a0);
+
     case SYS_test:
-        log_info("SYSCALL", "SYS_test!");
         return 123;
     }
 
     log_error("SYSCALL", "Unknown syscall %llu", (unsigned long long)nr);
     return (uint64_t)-1;
 }
+
+
+// uint64_t syscall_dispatch(uint64_t nr,
+//                           uint64_t a0,
+//                           uint64_t a1,
+//                           uint64_t a2)
+// {
+//     // log_info("SYSCALL", "syscall_dispatch: nr=%llu a0=%llx a1=%llx a2=%llx",
+//     //          (unsigned long long)nr,
+//     //          (unsigned long long)a0,
+//     //          (unsigned long long)a1,
+//     //          (unsigned long long)a2);
+
+//     switch (nr) {
+//     case SYS_write:
+//         // log_info("SYSCALL", "SYS_write via SYSCALL");
+//         return sys_write(a0, (const char *)a1, a2);
+
+//     case SYS_exit:
+//         // log_info("SYSCALL", "SYS_exit via SYSCALL!");
+//         sys_exit(a0);              // never returns
+//         __builtin_unreachable();
+
+//     case SYS_test:
+//         log_info("SYSCALL", "SYS_test!");
+//         return 123;
+//     }
+
+//     log_error("SYSCALL", "Unknown syscall %llu", (unsigned long long)nr);
+//     return (uint64_t)-1;
+// }
+

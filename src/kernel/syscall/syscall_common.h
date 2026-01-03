@@ -3,8 +3,13 @@
 #include <stdint.h>
 
 typedef int64_t ssize_t;
+typedef int64_t off_t; // temporary simple typedef
 
 ssize_t sys_write(uint64_t fd, const char *buf, uint64_t len);
 
 __attribute__((noreturn))
 void sys_exit(uint64_t code);
+
+int64_t sys_open(const char *path, uint64_t flags, uint64_t mode);
+ssize_t sys_read(uint64_t fd, void *buf, uint64_t len);
+int64_t sys_close(uint64_t fd);
