@@ -5,7 +5,7 @@ init_env = env.Clone()
 program = init_env.Program(
     "init",
     ["main.c", libc],
-    LINKFLAGS = env["LINKFLAGS"] + " -T src/link.ld"
+    LINKFLAGS=env["LINKFLAGS"] + ["-T", "src/link.ld"],
 )
 
 Default(program)

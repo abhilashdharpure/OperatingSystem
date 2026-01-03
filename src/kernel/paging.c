@@ -8,6 +8,11 @@
 #include <arch/x86_64/cpu.h>
 #include <hal/process.h>
 
+
+#define USER_START 0x40000000ULL
+#define USER_END   0x40200000ULL   // adjust to cover your program + stack
+
+
 #define PAGE_SIZE            4096ULL
 
 #define PML4_INDEX(va)       (((uint64_t)(va) >> 39) & 0x1FF)
@@ -284,32 +289,88 @@ page_dir_t create_user_pd(void)
     };
 }
 
-void clone_kernel_mappings(uint64_t *user_pml4)
-{
-    // Copy top-level entries
-    for (int i = 0; i < 512; ++i) {
-        user_pml4[i] = kernel_pml4_virt[i];
-    }
 
-    // For index 0, allocate a new PDPT and copy contents,
+// recursively set PAGE_USER on all PT entries in a range
+static void make_user_mapping(uint64_t *pml4, uint64_t start, uint64_t end)
+{
+    for (uint64_t va = start; va < end; va += PAGE_SIZE)
+    {
+        uint64_t *pdp = get_or_alloc_pdp(pml4, va, PAGE_PRESENT | PAGE_RW | PAGE_USER);
+        if (!pdp) panic("make_user_mapping: get_or_alloc_pdp failed");
+
+        uint64_t *pd = get_or_alloc_pd(pdp, va, PAGE_PRESENT | PAGE_RW | PAGE_USER);
+        if (!pd) panic("make_user_mapping: get_or_alloc_pd failed");
+
+        uint64_t *pt = get_or_alloc_pt(pd, va, PAGE_PRESENT | PAGE_RW | PAGE_USER);
+        if (!pt) panic("make_user_mapping: get_or_alloc_pt failed");
+
+        uint64_t idx = PT_INDEX(va);
+        pt[idx] = (pt[idx] & ~0xFFFULL) | PAGE_PRESENT | PAGE_RW | PAGE_USER;
+
+        // Optional: invalidate TLB
+        __asm__ volatile("invlpg (%0)" :: "r"(va) : "memory");
+    }
+}
+
+// clone kernel PML4 + make user pages accessible
+void clone_kernel_mappings_for_user(uint64_t *user_pml4)
+{
+    // Step 1: clone kernel PML4 entirely
+    memcpy(user_pml4, kernel_pml4_virt, PAGE_SIZE);
+
+    // Step 2: make PML4[0] point to a new PDPT (for user code) if needed
     uint64_t e0 = kernel_pml4_virt[0];
-    if (e0 & PAGE_PRESENT) {
+    if (e0 & PAGE_PRESENT)
+    {
         uint64_t new_pdpt_pa = pmm_alloc_page();
-        if (!new_pdpt_pa) panic("clone_kernel_mappings: failed to alloc PDPT");
+        if (!new_pdpt_pa) panic("clone_kernel_mappings_for_user: failed to alloc PDPT");
 
         memset(phys_to_virt(new_pdpt_pa), 0, PAGE_SIZE);
 
         uint64_t *pdpt_src = (uint64_t *)phys_to_virt(e0 & ~0xFFFULL);
         uint64_t *pdpt_dst = (uint64_t *)phys_to_virt(new_pdpt_pa);
 
-        for (int i = 0; i < 512; ++i) {
+        for (int i = 0; i < 512; ++i)
             pdpt_dst[i] = pdpt_src[i];
-        }
 
-        // Copy original flags but ADD PAGE_USER so user can walk PML4[0]
+        // Copy original flags but add PAGE_USER for PML4[0]
         user_pml4[0] = new_pdpt_pa | (e0 & 0xFFFULL) | PAGE_USER;
     }
+
+    // Step 3: mark user code + stack region as USER
+    make_user_mapping(user_pml4, USER_START, USER_END);
+
+    log_info("Paging", "clone_kernel_mappings_for_user done: user VA 0x%llx-0x%llx now USER-accessible",
+             USER_START, USER_END);
 }
+
+
+// void clone_kernel_mappings(uint64_t *user_pml4)
+// {
+//     // Copy top-level entries
+//     for (int i = 0; i < 512; ++i) {
+//         user_pml4[i] = kernel_pml4_virt[i];
+//     }
+
+//     // For index 0, allocate a new PDPT and copy contents,
+//     uint64_t e0 = kernel_pml4_virt[0];
+//     if (e0 & PAGE_PRESENT) {
+//         uint64_t new_pdpt_pa = pmm_alloc_page();
+//         if (!new_pdpt_pa) panic("clone_kernel_mappings: failed to alloc PDPT");
+
+//         memset(phys_to_virt(new_pdpt_pa), 0, PAGE_SIZE);
+
+//         uint64_t *pdpt_src = (uint64_t *)phys_to_virt(e0 & ~0xFFFULL);
+//         uint64_t *pdpt_dst = (uint64_t *)phys_to_virt(new_pdpt_pa);
+
+//         for (int i = 0; i < 512; ++i) {
+//             pdpt_dst[i] = pdpt_src[i];
+//         }
+
+//         // Copy original flags but ADD PAGE_USER so user can walk PML4[0]
+//         user_pml4[0] = new_pdpt_pa | (e0 & 0xFFFULL) | PAGE_USER;
+//     }
+// }
 
 // ----------------------------------------------------------------------
 // Enter user mode (unchanged semantics – uses p->cr3 and enter_user_mode(p))

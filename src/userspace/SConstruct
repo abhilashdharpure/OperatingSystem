@@ -11,8 +11,22 @@ env = Environment(
     CC=CC,
     AS=AS,
     LD=LD,
-    CFLAGS="-m64 -ffreestanding -nostdlib -fno-pie -fno-stack-protector -Wall -Wextra -Ilibc/include",
-    LINKFLAGS="-nostdlib -Wl,-m,elf_x86_64 -Wl,-z,max-page-size=0x1000"
+    CFLAGS=[
+        "-m64",
+        "-ffreestanding",
+        "-nostdlib",
+        "-fno-pie",
+        "-fno-stack-protector",
+        "-Wall",
+        "-Wextra",
+        "-Werror=implicit-function-declaration",
+        "-Ilibc/include",
+    ],
+    LINKFLAGS=[
+        "-nostdlib",
+        "-Wl,-m,elf_x86_64",
+        "-Wl,-z,max-page-size=0x1000",
+    ],
 )
 
 # Build libc first

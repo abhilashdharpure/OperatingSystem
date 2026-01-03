@@ -85,7 +85,8 @@ pid_t exec_elf_mem(void *data, size_t size, BootParams* bootParams)
     p->cr3            = pd.pd_phys;  // PML4 PA
 
     log_info("EXEC", "exec_elf_mem clone_kernel_mappings");
-    clone_kernel_mappings(p->page_directory);
+    // clone_kernel_mappings(p->page_directory);
+    clone_kernel_mappings_for_user(p->page_directory);
 
     // Pick user memory region (for physical pages only)
     MemoryRegion* user_region = NULL;

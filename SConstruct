@@ -227,13 +227,22 @@ def run_qemu(target, source, env):
         "qemu-system-x86_64",
         "-M", "pc",
         "-m", "512M",
+
+        # First define a drive
+        "-drive", f"id=disk,file={root_img},format=raw,if=none",
+
+        # Then attach it as an IDE hard disk on bus 0 (primary), unit 0 (master)
+        "-device", "ide-hd,drive=disk,bus=ide.0,unit=0",
+
+        # CDROM on a different slot
         "-cdrom", iso,
         "-boot", "d",
-        "-drive", f"file={root_img},format=raw,if=ide,index=0",
+
         "-serial", "mon:stdio",
         "-monitor", "none",
         "-no-reboot",
     ])
+
 
     return None
 
