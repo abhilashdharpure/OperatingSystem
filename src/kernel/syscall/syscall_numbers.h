@@ -19,7 +19,7 @@ enum {
     SYS_getdents    = 14,
     SYS_dup         = 15,
     SYS_dup2        = 16,
-
+    SYS_fcntl       = 17,
 
     // later: SYS_socket, ..
 };

@@ -100,8 +100,12 @@ uint64_t syscall_dispatch(uint64_t nr,
 
     case SYS_dup:
         return sys_dup(a0);
+
     case SYS_dup2:
         return sys_dup2(a0, a1);
+
+    case SYS_fcntl:
+        return sys_fcntl(a0, a1, a2);
 
     case SYS_test:
         return 123;

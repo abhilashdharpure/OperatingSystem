@@ -8,6 +8,7 @@
 #include "hal/elf.h"
 #include "kernel_poll.h"
 #include "libc/include/dirent.h"
+#include "fcntl.h"
 
 #define PAGE_SIZE 0x1000
 // const uint64_t PAGE_SIZE = 0x1000;
@@ -513,4 +514,33 @@ uint64_t sys_dup2(uint64_t oldfd, uint64_t newfd)
 {
     int r = VFS_Dup2((fd_t)oldfd, (fd_t)newfd);
     return (uint64_t)r;
+}
+
+uint64_t sys_fcntl(uint64_t fd, uint64_t cmd, uint64_t arg)
+{
+    if (!VFS_IsValidFd(fd))
+        return (uint64_t)-1;
+
+    struct file *f = VFS_GetFile(fd);
+    if (!f)
+        return (uint64_t)-1;
+
+    switch (cmd) {
+    case F_GETFL:
+        return (uint64_t)f->flags;
+
+    case F_SETFL: {
+        int new_flags = (int)arg;
+        // Only allow changing some bits (e.g., O_NONBLOCK) for now.
+        // Preserve access mode bits (O_RDONLY/O_WRONLY/O_RDWR).
+        int access_mode = f->flags & 0x3;
+        int other_bits  = new_flags & ~0x3;
+        f->flags = access_mode | other_bits;
+        return 0;
+    }
+
+    default:
+        // Unsupported command for now
+        return (uint64_t)-1;
+    }
 }

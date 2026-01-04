@@ -200,6 +200,22 @@ int main()
 
 
 
+    printf("Testing fcntl...\n");
+    fd = open("/folder/demo.txt", O_RDONLY, 0);
+    printf("fcntl open returned fd=%d\n", fd);
+
+    int flags = fcntl(fd, F_GETFL, 0);
+    printf("F_GETFL returned 0x%x\n", flags);
+
+    r = fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+    printf("F_SETFL returned %d\n", r);
+
+    int flags2 = fcntl(fd, F_GETFL, 0);
+    printf("F_GETFL (after) returned 0x%x\n", flags2);
+
+    close(fd);
+
+
     printf("About to call SYS_exit via SYSCALL\n");
     syscall(SYS_exit, 0, 0, 0);
     printf("This should NEVER print\n");

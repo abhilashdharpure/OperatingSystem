@@ -19,6 +19,7 @@ sources = [
     "src/sys/poll/poll.c",
     "src/sys/stat/stat.c",
     "src/sys/dirent/getdents.c",
+    "src/sys/fcntl/fcntl.c",
     "src/syscall/syscall.c",
     # "crt/crtbegin.c",
 ]

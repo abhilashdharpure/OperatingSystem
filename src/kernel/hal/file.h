@@ -19,6 +19,7 @@ struct file {
     void *private_data;         // filesystem or device context
     size_t position;
     int refcount;               // number of FDs sharing this file
+    int flags; 
 };
 
 struct file_operations {

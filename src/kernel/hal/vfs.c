@@ -146,6 +146,7 @@ int VFS_Open(const char *path, int flags)
     f->private_data = vfs_table[mnt].private_data;
     f->position = 0;
     f->refcount = 1;
+    f->flags = flags;   // store initial open flags
 
     // Call filesystem open()
     if (f->fops && f->fops->open) {
