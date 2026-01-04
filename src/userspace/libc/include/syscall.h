@@ -22,11 +22,10 @@ enum {
     SYS_dup2        = 16,
     SYS_fcntl       = 17,
     SYS_pipe        = 18,
-
+    SYS_klog        = 19
 
     // later: SYS_socket, ..
 };
-
 
 ssize_t syscall_write(int fd, const void *buf, size_t len);
 // void syscall_exit(int code);

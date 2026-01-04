@@ -574,3 +574,15 @@ uint64_t sys_pipe(uint64_t user_fds_ptr)
 
     return 0;
 }
+
+uint64_t sys_klog(uint64_t msg_ptr)
+{
+    const char *s = (const char *)msg_ptr;
+    if (!s)
+        return 0;
+
+    while (*s)
+        serial_putc(*s++);
+
+    return 0;
+}

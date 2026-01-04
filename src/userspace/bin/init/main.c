@@ -81,6 +81,7 @@ void test_poll(int fd)
 
 int main()
 {
+    klog("Hello from userspace!\n");
     printf("Hello from userspace!\n");
 
     const char msg[] = "Hello from SYSCALL userland!\n";

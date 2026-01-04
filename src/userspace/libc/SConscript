@@ -21,6 +21,7 @@ sources = [
     "src/sys/stat/stat.c",
     "src/sys/dirent/getdents.c",
     "src/sys/fcntl/fcntl.c",
+    "src/sys/klog/klog.c",
     "src/syscall/syscall.c",
     # "crt/crtbegin.c",
 ]
