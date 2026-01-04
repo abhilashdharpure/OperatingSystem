@@ -5,6 +5,7 @@
 #include "string.h"
 
 typedef int fd_t;
+typedef long off_t;
 
 /* Standard file descriptors */
 #define VFS_FD_STDIN    0

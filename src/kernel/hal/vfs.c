@@ -379,3 +379,44 @@ struct file *VFS_GetFile(fd_t fd)
     return &open_files[fd];
 }
 
+off_t VFS_Lseek(fd_t fd, off_t offset, int whence)
+{
+    if (!VFS_IsValidFd(fd))
+        return (off_t)-1;
+
+    struct file *f = VFS_GetFile(fd);
+    if (!f)
+        return (off_t)-1;
+
+    // Ask filesystem for size via stat()
+    struct kstat st;
+    if (!f->fops || !f->fops->stat)
+        return (off_t)-1;
+
+    if (f->fops->stat(f, &st) < 0)
+        return (off_t)-1;
+
+    off_t size = (off_t)st.st_size;
+    off_t cur  = (off_t)f->position;
+    off_t new_pos = 0;
+
+    switch (whence) {
+    case 0: // SEEK_SET
+        new_pos = offset;
+        break;
+    case 1: // SEEK_CUR
+        new_pos = cur + offset;
+        break;
+    case 2: // SEEK_END
+        new_pos = size + offset;
+        break;
+    default:
+        return (off_t)-1;
+    }
+
+    if (new_pos < 0)
+        return (off_t)-1;
+
+    f->position = (size_t)new_pos;
+    return new_pos;
+}

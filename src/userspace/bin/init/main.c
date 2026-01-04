@@ -7,6 +7,7 @@
 #include <sys/mman.h>
 #include <sys/poll.h>
 #include <sys/stat.h>
+#include <dirent.h>
 
 // Prot flags (mirror Linux for future compatibility)
 #define PROT_READ   0x1
@@ -139,6 +140,40 @@ int main()
     {
         printf("stat failed\n");
     }
+
+    printf("Testing lseek...\n");
+    int fd2 = open("/folder/demo.txt", O_RDONLY, 0);
+    printf("lseek open returned fd=%d\n", fd2);
+
+    if (fd2 >= 0) {
+        char buf[8] = {0};
+
+        // Seek to offset 2
+        off_t off = lseek(fd2, 2, 0); // SEEK_SET = 0
+        printf("lseek returned %ld\n", off);
+
+        ssize_t n = read(fd2, buf, 4);
+        printf("lseek read returned %d bytes, buf='%s'\n", (int)n, buf);
+
+        close(fd2);
+    }
+
+    printf("Testing getdents on '/'\n");
+
+    struct dirent ents[16];
+    int n = getdents("/", ents, 16);
+
+    printf("getdents returned %d\n", n);
+    for (int i = 0; i < n; ++i) {
+        printf("  [%d] ino=%d type=%d name=%s\n",
+            i,
+            (int)ents[i].d_ino,
+            (int)ents[i].d_type,
+            ents[i].d_name);
+    }
+
+
+
 
 
     printf("About to call SYS_exit via SYSCALL\n");

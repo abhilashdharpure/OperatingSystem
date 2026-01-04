@@ -7,6 +7,7 @@
 #include "paging.h"
 #include "hal/elf.h"
 #include "kernel_poll.h"
+#include "libc/include/dirent.h"
 
 #define PAGE_SIZE 0x1000
 // const uint64_t PAGE_SIZE = 0x1000;
@@ -442,4 +443,62 @@ uint64_t sys_fstat(uint64_t fd, uint64_t user_buf_ptr)
 
     *user_buf = st;
     return 0;
+}
+
+uint64_t sys_lseek(uint64_t fd, uint64_t offset, uint64_t whence)
+{
+    off_t ret = VFS_Lseek((fd_t)fd, (off_t)offset, (int)whence);
+    return (uint64_t)ret; // return -1 on error as usual
+}
+
+uint64_t sys_getdents(uint64_t user_path_ptr,
+                      uint64_t user_buf_ptr,
+                      uint64_t max_entries)
+{
+    const char *path = (const char *)user_path_ptr;
+    struct dirent *user_buf = (struct dirent *)user_buf_ptr;
+
+    if (!path || !user_buf || max_entries == 0)
+        return (uint64_t)-1;
+
+    int fd = VFS_Open(path, 0);
+    if (fd < 0)
+        return (uint64_t)-1;
+
+    struct file *dir = VFS_GetFile(fd);
+    if (!dir || !dir->fops || !dir->fops->readdir) {
+        VFS_Close(fd);
+        return (uint64_t)-1;
+    }
+
+    // Small fixed upper bound for now
+    if (max_entries > 64)
+        max_entries = 64;
+
+    dirent_t kentry;
+    struct dirent temp[64];
+    uint64_t count = 0;
+
+    while (count < max_entries &&
+           dir->fops->readdir(dir, &kentry) == 0)
+    {
+        temp[count].d_ino  = kentry.inode;
+        temp[count].d_type = kentry.type;
+
+        // Copy name safely
+        size_t i = 0;
+        for (; i < NAME_MAX - 1 && kentry.name[i]; ++i)
+            temp[count].d_name[i] = kentry.name[i];
+        temp[count].d_name[i] = '\0';
+
+        count++;
+    }
+
+    // Copy all collected entries to userspace
+    for (uint64_t i = 0; i < count; ++i) {
+        user_buf[i] = temp[i];
+    }
+
+    VFS_Close(fd);
+    return count;
 }

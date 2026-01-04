@@ -92,6 +92,12 @@ uint64_t syscall_dispatch(uint64_t nr,
     case SYS_fstat:
         return sys_fstat(a0, a1);
 
+    case SYS_lseek:
+        return sys_lseek(a0, a1, a2);
+
+    case SYS_getdents:
+       return sys_getdents(a0, a1, a2);
+
     case SYS_test:
         return 123;
     }
