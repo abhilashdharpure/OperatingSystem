@@ -216,6 +216,27 @@ int main()
     close(fd);
 
 
+    printf("Testing pipe...\n");
+
+    int fds[2];
+    if (pipe(fds) == 0) {
+        printf("pipe created: r=%d w=%d\n", fds[0], fds[1]);
+
+        const char *msg = "Hello via pipe!\n";
+        ssize_t wn = write(fds[1], msg, 15);
+        printf("pipe write returned %d\n", (int)wn);
+
+        char buf[32] = {0};
+        ssize_t rn = read(fds[0], buf, sizeof(buf)-1);
+        printf("pipe read returned %d, buf='%s'\n", (int)rn, buf);
+
+        close(fds[0]);
+        close(fds[1]);
+    } else {
+        printf("pipe failed\n");
+    }
+
+
     printf("About to call SYS_exit via SYSCALL\n");
     syscall(SYS_exit, 0, 0, 0);
     printf("This should NEVER print\n");

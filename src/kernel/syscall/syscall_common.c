@@ -27,17 +27,30 @@ extern int VFS_IsValidFd(int fd);
 extern int VFS_CanRead(int fd);   // for now: return 1 for regular files
 extern int VFS_CanWrite(int fd);  // for now: maybe also 1
 
-
 ssize_t sys_write(uint64_t fd, const char *buf, uint64_t len)
 {
-    (void)fd;
-    for (uint64_t i = 0; i < len; ++i)
+    // Optional debug:
+    // log_info("SYSCALL", "sys_write fd=%d size=%d", (int)fd, (int)len);
+
+    if (len == 0)
+        return 0;
+
+    if (!VFS_IsValidFd((fd_t)fd) &&
+        fd != VFS_FD_STDIN &&
+        fd != VFS_FD_STDOUT &&
+        fd != VFS_FD_STDERR &&
+        fd != VFS_FD_DEBUG)
     {
-        serial_putc(buf[i]);
+        return -1;
     }
 
-    return len;
+    int written = VFS_Write((fd_t)fd, (uint8_t *)buf, (size_t)len);
+    if (written < 0)
+        return -1;
+
+    return (ssize_t)written;
 }
+
 
 __attribute__((noreturn))
 void sys_exit(uint64_t code)
@@ -543,4 +556,21 @@ uint64_t sys_fcntl(uint64_t fd, uint64_t cmd, uint64_t arg)
         // Unsupported command for now
         return (uint64_t)-1;
     }
+}
+
+uint64_t sys_pipe(uint64_t user_fds_ptr)
+{
+    if (!user_fds_ptr)
+        return (uint64_t)-1;
+
+    int kfds[2];
+    int r = VFS_CreatePipe(kfds);
+    if (r < 0)
+        return (uint64_t)-1;
+
+    int *user_fds = (int *)user_fds_ptr;
+    user_fds[0] = kfds[0];
+    user_fds[1] = kfds[1];
+
+    return 0;
 }

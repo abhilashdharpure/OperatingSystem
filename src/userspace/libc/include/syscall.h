@@ -21,9 +21,12 @@ enum {
     SYS_dup         = 15,
     SYS_dup2        = 16,
     SYS_fcntl       = 17,
+    SYS_pipe        = 18,
+
 
     // later: SYS_socket, ..
 };
+
 
 ssize_t syscall_write(int fd, const void *buf, size_t len);
 // void syscall_exit(int code);

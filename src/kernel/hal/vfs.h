@@ -12,6 +12,7 @@ typedef long off_t;
 #define VFS_FD_STDOUT   1
 #define VFS_FD_STDERR   2
 #define VFS_FD_DEBUG    3
+#define VFS_FD_USER_BASE 4
 
 /* Open flags (minimal set) */
 #define O_RDONLY 0x1
@@ -41,3 +42,5 @@ off_t VFS_Lseek(fd_t fd, off_t offset, int whence);
 static int VFS_AllocFd();
 int VFS_Dup(fd_t oldfd);
 int VFS_Dup2(fd_t oldfd, fd_t newfd);
+
+int VFS_CreatePipe(fd_t fds[2]);

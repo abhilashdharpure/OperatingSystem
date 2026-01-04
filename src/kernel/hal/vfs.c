@@ -2,6 +2,7 @@
 #include <arch/x86_64/vga_text.h>
 #include <arch/x86_64/e9.h>
 #include <debug.h>
+#include "pipe.h"
 
 static int vfs_count = 0;
 static struct file file_table[MAX_OPEN_FILES]; // actual file objects
@@ -22,6 +23,7 @@ int VFS_Write(fd_t file, uint8_t* data, size_t size)
     {
     case VFS_FD_STDIN:
         return 0;
+
     case VFS_FD_STDOUT:
     case VFS_FD_STDERR:
         for (size_t i = 0; i < size; i++)
@@ -32,16 +34,17 @@ int VFS_Write(fd_t file, uint8_t* data, size_t size)
         for (size_t i = 0; i < size; i++)
             e9_putc(data[i]);
         return size;
+
     default:
-        if (file >= 0 && file < MAX_OPEN_FILES && open_files[file]) {
+        if (file >= 0 && file < MAX_OPEN_FILES && open_files[file] != NULL) {
             struct file *f = open_files[file];
             if (f->fops && f->fops->write)
                 return f->fops->write(f, data, size);
         }
         return -1;
-
     }
 }
+
 
 char *kstrdup_safe(const char *s)
 {
@@ -171,25 +174,23 @@ int VFS_Open(const char *path, int flags)
 int VFS_IsValidFd(fd_t fd)
 {
     if (fd < 0 || fd >= MAX_OPEN_FILES)
+    {
+        log_error("VFS", "VFS_IsValidFd returning NULL");
         return 0;
+    }
     return open_files[fd] != NULL;
 }
 
 
 int VFS_Read(fd_t fd, void *buf, size_t size)
 {
-    if (fd < 0 || fd >= MAX_OPEN_FILES || open_files[fd]->path == NULL)
+    if (fd < 0 || fd >= MAX_OPEN_FILES || open_files[fd] == NULL)
     {
         log_error("VFS", "VFS_Read invalid fd or closed");
         return -1;
     }
 
     struct file *file = open_files[fd];
-    // log_debug("VFS", "VFS_Read file path = %s", file->path);
-    // log_debug("VFS", "VFS_Read file subpath = %s", file->subpath);
-    // log_debug("VFS", "VFS_Read file position = %d", file->position);
-    // log_debug("VFS", "VFS_Read file private_data = %d", file->private_data);
-    // log_debug("VFS", "VFS_Read file size = %d", size);
 
     if (file->fops && file->fops->read)
     {
@@ -203,6 +204,7 @@ int VFS_Read(fd_t fd, void *buf, size_t size)
     log_error("VFS", "VFS_Read: no read op");
     return -1;
 }
+
 
 int VFS_Close(fd_t fd)
 {
@@ -459,13 +461,14 @@ off_t VFS_Lseek(fd_t fd, off_t offset, int whence)
 
 static int VFS_AllocFd(void)
 {
-    for (int i = 0; i < MAX_OPEN_FILES; ++i) {
+    for (int i = VFS_FD_USER_BASE; i < MAX_OPEN_FILES; ++i) {
         if (open_files[i] == NULL) {
             return i;
         }
     }
     return -1;
 }
+
 
 int VFS_Dup(fd_t oldfd)
 {
@@ -509,4 +512,71 @@ int VFS_Dup2(fd_t oldfd, fd_t newfd)
     open_files[newfd] = oldf;
     oldf->refcount++;
     return newfd;
+}
+
+int VFS_CreatePipe(fd_t fds[2])
+{
+    // Allocate pipe object
+    pipe_t *p = (pipe_t *)kmalloc(sizeof(pipe_t));
+    if (!p)
+        return -1;
+
+    p->read_pos  = 0;
+    p->write_pos = 0;
+    p->count     = 0;
+    p->refcount  = 2;
+
+    // Allocate two FDs
+    int fd_read = VFS_AllocFd();
+    if (fd_read < 0) {
+        kfree(p);
+        return -1;
+    }
+
+    // Temporarily reserve fd_read so the next VFS_AllocFd() won't reuse it
+    open_files[fd_read] = (struct file *)1;  // non-NULL dummy
+
+    int fd_write = VFS_AllocFd();
+    if (fd_write < 0) {
+        open_files[fd_read] = NULL;
+        kfree(p);
+        return -1;
+    }
+
+    // Now allocate two file objects
+    struct file *fr = VFS_AllocFile();
+    struct file *fw = VFS_AllocFile();
+    if (!fr || !fw) {
+        open_files[fd_read]  = NULL;
+        open_files[fd_write] = NULL;
+        kfree(p);
+        return -1;
+    }
+
+    // Initialize read end
+    fr->path         = NULL;
+    fr->subpath      = NULL;
+    fr->fops         = pipe_get_fops();  // from pipe.c
+    fr->private_data = p;
+    fr->position     = 0;
+    fr->refcount     = 1;
+    fr->flags        = O_RDONLY;
+
+    // Initialize write end
+    fw->path         = NULL;
+    fw->subpath      = NULL;
+    fw->fops         = pipe_get_fops();
+    fw->private_data = p;
+    fw->position     = 0;
+    fw->refcount     = 1;
+    fw->flags        = O_WRONLY;
+
+    // Install into FD table
+    open_files[fd_read]  = fr;
+    open_files[fd_write] = fw;
+
+    fds[0] = fd_read;
+    fds[1] = fd_write;
+
+    return 0;
 }

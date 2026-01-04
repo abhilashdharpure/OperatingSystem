@@ -29,6 +29,6 @@ struct file_operations {
     int  (*write)(struct file *file, const void *buf, size_t size);
     int  (*ioctl)(struct file* f, unsigned long request, void* arg);
     int  (*readdir)(struct file *dir, dirent_t *);
-
-    int (*stat)(struct file *f, struct kstat *st);
+    int  (*stat)(struct file *f, struct kstat *st);
+    // int  (*readdir)(struct file *f, dirent_t *ent);
 };

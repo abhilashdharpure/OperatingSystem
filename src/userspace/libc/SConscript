@@ -11,6 +11,7 @@ sources = [
     "src/unistd/close.c",
     "src/unistd/lseek.c",
     "src/unistd/dup.c",
+    "src/unistd/pipe.c",
     "src/sys/mman/mmap.c",
     "src/sys/mman/munmap.c",
     "src/sys/mman/mprotect.c",

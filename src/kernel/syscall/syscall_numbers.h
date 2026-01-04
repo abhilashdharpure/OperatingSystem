@@ -20,6 +20,8 @@ enum {
     SYS_dup         = 15,
     SYS_dup2        = 16,
     SYS_fcntl       = 17,
+    SYS_pipe        = 18,
+
 
     // later: SYS_socket, ..
 };

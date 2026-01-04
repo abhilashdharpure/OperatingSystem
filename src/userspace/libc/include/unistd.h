@@ -15,3 +15,4 @@ void *sbrk(intptr_t increment);
 off_t lseek(int fd, off_t offset, int whence);
 int dup(int oldfd);
 int dup2(int oldfd, int newfd);
+int pipe(int fds[2]);
