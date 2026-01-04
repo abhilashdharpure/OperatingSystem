@@ -7,8 +7,6 @@
 #include "debug.h"
 #include "paging.h"
 
-#define USER_MMAP_BASE 0x50000000
-
 #define USER_STACK_SIZE 0x00010000U  // 64 KB
 #define PT_LOAD 1
 
@@ -89,6 +87,11 @@ pid_t exec_elf_mem(void *data, size_t size, BootParams* bootParams)
     p->page_directory = pd.pd_virt;  // PML4 VA
     p->cr3            = pd.pd_phys;  // PML4 PA
     p->mmap_base      = USER_MMAP_BASE;
+    p->brk_start = USER_HEAP_START;
+    p->brk_end   = USER_HEAP_START;  // nothing mapped yet
+    p->brk_cur   = USER_HEAP_START;
+    p->brk_end_limit = USER_HEAP_END; // if you add that field
+
 
     log_info("EXEC", "exec_elf_mem clone_kernel_mappings");
     // clone_kernel_mappings(p->page_directory);

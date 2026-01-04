@@ -12,6 +12,9 @@ sources = [
     "src/sys/mman/mmap.c",
     "src/sys/mman/munmap.c",
     "src/sys/mman/mprotect.c",
+    "src/memory/brk.c",
+    "src/sys/mman/mprotect.c",
+    "src/sys/poll/poll.c",
     "src/syscall/syscall.c",
     # "crt/crtbegin.c",
 ]

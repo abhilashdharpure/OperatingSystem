@@ -10,3 +10,5 @@ void exit(int code);
 int     open(const char *path, int flags, int mode);
 ssize_t read(int fd, void *buf, size_t len);
 int     close(int fd);
+int brk(void *addr);
+void *sbrk(intptr_t increment);

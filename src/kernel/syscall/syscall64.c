@@ -80,6 +80,13 @@ uint64_t syscall_dispatch(uint64_t nr,
     case SYS_mprotect:
         return sys_mprotect(a0, a1, a2);
 
+    case SYS_brk:
+        return sys_brk(a0);
+    
+    case SYS_poll:
+        return sys_poll(a0, a1, a2);
+
+
     case SYS_test:
         return 123;
     }

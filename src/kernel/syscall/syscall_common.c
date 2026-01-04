@@ -5,6 +5,8 @@
 #include "hal/process.h"
 #include "pmm.h"
 #include "paging.h"
+#include "hal/elf.h"
+#include "kernel_poll.h"
 
 #define PAGE_SIZE 0x1000
 // const uint64_t PAGE_SIZE = 0x1000;
@@ -18,6 +20,10 @@
 #define MAP_ANONYMOUS 0x20
 
 Process *current_process;
+
+extern int VFS_IsValidFd(int fd);
+extern int VFS_CanRead(int fd);   // for now: return 1 for regular files
+extern int VFS_CanWrite(int fd);  // for now: maybe also 1
 
 
 ssize_t sys_write(uint64_t fd, const char *buf, uint64_t len)
@@ -228,4 +234,169 @@ uint64_t sys_mprotect(uint64_t addr, uint64_t length, uint64_t prot)
     }
 
     return 0;
+}
+
+uint64_t sys_brk(uint64_t new_brk)
+{
+    if (!current_process) {
+        log_error("SYSCALL", "sys_brk: current_process is NULL");
+        return 0;
+    }
+
+    // Query current break
+    if (new_brk == 0) {
+        return current_process->brk_cur;
+    }
+
+    uint64_t old_brk = current_process->brk_cur;
+
+    // Enforce heap bounds
+    if (new_brk < current_process->brk_start) {
+        log_error("SYSCALL", "sys_brk: new_brk below heap start");
+        return old_brk;
+    }
+
+    // For now, clamp to some max (static or per-process)
+    if (new_brk > USER_HEAP_END) {
+        log_error("SYSCALL", "sys_brk: new_brk beyond heap limit");
+        return old_brk;
+    }
+
+    // Grow
+    if (new_brk > old_brk) {
+        uint64_t grow_start = (old_brk + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+        uint64_t grow_end   = (new_brk + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+
+        for (uint64_t va = grow_start; va < grow_end; va += PAGE_SIZE) {
+            uint64_t pa = pmm_alloc_page();
+            if (!pa) {
+                log_error("SYSCALL", "sys_brk: out of physical memory");
+                // Do not roll back already mapped pages for simplicity.
+                current_process->brk_cur = va;
+                return current_process->brk_cur;
+            }
+
+            map_page(current_process->page_directory, va, pa,
+                     PAGE_PRESENT | PAGE_RW | PAGE_USER);
+        }
+
+        current_process->brk_cur = new_brk;
+        if (current_process->brk_end < grow_end)
+            current_process->brk_end = grow_end;
+        return current_process->brk_cur;
+    }
+
+    // Shrink
+    if (new_brk < old_brk) {
+        uint64_t shrink_start = (new_brk + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+        uint64_t shrink_end   = (old_brk + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+
+        for (uint64_t va = shrink_start; va < shrink_end; va += PAGE_SIZE) {
+            uint64_t pa = get_mapped_phys(current_process->page_directory, va);
+            if (!pa)
+                continue;
+
+            unmap_page(current_process->page_directory, va);
+            pmm_free_page(pa);
+        }
+
+        current_process->brk_cur = new_brk;
+        // You can also adjust brk_end downward, but not strictly necessary.
+        return current_process->brk_cur;
+    }
+
+    // new_brk == old_brk
+    return old_brk;
+}
+
+uint64_t sys_poll(uint64_t ufds_ptr,
+                  uint64_t nfds,
+                  uint64_t timeout_ms)
+{
+    (void)timeout_ms; // ignore for now (non-blocking)
+
+    log_info("SYSCALL", "sys_poll: Start");
+
+    if (ufds_ptr == 0 || nfds == 0)
+        return 0;
+
+    // Very small upper bound for now to keep stack usage sane
+    if (nfds > 64) {
+        log_error("SYSCALL", "sys_poll: nfds too large (%llu)",
+                  (unsigned long long)nfds);
+        return (uint64_t)-1;
+    }
+
+    struct pollfd local_fds[64];
+
+    // Copy from user
+    // For now, assuming user and kernel share address space; if you later
+    // enforce user/kernel VA separation, you'll need a safe copy routine.
+    struct pollfd *user_fds = (struct pollfd *)ufds_ptr;
+    for (uint64_t i = 0; i < nfds; ++i) {
+        local_fds[i] = user_fds[i];
+    }
+
+    log_info("SYSCALL", "sys_poll: nfds = %i", nfds);
+
+    int ready_count = 0;
+
+    for (uint64_t i = 0; i < nfds; ++i)
+    {
+        struct pollfd *pfd = &local_fds[i];
+        pfd->revents = 0;
+        log_info("SYSCALL", "sys_poll: 1");
+
+        if (pfd->fd < 0)
+        {
+            log_info("SYSCALL", "sys_poll: if (pfd->fd < 0)");
+            continue;
+        }
+
+        log_info("SYSCALL", "sys_poll: 2");
+        if (!VFS_IsValidFd(pfd->fd))
+        {
+            log_info("SYSCALL", "sys_poll: if (!VFS_IsValidFd(pfd->fd))");
+
+            pfd->revents |= POLLNVAL;
+            continue;
+        }
+        log_info("SYSCALL", "sys_poll: 3");
+        if (pfd->events & POLLIN)
+        {
+            log_info("SYSCALL", "sys_poll: 4");
+            if (VFS_CanRead(pfd->fd))
+            {
+                log_info("SYSCALL", "sys_poll: VFS_CanRead");
+                pfd->revents |= POLLIN;
+            }
+        }
+
+        log_info("SYSCALL", "sys_poll: 5");
+
+        if (pfd->events & POLLOUT)
+        {
+            log_info("SYSCALL", "sys_poll: 6");
+            if (VFS_CanWrite(pfd->fd))
+            {
+                log_info("SYSCALL", "sys_poll: VFS_CanWrite");
+                pfd->revents |= POLLOUT;
+            }
+        }
+
+        log_info("SYSCALL", "sys_poll: 7");
+        if (pfd->revents != 0)
+            ready_count++;
+    }
+    log_info("SYSCALL", "sys_poll: 8");
+
+    // Copy back to user
+    for (uint64_t i = 0; i < nfds; ++i)
+    {
+        user_fds[i] = local_fds[i];
+    }
+
+    log_info("SYSCALL", "sys_poll: 9");
+
+    return (uint64_t)ready_count;
 }

@@ -11,5 +11,10 @@ enum {
     SYS_mmap        = 6,
     SYS_munmap      = 7,
     SYS_mprotect    = 8,
-    // later: SYS_poll, SYS_socket, ..
+    SYS_brk         = 9,
+    SYS_poll        = 10,
+    SYS_stat        = 11,
+    SYS_fstat       = 12,
+
+    // later: SYS_socket, ..
 };

@@ -142,6 +142,14 @@ int VFS_Open(const char *path, int flags)
     return -1;
 }
 
+int VFS_IsValidFd(fd_t fd)
+{
+    if (fd < 0 || fd >= MAX_OPEN_FILES)
+        return 0;
+    return open_files[fd].path != NULL;
+}
+
+
 int VFS_Read(fd_t fd, void *buf, size_t size)
 {
     if (fd < 0 || fd >= MAX_OPEN_FILES || open_files[fd].path == NULL)
@@ -311,5 +319,53 @@ int VFS_List(const char *path, void (*callback)(const dirent_t *))
     }
 
     VFS_Close(fd);
+    return 0;
+}
+int VFS_CanRead(fd_t fd)
+{
+    if (!VFS_IsValidFd(fd))
+        return 0;
+
+    struct file *f = &open_files[fd];
+
+    // Special cases for stdio/debug
+    if (fd == VFS_FD_STDIN) {
+        // TODO: hook up real keyboard buffer; for now, nothing pending
+        return 0;
+    }
+
+    if (fd == VFS_FD_STDOUT || fd == VFS_FD_STDERR || fd == VFS_FD_DEBUG) {
+        // These are "write-only" streams
+        return 0;
+    }
+
+    // Normal file: for now, assume readable if it has a read op
+    if (f->fops && f->fops->read)
+        return 1;
+
+    return 0;
+}
+
+int VFS_CanWrite(fd_t fd)
+{
+    if (!VFS_IsValidFd(fd))
+        return 0;
+
+    struct file *f = &open_files[fd];
+
+    if (fd == VFS_FD_STDOUT || fd == VFS_FD_STDERR || fd == VFS_FD_DEBUG) {
+        // Always writable
+        return 1;
+    }
+
+    if (fd == VFS_FD_STDIN) {
+        // stdin is not writable
+        return 0;
+    }
+
+    // Normal file: assume writable if there's a write op
+    if (f->fops && f->fops->write)
+        return 1;
+
     return 0;
 }

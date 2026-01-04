@@ -15,8 +15,14 @@ typedef struct Process {
     uint64_t*   page_directory;   // PML4 kernel-virtual
     uint64_t    cr3;              // PML4 physical (for CR3)
     pid_t       pid;
-    uint64_t    mmap_base; // next free VA for mmap
+    uint64_t    mmap_base;  // next free VA for mmap
+
+    uint64_t    brk_start;  // heap region start
+    uint64_t    brk_end;    // heap region limit (max)
+    uint64_t    brk_cur;    // current program break
+    uint64_t    brk_end_limit
 } Process;
+
 
 Process *process_create(const char *name);
 uintptr_t process_setup_stack(Process *p);

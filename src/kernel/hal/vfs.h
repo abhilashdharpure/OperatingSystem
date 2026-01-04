@@ -29,3 +29,6 @@ int VFS_Read(fd_t fd, void *buf, size_t size);
 int VFS_Close(fd_t fd);
 
 int VFS_List(const char *path, void (*callback)(const dirent_t *));
+int VFS_IsValidFd(int fd);
+int VFS_CanRead(int fd);
+int VFS_CanWrite(int fd);
