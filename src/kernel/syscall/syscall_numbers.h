@@ -17,6 +17,9 @@ enum {
     SYS_fstat       = 12,
     SYS_lseek       = 13,
     SYS_getdents    = 14,
+    SYS_dup         = 15,
+    SYS_dup2        = 16,
+
 
     // later: SYS_socket, ..
 };

@@ -172,7 +172,31 @@ int main()
             ents[i].d_name);
     }
 
+    printf("Testing dup...\n");
+    fd = open("/folder/demo.txt", O_RDONLY, 0);
+    printf("dup open returned fd=%d\n", fd);
 
+    fd2 = dup(fd);
+    printf("dup returned fd2=%d\n", fd2);
+
+    char buf1[8] = {0};
+    char buf2[8] = {0};
+
+    read(fd, buf1, 2);   // read "De"
+    read(fd2, buf2, 2);  // should continue from same position -> "mo"
+
+    printf("fd read='%s', fd2 read='%s'\n", buf1, buf2);
+
+    close(fd);
+    close(fd2);
+
+    printf("Testing dup2...\n");
+    int fd3 = open("/folder/demo.txt", O_RDONLY, 0);
+    int fd4 = 10;
+    int r = dup2(fd3, fd4);
+    printf("dup2 returned %d, new fd=%d\n", r, fd4);
+    close(fd3);
+    close(fd4);
 
 
 

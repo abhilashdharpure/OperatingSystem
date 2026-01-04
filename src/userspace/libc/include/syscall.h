@@ -18,10 +18,12 @@ enum {
     SYS_fstat       = 12,
     SYS_lseek       = 13,
     SYS_getdents    = 14,
+    SYS_dup         = 15,
+    SYS_dup2        = 16,
+
 
     // later: SYS_socket, ..
 };
-
 ssize_t syscall_write(int fd, const void *buf, size_t len);
 // void syscall_exit(int code);
 

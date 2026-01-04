@@ -502,3 +502,15 @@ uint64_t sys_getdents(uint64_t user_path_ptr,
     VFS_Close(fd);
     return count;
 }
+
+uint64_t sys_dup(uint64_t oldfd)
+{
+    int r = VFS_Dup((fd_t)oldfd);
+    return (uint64_t)r;
+}
+
+uint64_t sys_dup2(uint64_t oldfd, uint64_t newfd)
+{
+    int r = VFS_Dup2((fd_t)oldfd, (fd_t)newfd);
+    return (uint64_t)r;
+}

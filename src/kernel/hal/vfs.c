@@ -4,7 +4,9 @@
 #include <debug.h>
 
 static int vfs_count = 0;
-static struct file open_files[MAX_OPEN_FILES];
+static struct file file_table[MAX_OPEN_FILES]; // actual file objects
+static struct file *open_files[MAX_OPEN_FILES]; // fd -> file*
+
 
 typedef struct vfs_entry {
     const char *path;                // mount point or device path, e.g., "/"
@@ -30,14 +32,14 @@ int VFS_Write(fd_t file, uint8_t* data, size_t size)
         for (size_t i = 0; i < size; i++)
             e9_putc(data[i]);
         return size;
-
     default:
-        if (file >= 0 && file < MAX_OPEN_FILES && open_files[file].path) {
-            struct file *f = &open_files[file];
+        if (file >= 0 && file < MAX_OPEN_FILES && open_files[file]) {
+            struct file *f = open_files[file];
             if (f->fops && f->fops->write)
                 return f->fops->write(f, data, size);
         }
         return -1;
+
     }
 }
 
@@ -85,80 +87,103 @@ int VFS_RegisterDevice(const char *path, struct file_operations *fops, void *pri
 static void compute_subpath(const char *full, const char *mount, char *out, size_t outlen);
 static int find_mount_for(const char *path);
 
+void VFS_Init(void)
+{
+    for (int i = 0; i < MAX_OPEN_FILES; i++) {
+        open_files[i] = NULL;
+        file_table[i].path = NULL;
+        file_table[i].refcount = 0;
+    }
+}
+
+static struct file *VFS_AllocFile(void)
+{
+    for (int i = 0; i < MAX_OPEN_FILES; i++) {
+        if (file_table[i].path == NULL) {
+            return &file_table[i];
+        }
+    }
+    return NULL;
+}
+
 int VFS_Open(const char *path, int flags)
 {
-    // log_info("VFS", "Trying to open: %s", path);
-
-    // find mounted filesystem
     int mnt = find_mount_for(path);
     if (mnt < 0) {
         log_error("VFS", "Not found (no mount): %s", path);
         return -1;
     }
 
-    // compute subpath relative to mountpoint
     char subpath[256];
     compute_subpath(path, vfs_table[mnt].path, subpath, sizeof(subpath));
-    // log_info("VFS", "VFS_Open subpath: %s", subpath);
 
-    // find free fd entry
-    for (int fd = 0; fd < MAX_OPEN_FILES; fd++)
-    {
-        if (open_files[fd].path == NULL)
-        {
+    int fd = VFS_AllocFd();
+    if (fd < 0) {
+        log_error("VFS", "Too many open files");
+        return -1;
+    }
 
-            // save subpath inside file descriptor
-            char *saved = kstrdup_safe(subpath);
-            if (!saved) {
-                log_error("VFS", "Out of memory storing subpath");
-                return -1;
-            }
+    struct file *f = VFS_AllocFile();
+    if (!f) {
+        log_error("VFS", "No free file objects");
+        return -1;
+    }
 
-            open_files[fd].path = saved;
-            open_files[fd].subpath = subpath;
-            open_files[fd].fops = vfs_table[mnt].fops;
-            open_files[fd].private_data = vfs_table[mnt].private_data;
-            open_files[fd].position = 0;
+    // Allocate persistent strings
+    char *saved_path = kstrdup_safe(path);
+    char *saved_sub  = kstrdup_safe(subpath);
+    if (!saved_path || !saved_sub) {
+        log_error("VFS", "Out of memory storing paths");
+        if (saved_path) kfree(saved_path);
+        if (saved_sub)  kfree(saved_sub);
+        return -1;
+    }
 
-            // call filesystem’s open()
-            if (open_files[fd].fops && open_files[fd].fops->open) {
-                int r = open_files[fd].fops->open(&open_files[fd], flags);
-                if (r < 0) {
-                    kfree(saved);
-                    open_files[fd].path = NULL;
-                    open_files[fd].fops = NULL;
-                    open_files[fd].private_data = NULL;
-                    log_error("VFS", "Filesystem open() failed (%s → %s)", path, subpath);
-                    return -1;
-                }
-            }
+    // Fill file object
+    f->path = saved_path;
+    f->subpath = saved_sub;
+    f->fops = vfs_table[mnt].fops;
+    f->private_data = vfs_table[mnt].private_data;
+    f->position = 0;
+    f->refcount = 1;
 
-            // log_info("VFS", "Opened '%s' -> fd=%d (mnt=%s, sub=%s)", path, fd, vfs_table[mnt].path, subpath);
-            return fd;
+    // Call filesystem open()
+    if (f->fops && f->fops->open) {
+        int r = f->fops->open(f, flags);
+        if (r < 0) {
+            kfree(saved_path);
+            kfree(saved_sub);
+            f->path = NULL;
+            f->subpath = NULL;
+            f->fops = NULL;
+            f->private_data = NULL;
+            return -1;
         }
     }
 
-    log_error("VFS", "Too many open files");
-    return -1;
+    // Install into FD table
+    open_files[fd] = f;
+    return fd;
 }
+
 
 int VFS_IsValidFd(fd_t fd)
 {
     if (fd < 0 || fd >= MAX_OPEN_FILES)
         return 0;
-    return open_files[fd].path != NULL;
+    return open_files[fd] != NULL;
 }
 
 
 int VFS_Read(fd_t fd, void *buf, size_t size)
 {
-    if (fd < 0 || fd >= MAX_OPEN_FILES || open_files[fd].path == NULL)
+    if (fd < 0 || fd >= MAX_OPEN_FILES || open_files[fd]->path == NULL)
     {
         log_error("VFS", "VFS_Read invalid fd or closed");
         return -1;
     }
 
-    struct file *file = &open_files[fd];
+    struct file *file = open_files[fd];
     // log_debug("VFS", "VFS_Read file path = %s", file->path);
     // log_debug("VFS", "VFS_Read file subpath = %s", file->subpath);
     // log_debug("VFS", "VFS_Read file position = %d", file->position);
@@ -180,29 +205,40 @@ int VFS_Read(fd_t fd, void *buf, size_t size)
 
 int VFS_Close(fd_t fd)
 {
-    if (fd < 0 || fd >= MAX_OPEN_FILES || open_files[fd].path == NULL)
-    {
+    if (!VFS_IsValidFd(fd))
         return -1;
-    }
 
-    struct file *file = &open_files[fd];
-    if (file->fops && file->fops->close)
-    {
-        file->fops->close(file);
-    }
+    struct file *f = open_files[fd];
+    if (!f)
+        return -1;
 
-    // free the kstrdup'd path we set in VFS_Open
-    if (open_files[fd].path)
-    {
-        kfree((void*)open_files[fd].path);
-        open_files[fd].path = NULL;
-    }
+    // Remove FD entry
+    open_files[fd] = NULL;
 
-    open_files[fd].fops = NULL;
-    open_files[fd].private_data = NULL;
-    file->position = 0;
+    // Decrement refcount
+    f->refcount--;
+    if (f->refcount > 0)
+        return 0;
+
+    // Last reference → close underlying FS object
+    if (f->fops && f->fops->close)
+        f->fops->close(f);
+
+    // Free strings
+    if (f->path)    kfree(f->path);
+    if (f->subpath) kfree(f->subpath);
+
+    // Clear file object
+    f->path = NULL;
+    f->subpath = NULL;
+    f->fops = NULL;
+    f->private_data = NULL;
+    f->position = 0;
+    f->refcount = 0;
+
     return 0;
 }
+
 
 // mount a filesystem or register a device at a mount point
 int VFS_Mount(const char *mount_path, struct file_operations *fops, void *ctx)
@@ -307,7 +343,7 @@ int VFS_List(const char *path, void (*callback)(const dirent_t *))
     int fd = VFS_Open(path, 0);
     if (fd < 0) return -1;
 
-    struct file *dir = &open_files[fd];
+    struct file *dir = open_files[fd];
     if (!dir->fops || !dir->fops->readdir) {
         VFS_Close(fd);
         return -1;
@@ -326,7 +362,7 @@ int VFS_CanRead(fd_t fd)
     if (!VFS_IsValidFd(fd))
         return 0;
 
-    struct file *f = &open_files[fd];
+    struct file *f = open_files[fd];
 
     // Special cases for stdio/debug
     if (fd == VFS_FD_STDIN) {
@@ -374,10 +410,9 @@ struct file *VFS_GetFile(fd_t fd)
 {
     if (fd < 0 || fd >= MAX_OPEN_FILES)
         return NULL;
-    if (open_files[fd].path == NULL)
-        return NULL;
-    return &open_files[fd];
+    return open_files[fd];
 }
+
 
 off_t VFS_Lseek(fd_t fd, off_t offset, int whence)
 {
@@ -419,4 +454,58 @@ off_t VFS_Lseek(fd_t fd, off_t offset, int whence)
 
     f->position = (size_t)new_pos;
     return new_pos;
+}
+
+static int VFS_AllocFd(void)
+{
+    for (int i = 0; i < MAX_OPEN_FILES; ++i) {
+        if (open_files[i] == NULL) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+int VFS_Dup(fd_t oldfd)
+{
+    if (!VFS_IsValidFd(oldfd))
+        return -1;
+
+    struct file *oldf = VFS_GetFile(oldfd);
+    if (!oldf)
+        return -1;
+
+    int newfd = VFS_AllocFd();
+    if (newfd < 0)
+        return -1;
+
+    open_files[newfd] = oldf;
+    oldf->refcount++;
+    return newfd;
+}
+
+int VFS_Dup2(fd_t oldfd, fd_t newfd)
+{
+    if (!VFS_IsValidFd(oldfd))
+        return -1;
+
+    if (oldfd == newfd)
+        return newfd;
+
+    struct file *oldf = VFS_GetFile(oldfd);
+    if (!oldf)
+        return -1;
+
+    // If newfd is open, close it first
+    if (VFS_IsValidFd(newfd)) {
+        VFS_Close(newfd);
+    }
+
+    // Make sure newfd slot exists
+    if (newfd < 0 || newfd >= MAX_OPEN_FILES)
+        return -1;
+
+    open_files[newfd] = oldf;
+    oldf->refcount++;
+    return newfd;
 }

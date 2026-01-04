@@ -319,6 +319,9 @@ void start(BootParams* bootParams, VbeModeInfo* fb_info)
 
     log_info("Main", "Kernel After HAL intialized");
 
+    VFS_Init();  
+    log_info("Main", "Kernel After VFS_Init");
+
     init_filesystem();
     log_info("Main", "Kernel After init_filesystem");
 
