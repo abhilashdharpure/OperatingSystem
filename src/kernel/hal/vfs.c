@@ -99,7 +99,7 @@ void VFS_Init(void)
     }
 }
 
-static struct file *VFS_AllocFile(void)
+struct file *VFS_AllocFile(void)
 {
     for (int i = 0; i < MAX_OPEN_FILES; i++) {
         if (file_table[i].path == NULL) {
@@ -367,18 +367,11 @@ int VFS_CanRead(fd_t fd)
 
     struct file *f = open_files[fd];
 
-    // Special cases for stdio/debug
-    if (fd == VFS_FD_STDIN) {
-        // TODO: hook up real keyboard buffer; for now, nothing pending
-        return 0;
-    }
+    // If the file provides a readiness callback, use it
+    if (f->fops && f->fops->can_read)
+        return f->fops->can_read(f);
 
-    if (fd == VFS_FD_STDOUT || fd == VFS_FD_STDERR || fd == VFS_FD_DEBUG) {
-        // These are "write-only" streams
-        return 0;
-    }
-
-    // Normal file: for now, assume readable if it has a read op
+    // Otherwise: readable only if it has a read op
     if (f->fops && f->fops->read)
         return 1;
 
@@ -390,19 +383,13 @@ int VFS_CanWrite(fd_t fd)
     if (!VFS_IsValidFd(fd))
         return 0;
 
-    struct file *f = &open_files[fd];
+    struct file *f = open_files[fd];
 
-    if (fd == VFS_FD_STDOUT || fd == VFS_FD_STDERR || fd == VFS_FD_DEBUG) {
-        // Always writable
-        return 1;
-    }
+    // If the file provides a readiness callback, use it
+    if (f->fops && f->fops->can_write)
+        return f->fops->can_write(f);
 
-    if (fd == VFS_FD_STDIN) {
-        // stdin is not writable
-        return 0;
-    }
-
-    // Normal file: assume writable if there's a write op
+    // Otherwise: writable only if it has a write op
     if (f->fops && f->fops->write)
         return 1;
 
@@ -459,7 +446,7 @@ off_t VFS_Lseek(fd_t fd, off_t offset, int whence)
     return new_pos;
 }
 
-static int VFS_AllocFd(void)
+int VFS_AllocFd(void)
 {
     for (int i = VFS_FD_USER_BASE; i < MAX_OPEN_FILES; ++i) {
         if (open_files[i] == NULL) {
@@ -579,4 +566,12 @@ int VFS_CreatePipe(fd_t fds[2])
     fds[1] = fd_write;
 
     return 0;
+}
+
+void VFS_SetFd(int fd, struct file *file)
+{
+    if (fd < 0 || fd >= MAX_OPEN_FILES)
+        return;
+
+    open_files[fd] = file;
 }

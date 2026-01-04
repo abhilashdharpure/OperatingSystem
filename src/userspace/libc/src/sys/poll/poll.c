@@ -7,6 +7,7 @@ int poll(struct pollfd *fds, nfds_t nfds, int timeout)
     long ret = syscall(SYS_poll,
                        (long)fds,
                        (long)nfds,
-                       (long)timeout);
+                       (long)timeout,
+                        0);
     return (int)ret;
 }

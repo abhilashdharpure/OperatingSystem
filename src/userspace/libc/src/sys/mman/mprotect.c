@@ -7,6 +7,7 @@ int mprotect(void *addr, size_t len, int prot)
     long ret = syscall(SYS_mprotect,
                        (long)addr,
                        (long)len,
-                       (long)prot);
+                       (long)prot,
+                       0);
     return (int)ret; // 0 on success, -1 on error
 }

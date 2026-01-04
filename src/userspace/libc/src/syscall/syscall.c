@@ -1,60 +1,19 @@
 #include <stdint.h>
 #include <syscall.h>
 
-// ssize_t syscall_write(int fd, const void *buf, size_t len)
-// {
-//     return (ssize_t)syscall3(SYS_write, fd, (long)buf, (long)len);
-// }
-
-// __attribute__((noreturn))
-// void syscall_exit(int code)
-// {
-//     asm volatile (
-//         "syscall"
-//         :
-//         : "a"(SYS_exit),
-//           "D"(code)
-//         : "rcx", "r11", "memory"
-//     );
-
-//     __builtin_unreachable();
-// }
-
-long syscall0(long n)
+long syscall(long n, long a, long b, long c, long d)
 {
     long ret;
     asm volatile (
+        "mov %5, %%r10\n\t"   // use %5, not %4
         "syscall"
         : "=a"(ret)
-        : "a"(n)
+        : "a"(n), "D"(a), "S"(b), "d"(c), "r"(d)
         : "rcx", "r11", "memory"
     );
     return ret;
 }
 
-long syscall3(long n, long a, long b, long c)
-{
-    long ret;
-    asm volatile (
-        "syscall"
-        : "=a"(ret)
-        : "a"(n), "D"(a), "S"(b), "d"(c)
-        : "rcx", "r11", "memory"
-    );
-    return ret;
-}
-
-long syscall(long n, long a, long b, long c)
-{
-    long ret;
-    asm volatile (
-        "syscall"
-        : "=a"(ret)
-        : "a"(n), "D"(a), "S"(b), "d"(c)
-        : "rcx", "r11", "memory"
-    );
-    return ret;
-}
 
 
 

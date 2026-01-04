@@ -16,10 +16,10 @@ x64_syscall_entry:
     ;   rcx = user RIP
     ;   r11 = user RFLAGS
     ;   rsp = user RSP
+    ;   r10 = arg3 (from userspace wrapper)
 
-    ; Save syscall number and user RSP
     mov     r9,  rax        ; r9 = syscall number
-    mov     r8,  rsp        ; r8 = user RSP
+    mov     r8,  rsp        ; r8 = user RSP (for iret frame)
 
     ; Build IRETQ frame on the user stack
     push    qword 0x23      ; SS (user data)
@@ -29,16 +29,18 @@ x64_syscall_entry:
     push    rcx             ; RIP (original user RIP)
 
     ; Now set up C call:
-    ;   syscall_dispatch(nr, a0, a1, a2)
-    ; a0..a2 are still in rdi, rsi, rdx from user
+    ;   syscall_dispatch(nr, a0, a1, a2, a3)
+    ; a0..a2 still in rdi,rsi,rdx
+    ; a3 is in r10 (from userspace wrapper)
+
+    mov     r8, r10         ; arg4 (a3) = original r10
 
     mov     rcx, rdx        ; arg3 (a2) = original rdx
     mov     rdx, rsi        ; arg2 (a1) = original rsi
     mov     rsi, rdi        ; arg1 (a0) = original rdi
-    mov     rdi, r9         ; arg0 (nr) = saved syscall number
+    mov     rdi, r9         ; arg0 (nr) = syscall number
 
     call    syscall_dispatch
-    ; rax now holds return value for userspace
 
     swapgs
     iretq

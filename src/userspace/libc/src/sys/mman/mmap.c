@@ -12,7 +12,8 @@ void *mmap(void *addr, size_t length, int prot, int flags,
     long ret = syscall(SYS_mmap,
                        (long)length,
                        (long)prot,
-                       (long)flags);
+                       (long)flags,
+                        0);
     if (ret == -1)
         return (void *)-1; // MAP_FAILED
     return (void *)ret;

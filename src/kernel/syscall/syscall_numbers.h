@@ -24,6 +24,7 @@ enum {
     SYS_klog            = 19,
     SYS_clock_gettime   = 20,
     SYS_nanosleep       = 21,
+    SYS_socketpair      = 22,
 
     // later: SYS_socket, ..
 };

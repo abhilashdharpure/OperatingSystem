@@ -9,6 +9,8 @@
 #include <sys/stat.h>
 #include <dirent.h>
 #include <time.h>
+#include <sys/socket.h>
+#include <string.h>
 
 // Prot flags (mirror Linux for future compatibility)
 #define PROT_READ   0x1
@@ -61,7 +63,7 @@ void test_brk(void)
     for (int i = 0; i < 4; ++i)
         c[i] = "HEAP"[i];
     c[4] = '\n';
-    syscall(SYS_write, 1, (long)c, 5);
+    syscall(SYS_write, 1, (long)c, 5, 0);
 
     void *q = sbrk(-4096);
     printf("sbrk(-4096) returned 0x%lx\n", (unsigned long)q);
@@ -97,6 +99,47 @@ void print_ns(int ns)
     printf("%d", ns);
 }
 
+static void test_socketpair_poll(void)
+{
+    printf("Testing socketpair + poll...\n");
+
+    int sv[2];
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) != 0) {
+        printf("socketpair failed\n");
+        return;
+    }
+
+    struct pollfd fds[2];
+    fds[0].fd = sv[0];
+    fds[0].events = POLLIN | POLLOUT;
+    fds[1].fd = sv[1];
+    fds[1].events = POLLIN | POLLOUT;
+
+    printf("Initial poll (no data)...\n");
+    int ret = poll(fds, 2, 0);
+    printf("poll returned %d\n", ret);
+    printf("fd0 revents=%x fd1 revents=%x\n", fds[0].revents, fds[1].revents);
+
+    printf("Writing from sv[0] to sv[1]...\n");
+    write(sv[0], "POLL", 4);
+
+    memset(fds, 0, sizeof(fds));
+    fds[0].fd = sv[0];
+    fds[0].events = POLLIN | POLLOUT;
+    fds[1].fd = sv[1];
+    fds[1].events = POLLIN | POLLOUT;
+
+    ret = poll(fds, 2, 0);
+    printf("After write, poll returned %d\n", ret);
+    printf("fd0 revents=%x fd1 revents=%x\n", fds[0].revents, fds[1].revents);
+
+    char buf[8] = {0};
+    int n = read(sv[1], buf, sizeof(buf));
+    printf("read on sv[1] -> n=%d buf='%s'\n", n, buf);
+
+    close(sv[0]);
+    close(sv[1]);
+}
 
 
 int main()
@@ -105,7 +148,7 @@ int main()
     printf("Hello from userspace!\n");
 
     const char msg[] = "Hello from SYSCALL userland!\n";
-    syscall(SYS_write, 1, (long)msg, sizeof(msg)-1);
+    syscall(SYS_write, 1, (long)msg, sizeof(msg)-1, 0);
 
     printf("About to test open/read/close via SYSCALL\n");
 
@@ -294,8 +337,38 @@ int main()
     printf(" sec (approx)\n");
 
 
+    long r_test = syscall(SYS_test,
+                 0x11,
+                 0x22,
+                 0x33,
+                 0x4444555566667777ULL);
+
+    printf("syscall(SYS_test,...) = %ld\n", r_test);
+
+
+    printf("Testing socketpair...\n");
+    int sv[2];
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) == 0) {
+        printf("socketpair created: %d, %d\n", sv[0], sv[1]);
+
+        write(sv[0], "Hello SP!", 9);
+
+        char buf[32] = {0};
+        int n = read(sv[1], buf, 31);
+
+        printf("socketpair read returned %d, buf='%s'\n", n, buf);
+
+        close(sv[0]);
+        close(sv[1]);
+    }
+
+    printf("About to call test_socketpair_poll\n");
+    test_socketpair_poll();
+
+
+
     printf("About to call SYS_exit via SYSCALL\n");
-    syscall(SYS_exit, 0, 0, 0);
+    syscall(SYS_exit, 0, 0, 0, 0);
     printf("This should NEVER print\n");
     return 0;
 }

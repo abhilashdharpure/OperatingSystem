@@ -7,5 +7,6 @@ int open(const char *path, int flags, int mode)
     return (int)syscall(SYS_open,
                         (long)path,
                         (long)flags,
-                        (long)mode);
+                        (long)mode,
+                        0);
 }

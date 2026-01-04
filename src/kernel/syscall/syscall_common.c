@@ -11,6 +11,7 @@
 #include "fcntl.h"
 #include <time/time.h>   // your kernel-side time header
 #include <arch/x86_64/pit.h>
+#include <hal/socketpair.h>
 
 #define PAGE_SIZE 0x1000
 #define TICKS_PER_SEC 1000             // e.g. 1ms tick
@@ -636,6 +637,62 @@ uint64_t sys_nanosleep(uint64_t req_ptr, uint64_t rem_ptr)
     // Optionally disable interrupts again if your syscall
     // return path expects IF=0; if not, omit this.
     // __asm__ volatile("cli");
+
+    return 0;
+}
+
+uint64_t sys_socketpair(uint64_t domain,
+                        uint64_t type,
+                        uint64_t protocol,
+                        uint64_t sv_ptr)
+{
+    log_info("SYSCALL", "sys_socketpair: sv_ptr = 0x%llx",
+             (unsigned long long)sv_ptr);
+
+    if (domain != AF_UNIX || type != SOCK_STREAM)
+        return (uint64_t)-1;
+
+    // You can ignore protocol for now
+    (void)protocol;
+
+    int *sv = (int *)sv_ptr;
+
+    socketpair_t *sp = kmalloc(sizeof(socketpair_t));
+    memset(sp, 0, sizeof(*sp));
+
+    int fd0 = VFS_AllocFd();
+    if (fd0 < 0) return (uint64_t)-1;
+
+    VFS_SetFd(fd0, (struct file*)1);
+
+    int fd1 = VFS_AllocFd();
+    if (fd1 < 0) {
+        VFS_SetFd(fd0, NULL);
+        return (uint64_t)-1;
+    }
+
+    log_info("SYSCALL", "sys_socketpair: fd0=%d fd1=%d", fd0, fd1);
+
+    struct file *f0 = kmalloc(sizeof(struct file));
+    struct file *f1 = kmalloc(sizeof(struct file));
+
+    memset(f0, 0, sizeof(*f0));
+    memset(f1, 0, sizeof(*f1));
+
+    f0->fops = &socketpair_fops;
+    f1->fops = &socketpair_fops;
+
+    f0->private_data = sp;
+    f1->private_data = sp;
+
+    f0->socketpair_side = 0;
+    f1->socketpair_side = 1;
+
+    VFS_SetFd(fd0, f0);
+    VFS_SetFd(fd1, f1);
+
+    sv[0] = fd0;
+    sv[1] = fd1;
 
     return 0;
 }

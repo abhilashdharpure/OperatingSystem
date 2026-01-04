@@ -25,14 +25,10 @@ enum {
     SYS_klog            = 19,
     SYS_clock_gettime   = 20,
     SYS_nanosleep       = 21,
+    SYS_socketpair      = 22,
 
     // later: SYS_socket, ..
 };
 
+long syscall(long n, long a, long b, long c, long d);
 
-ssize_t syscall_write(int fd, const void *buf, size_t len);
-// void syscall_exit(int code);
-
-long syscall0(long n);
-long syscall3(long n, long a, long b, long c);
-long syscall(long n, long a, long b, long c);

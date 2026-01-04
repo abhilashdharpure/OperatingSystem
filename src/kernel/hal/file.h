@@ -19,7 +19,8 @@ struct file {
     void *private_data;         // filesystem or device context
     size_t position;
     int refcount;               // number of FDs sharing this file
-    int flags; 
+    int flags;
+    int socketpair_side;
 };
 
 struct file_operations {
@@ -30,5 +31,6 @@ struct file_operations {
     int  (*ioctl)(struct file* f, unsigned long request, void* arg);
     int  (*readdir)(struct file *dir, dirent_t *);
     int  (*stat)(struct file *f, struct kstat *st);
-    // int  (*readdir)(struct file *f, dirent_t *ent);
+    int  (*can_read)(struct file *f);
+    int  (*can_write)(struct file *f);
 };

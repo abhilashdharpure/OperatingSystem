@@ -9,6 +9,7 @@ int nanosleep(const struct timespec *req, struct timespec *rem)
     long ret = syscall(SYS_nanosleep,
                        (long)req,
                        0,
+                       0,
                        0);
     return (int)ret;
 }

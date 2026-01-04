@@ -3,7 +3,7 @@
 
 void _exit(int code) {
     // syscall_exit(code);
-     syscall(SYS_exit, (long)code, 0, 0);
+     syscall(SYS_exit, (long)code, 0, 0, 0);
     while (1) { }
 }
 

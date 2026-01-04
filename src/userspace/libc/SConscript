@@ -24,7 +24,13 @@ sources = [
     "src/sys/dirent/getdents.c",
     "src/sys/fcntl/fcntl.c",
     "src/sys/klog/klog.c",
+    "src/socket/socketpair.c",
     "src/syscall/syscall.c",
+    "src/string/memset.c",
+    "src/string/memcpy.c",
+    "src/string/memmove.c",
+    "src/string/memcmp.c",
+    "src/string/strlen.c",
     # "crt/crtbegin.c",
 ]
 

@@ -44,9 +44,7 @@ uint64_t syscall_dispatch(uint64_t nr,
                           uint64_t a0,
                           uint64_t a1,
                           uint64_t a2,
-                          uint64_t a3,
-                          uint64_t a4,
-                          uint64_t a5)
+                          uint64_t a3)
 {
     // log_info("SYSCALL", "syscall_dispatch: nr=%llu a0=%llx a1=%llx a2=%llx",
     //          (unsigned long long)nr,
@@ -119,8 +117,21 @@ uint64_t syscall_dispatch(uint64_t nr,
     case SYS_nanosleep:
         return sys_nanosleep(a0, a1);
 
+    case SYS_socketpair:
+        log_info("SYSCALL", "syscall_dispatch: nr=%llu a0=%llx a1=%llx a2=%llx a3=%llx",
+             (unsigned long long)nr,
+             (unsigned long long)a0,
+             (unsigned long long)a1,
+             (unsigned long long)a2,
+             (unsigned long long)a3);
+        return sys_socketpair(a0, a1, a2, a3);
 
     case SYS_test:
+        log_info("SYSCALL", "TEST: a0=%llx a1=%llx a2=%llx a3=%llx",
+                (unsigned long long)a0,
+                (unsigned long long)a1,
+                (unsigned long long)a2,
+                (unsigned long long)a3);
         return 123;
     }
 
