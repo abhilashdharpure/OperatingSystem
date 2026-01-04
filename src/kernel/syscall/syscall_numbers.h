@@ -15,6 +15,7 @@ enum {
     SYS_poll        = 10,
     SYS_stat        = 11,
     SYS_fstat       = 12,
+    SYS_lseek       = 13,
 
     // later: SYS_socket, ..
 };

@@ -400,3 +400,46 @@ uint64_t sys_poll(uint64_t ufds_ptr,
 
     return (uint64_t)ready_count;
 }
+
+uint64_t sys_stat(uint64_t user_path_ptr, uint64_t user_buf_ptr)
+{
+    const char *path = (const char *)user_path_ptr;
+    struct kstat *user_buf = (struct kstat *)user_buf_ptr;
+
+    int fd = VFS_Open(path, 0);
+    if (fd < 0)
+        return (uint64_t)-1;
+
+    struct file *f = VFS_GetFile(fd);
+    if (!f || !f->fops || !f->fops->stat) {
+        VFS_Close(fd);
+        return (uint64_t)-1;
+    }
+
+    struct kstat st;
+    int r = f->fops->stat(f, &st);
+    VFS_Close(fd);
+
+    if (r < 0)
+        return (uint64_t)-1;
+
+    *user_buf = st;
+    return 0;
+}
+
+uint64_t sys_fstat(uint64_t fd, uint64_t user_buf_ptr)
+{
+    struct file *f = VFS_GetFile(fd);
+    if (!f || !f->fops || !f->fops->stat)
+        return (uint64_t)-1;
+
+    struct kstat *user_buf = (struct kstat *)user_buf_ptr;
+
+    struct kstat st;
+    int r = f->fops->stat(f, &st);
+    if (r < 0)
+        return (uint64_t)-1;
+
+    *user_buf = st;
+    return 0;
+}

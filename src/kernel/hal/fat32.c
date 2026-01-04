@@ -535,6 +535,25 @@ static int fat32_read(struct file *f, void *buf, size_t size)
     return (int)read_total;
 }
 
+static int fat_stat(struct file *f, struct kstat *st)
+{
+    fat32_node_t *node = (fat32_node_t *)f->private_data;
+    if (!node)
+        return -1;
+
+    st->st_dev   = 1;                     // single FAT32 device for now
+    st->st_ino   = node->first_cluster;   // good inode surrogate
+    st->st_mode  = node->is_dir ? 0x4000  // dir
+                                : 0x8000; // regular file
+    st->st_nlink = 1;
+    st->st_size  = node->size;
+
+    log_info("FAT32", "fat_stat: size=%u first_cluster=%u",
+         node->size, node->first_cluster);
+
+    return 0;
+}
+
 static struct file_operations fat32_fops = {
     .open    = fat32_open,
     .close   = fat32_close,
@@ -542,6 +561,7 @@ static struct file_operations fat32_fops = {
     .write   = NULL,
     .ioctl   = NULL,
     .readdir = fat32_readdir,
+    .stat    = fat_stat,
 };
 
 struct file_operations *get_fat32_fops(void)

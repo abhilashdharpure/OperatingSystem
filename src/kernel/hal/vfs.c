@@ -369,3 +369,13 @@ int VFS_CanWrite(fd_t fd)
 
     return 0;
 }
+
+struct file *VFS_GetFile(fd_t fd)
+{
+    if (fd < 0 || fd >= MAX_OPEN_FILES)
+        return NULL;
+    if (open_files[fd].path == NULL)
+        return NULL;
+    return &open_files[fd];
+}
+

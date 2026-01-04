@@ -86,6 +86,11 @@ uint64_t syscall_dispatch(uint64_t nr,
     case SYS_poll:
         return sys_poll(a0, a1, a2);
 
+    case SYS_stat:
+        return sys_stat(a0, a1);
+
+    case SYS_fstat:
+        return sys_fstat(a0, a1);
 
     case SYS_test:
         return 123;

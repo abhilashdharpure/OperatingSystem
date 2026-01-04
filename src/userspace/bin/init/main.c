@@ -6,6 +6,7 @@
 
 #include <sys/mman.h>
 #include <sys/poll.h>
+#include <sys/stat.h>
 
 // Prot flags (mirror Linux for future compatibility)
 #define PROT_READ   0x1
@@ -122,6 +123,21 @@ int main()
         printf("poll read returned %d bytes\n", (int)n);
 
         close(fd);
+    }
+
+
+    printf("Testing stat...\n");
+
+    struct stat st;
+    if (stat("/folder/demo.txt", &st) == 0)
+    {
+        printf("stat: size=%d inode=%d\n",
+       (int)st.st_size,
+       (int)st.st_ino);
+    } 
+    else
+    {
+        printf("stat failed\n");
     }
 
 

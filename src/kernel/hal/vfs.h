@@ -32,3 +32,7 @@ int VFS_List(const char *path, void (*callback)(const dirent_t *));
 int VFS_IsValidFd(int fd);
 int VFS_CanRead(int fd);
 int VFS_CanWrite(int fd);
+
+struct file *VFS_GetFile(fd_t fd);
+off_t VFS_Lseek(fd_t fd, off_t offset, int whence);
+
