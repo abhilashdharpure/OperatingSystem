@@ -113,6 +113,13 @@ uint64_t syscall_dispatch(uint64_t nr,
     case SYS_klog:
         return sys_klog(a0);
 
+    case SYS_clock_gettime:
+        return sys_clock_gettime(a0, a1);
+
+    case SYS_nanosleep:
+        return sys_nanosleep(a0, a1);
+
+
     case SYS_test:
         return 123;
     }

@@ -9,9 +9,11 @@
 #include "kernel_poll.h"
 #include "libc/include/dirent.h"
 #include "fcntl.h"
+#include <time/time.h>   // your kernel-side time header
+#include <arch/x86_64/pit.h>
 
 #define PAGE_SIZE 0x1000
-// const uint64_t PAGE_SIZE = 0x1000;
+#define TICKS_PER_SEC 1000             // e.g. 1ms tick
 
 // Prot flags (mirror Linux for future compatibility)
 #define PROT_READ   0x1
@@ -42,6 +44,12 @@ ssize_t sys_write(uint64_t fd, const char *buf, uint64_t len)
         fd != VFS_FD_DEBUG)
     {
         return -1;
+    }
+
+    // TODO: Remove it afterwards. It is added just to check logs from userspace
+    for (uint64_t i = 0; i < len; ++i)
+    {
+        serial_putc(buf[i]);
     }
 
     int written = VFS_Write((fd_t)fd, (uint8_t *)buf, (size_t)len);
@@ -329,9 +337,6 @@ uint64_t sys_poll(uint64_t ufds_ptr,
                   uint64_t timeout_ms)
 {
     (void)timeout_ms; // ignore for now (non-blocking)
-
-    log_info("SYSCALL", "sys_poll: Start");
-
     if (ufds_ptr == 0 || nfds == 0)
         return 0;
 
@@ -360,26 +365,19 @@ uint64_t sys_poll(uint64_t ufds_ptr,
     {
         struct pollfd *pfd = &local_fds[i];
         pfd->revents = 0;
-        log_info("SYSCALL", "sys_poll: 1");
 
         if (pfd->fd < 0)
         {
-            log_info("SYSCALL", "sys_poll: if (pfd->fd < 0)");
             continue;
         }
 
-        log_info("SYSCALL", "sys_poll: 2");
         if (!VFS_IsValidFd(pfd->fd))
         {
-            log_info("SYSCALL", "sys_poll: if (!VFS_IsValidFd(pfd->fd))");
-
             pfd->revents |= POLLNVAL;
             continue;
         }
-        log_info("SYSCALL", "sys_poll: 3");
         if (pfd->events & POLLIN)
         {
-            log_info("SYSCALL", "sys_poll: 4");
             if (VFS_CanRead(pfd->fd))
             {
                 log_info("SYSCALL", "sys_poll: VFS_CanRead");
@@ -387,11 +385,8 @@ uint64_t sys_poll(uint64_t ufds_ptr,
             }
         }
 
-        log_info("SYSCALL", "sys_poll: 5");
-
         if (pfd->events & POLLOUT)
         {
-            log_info("SYSCALL", "sys_poll: 6");
             if (VFS_CanWrite(pfd->fd))
             {
                 log_info("SYSCALL", "sys_poll: VFS_CanWrite");
@@ -399,11 +394,9 @@ uint64_t sys_poll(uint64_t ufds_ptr,
             }
         }
 
-        log_info("SYSCALL", "sys_poll: 7");
         if (pfd->revents != 0)
             ready_count++;
     }
-    log_info("SYSCALL", "sys_poll: 8");
 
     // Copy back to user
     for (uint64_t i = 0; i < nfds; ++i)
@@ -583,6 +576,66 @@ uint64_t sys_klog(uint64_t msg_ptr)
 
     while (*s)
         serial_putc(*s++);
+
+    return 0;
+}
+
+uint64_t sys_clock_gettime(uint64_t clk_id, uint64_t tp_user)
+{
+    struct timespec *tp = (struct timespec *)tp_user;
+    if (!tp)
+        return (uint64_t)-1;
+
+    uint64_t ticks = pit_get_ticks();   // <-- use PIT ticks
+    uint64_t pit_frequency =  pit_get_frequency();
+    uint64_t sec  = ticks / pit_frequency;
+    uint64_t nsec = (ticks % pit_frequency) * (1000000000ULL / pit_frequency);
+
+    tp->tv_sec  = sec;
+    tp->tv_nsec = nsec;
+
+    return 0;
+}
+
+uint64_t sys_nanosleep(uint64_t req_ptr, uint64_t rem_ptr)
+{
+    log_info("SYSCALL", "sys_nanosleep");
+
+    (void)rem_ptr;
+
+    const struct timespec *req = (const struct timespec *)req_ptr;
+    if (!req)
+        return (uint64_t)-1;
+
+    uint64_t freq = pit_get_frequency();
+    uint64_t req_ns = (uint64_t)req->tv_sec * 1000000000ULL
+                    + (uint64_t)req->tv_nsec;
+
+    if (req_ns == 0)
+        return 0;
+
+    uint64_t ns_per_tick = 1000000000ULL / freq;
+    uint64_t ticks_to_sleep = req_ns / ns_per_tick;
+    if (ticks_to_sleep == 0)
+        ticks_to_sleep = 1;
+
+    uint64_t start  = pit_get_ticks();
+    uint64_t target = start + ticks_to_sleep;
+
+    log_info("SYSCALL", "sys_nanosleep start=%llu target=%llu",
+             start, target);
+
+    // Enable interrupts so PIT IRQ can fire
+    __asm__ volatile("sti");
+
+    while (pit_get_ticks() < target) {
+        // Sleep until next interrupt (PIT, keyboard, etc.)
+        __asm__ volatile("hlt");
+    }
+
+    // Optionally disable interrupts again if your syscall
+    // return path expects IF=0; if not, omit this.
+    // __asm__ volatile("cli");
 
     return 0;
 }

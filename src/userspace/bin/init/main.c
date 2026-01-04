@@ -8,6 +8,7 @@
 #include <sys/poll.h>
 #include <sys/stat.h>
 #include <dirent.h>
+#include <time.h>
 
 // Prot flags (mirror Linux for future compatibility)
 #define PROT_READ   0x1
@@ -77,6 +78,25 @@ void test_poll(int fd)
 
     printf("poll returned %d, revents=0x%x\n", n, pfd.revents);
 }
+
+void print_ns(int ns)
+{
+    if (ns < 0) ns += 1000000000;
+
+    int width = 9;
+    int tmp = ns;
+
+    while (tmp > 0) {
+        tmp /= 10;
+        width--;
+    }
+
+    while (width-- > 0)
+        printf("0");
+
+    printf("%d", ns);
+}
+
 
 
 int main()
@@ -236,6 +256,42 @@ int main()
     } else {
         printf("pipe failed\n");
     }
+
+    klog("Testing clock_gettime...\n");
+
+    struct timespec ts;
+
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0)
+    {
+        printf("CLOCK_MONOTONIC: %d.%d sec\n", (int)ts.tv_sec, (int)ts.tv_nsec);
+
+    } 
+    else {
+        printf("clock_gettime failed\n");
+        klog("clock_gettime failed\n");
+    }
+
+    if (clock_gettime(CLOCK_REALTIME, &ts) == 0)
+    {
+        printf("CLOCK_REALTIME: %d.%d sec\n", (int)ts.tv_sec, (int)ts.tv_nsec);
+    }
+
+
+    printf("Testing nanosleep...\n");
+
+    struct timespec req;
+    req.tv_sec  = 0;
+    req.tv_nsec = 500000000L; // 0.5 sec
+
+    struct timespec before, after;
+    clock_gettime(CLOCK_MONOTONIC, &before);
+
+    nanosleep(&req, NULL);
+
+    clock_gettime(CLOCK_MONOTONIC, &after);
+    printf("Slept: %d.", (int)(after.tv_sec - before.tv_sec));
+    print_ns((int)(after.tv_nsec - before.tv_nsec));
+    printf(" sec (approx)\n");
 
 
     printf("About to call SYS_exit via SYSCALL\n");

@@ -7,7 +7,7 @@
 #define PIT_BASE_FREQUENCY 1193182ULL   // Hz (hardware PIT clock)
 
 volatile uint64_t pit_ticks = 0;
-static uint32_t pit_frequency = 1000; // default 1000 Hz
+uint32_t pit_frequency = 1000; // default 1000 Hz
 
 // IRQ handler for PIT (IRQ0)
 void pit_irq_handler(ISRFrame64* regs)
@@ -58,4 +58,9 @@ uint64_t get_system_time_us(void)
     __asm__ volatile("sti");
 
     return (ticks_snapshot * 1000000ULL) / pit_frequency;
+}
+
+uint64_t pit_get_frequency()
+{
+    return pit_frequency;
 }

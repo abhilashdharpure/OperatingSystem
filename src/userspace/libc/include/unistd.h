@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <types.h>
+#include <time.h>
 
 ssize_t write(int fd, const void *buf, size_t len);
 void _exit(int code);
@@ -17,3 +18,4 @@ int dup(int oldfd);
 int dup2(int oldfd, int newfd);
 int pipe(int fds[2]);
 void klog(const char *msg);
+int clock_gettime(clockid_t clk_id, struct timespec *tp);

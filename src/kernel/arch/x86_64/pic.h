@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+
 typedef struct {
     const char* Name;
     bool (*Probe)();
@@ -12,3 +13,4 @@ typedef struct {
     void (*Mask)(int irq);
     void (*Unmask)(int irq);
 } PICDriver;
+
