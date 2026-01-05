@@ -526,11 +526,9 @@ uint64_t sys_dup2(uint64_t oldfd, uint64_t newfd)
 uint64_t sys_fcntl(uint64_t fd, uint64_t cmd, uint64_t arg)
 {
     if (!VFS_IsValidFd(fd))
-        return (uint64_t)-1;
+        return (uint64_t)-1;   // later: -EBADF
 
     struct file *f = VFS_GetFile(fd);
-    if (!f)
-        return (uint64_t)-1;
 
     switch (cmd) {
     case F_GETFL:
@@ -538,19 +536,20 @@ uint64_t sys_fcntl(uint64_t fd, uint64_t cmd, uint64_t arg)
 
     case F_SETFL: {
         int new_flags = (int)arg;
-        // Only allow changing some bits (e.g., O_NONBLOCK) for now.
-        // Preserve access mode bits (O_RDONLY/O_WRONLY/O_RDWR).
-        int access_mode = f->flags & 0x3;
-        int other_bits  = new_flags & ~0x3;
-        f->flags = access_mode | other_bits;
+        // Only allow changing some flags (e.g., O_NONBLOCK) if you want:
+        int preserved = f->flags & ~O_NONBLOCK;
+        int updated   = new_flags & O_NONBLOCK;
+        f->flags = preserved | updated;
         return 0;
     }
 
     default:
-        // Unsupported command for now
+        // For now, not supported:
+        // return -EINVAL later
         return (uint64_t)-1;
     }
 }
+
 
 uint64_t sys_pipe(uint64_t user_fds_ptr)
 {

@@ -2,52 +2,71 @@
 #include "vfs.h"
 #include <string.h>
 #include <hal/file.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <types.h>
 
-static int sp_read(struct file *f, uint8_t *buf, size_t size)
+ssize_t sp_read(struct file *f, void *buf, size_t count)
 {
     socketpair_t *sp = f->private_data;
-    int which = f->socketpair_side; // 0 or 1
+    int which = f->socketpair_side;
 
-    uint8_t *inbuf  = which ? sp->buf1 : sp->buf0;
-    uint32_t *head  = which ? &sp->head1 : &sp->head0;
-    uint32_t *tail  = which ? &sp->tail1 : &sp->tail0;
+    uint32_t *headp = which ? &sp->head1 : &sp->head0;
+    uint32_t *tailp = which ? &sp->tail1 : &sp->tail0;
+    char *data      = which ? sp->buf1   : sp->buf0;
 
-    size_t count = (*tail - *head);
-    if (count == 0)
+    uint32_t head = *headp;
+    uint32_t tail = *tailp;
+
+    if (tail == head) {
+        // No data
+        if (f->flags & O_NONBLOCK)
+            return -EAGAIN;   // <-- key change
+
+        // Blocking mode: for now, behave like EOF (later: sleep)
         return 0;
+    }
 
-    if (size > count)
-        size = count;
+    size_t avail = tail - head;
+    if (count > avail)
+        count = avail;
 
-    for (size_t i = 0; i < size; i++)
-        buf[i] = inbuf[(*head + i) % SOCKETPAIR_BUF_SIZE];
+    memcpy(buf, data + head, count);
+    *headp = head + count;
 
-    *head += size;
-    return size;
+    return (ssize_t)count;
 }
 
-static int sp_write(struct file *f, const uint8_t *buf, size_t size)
+ssize_t sp_write(struct file *f, const void *buf, size_t count)
 {
     socketpair_t *sp = f->private_data;
-    int which = f->socketpair_side; // 0 or 1
+    int which = f->socketpair_side;
 
-    // write to the OTHER side's incoming buffer
-    uint8_t *outbuf = which ? sp->buf0 : sp->buf1;
-    uint32_t *head  = which ? &sp->head0 : &sp->head1;
-    uint32_t *tail  = which ? &sp->tail0 : &sp->tail1;
+    uint32_t *headp = which ? &sp->head0 : &sp->head1;
+    uint32_t *tailp = which ? &sp->tail0 : &sp->tail1;
+    char *data      = which ? sp->buf0   : sp->buf1;
 
-    size_t free = SOCKETPAIR_BUF_SIZE - (*tail - *head);
-    if (free == 0)
+    uint32_t head = *headp;
+    uint32_t tail = *tailp;
+
+    size_t used  = tail - head;
+    size_t space = SOCKETPAIR_BUF_SIZE - used;
+
+    if (space == 0) {
+        if (f->flags & O_NONBLOCK)
+            return -EAGAIN;   // <-- key change
+
+        // Blocking mode: for now, drop/0; later: sleep
         return 0;
+    }
 
-    if (size > free)
-        size = free;
+    if (count > space)
+        count = space;
 
-    for (size_t i = 0; i < size; i++)
-        outbuf[(*tail + i) % SOCKETPAIR_BUF_SIZE] = buf[i];
+    memcpy(data + tail, buf, count);
+    *tailp = tail + count;
 
-    *tail += size;
-    return size;
+    return (ssize_t)count;
 }
 
 static int sp_close(struct file *f)

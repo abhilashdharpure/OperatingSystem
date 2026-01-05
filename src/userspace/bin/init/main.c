@@ -11,6 +11,7 @@
 #include <time.h>
 #include <sys/socket.h>
 #include <string.h>
+#include <stdio.h>
 
 // Prot flags (mirror Linux for future compatibility)
 #define PROT_READ   0x1
@@ -139,6 +140,48 @@ static void test_socketpair_poll(void)
 
     close(sv[0]);
     close(sv[1]);
+}
+
+static void test_socketpair_nonblock(void)
+{
+    printf("Testing socketpair + O_NONBLOCK...\n");
+
+    int sv[2];
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) != 0) {
+        printf("socketpair failed\n");
+        return;
+    }
+
+    int flags = fcntl(sv[1], F_GETFL, 0);
+    fcntl(sv[1], F_SETFL, flags | O_NONBLOCK);
+
+    char buf[16] = {0};
+    int n = read(sv[1], buf, sizeof(buf));
+    printf("nonblocking read on empty: n=%d\n", n);
+
+    write(sv[0], "X", 1);
+    n = read(sv[1], buf, sizeof(buf));
+    printf("nonblocking read after write: n=%d buf='%s'\n", n, buf);
+
+    close(sv[0]);
+    close(sv[1]);
+}
+
+static void test_syscalls_presence(void)
+{
+    struct msghdr msg = {0};
+    int sv[2];
+
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) == 0) {
+        ssize_t n = sendmsg(sv[0], &msg, 0);
+        printf("sendmsg returned %d\n", (int)n);
+
+        n = recvmsg(sv[1], &msg, 0);
+        printf("recvmsg returned %d\n", (int)n);
+    }
+
+    int fd = memfd_create("test", 0);
+    printf("memfd_create returned %d\n", fd);
 }
 
 
@@ -364,6 +407,13 @@ int main()
 
     printf("About to call test_socketpair_poll\n");
     test_socketpair_poll();
+
+    printf("Testing test_socketpair_nonblock\n");
+    test_socketpair_nonblock();
+
+    printf("Testing test_syscalls_presence\n");
+    test_syscalls_presence();
+
 
 
 

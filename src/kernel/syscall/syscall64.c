@@ -126,6 +126,15 @@ uint64_t syscall_dispatch(uint64_t nr,
              (unsigned long long)a3);
         return sys_socketpair(a0, a1, a2, a3);
 
+    case SYS_sendmsg:
+        return sys_sendmsg(a0, a1, a2);
+
+    case SYS_recvmsg:
+        return sys_recvmsg(a0, a1, a2);
+
+    case SYS_memfd_create:
+        return sys_memfd_create(a0, a1);
+
     case SYS_test:
         log_info("SYSCALL", "TEST: a0=%llx a1=%llx a2=%llx a3=%llx",
                 (unsigned long long)a0,

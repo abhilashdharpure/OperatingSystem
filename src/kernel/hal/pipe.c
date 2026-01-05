@@ -1,17 +1,29 @@
 #include "vfs.h"
 #include "pipe.h"
 #include "debug.h"
+#include "fcntl.h"
 #include <kmalloc.h>  // kmalloc/kfree
+#include <errno.h>
+#include <types.h>
 
 static int pipe_read(struct file *f, void *buf, size_t size)
 {
     pipe_t *p = (pipe_t *)f->private_data;
-    log_info("PIPE", "pipe_read: f=%p p=%p size=%u count_before=%u", f, p, (unsigned)size, (unsigned)(p ? p->count : 0));
+    log_info("PIPE", "pipe_read: f=%p p=%p size=%u count_before=%u",
+             f, p, (unsigned)size, (unsigned)(p ? p->count : 0));
+
     if (!p || size == 0)
         return 0;
 
     if (p->count == 0) {
-        log_info("PIPE", "pipe_read: no data, returning 0");
+        // No data available
+        if (f->flags & O_NONBLOCK) {
+            log_info("PIPE", "pipe_read: empty + NONBLOCK → -EAGAIN");
+            return -EAGAIN;
+        }
+
+        // Blocking mode: for now return 0 (later: sleep)
+        log_info("PIPE", "pipe_read: empty + BLOCKING → 0");
         return 0;
     }
 
@@ -31,13 +43,23 @@ static int pipe_read(struct file *f, void *buf, size_t size)
 static int pipe_write(struct file *f, const void *buf, size_t size)
 {
     pipe_t *p = (pipe_t *)f->private_data;
-    log_info("PIPE", "pipe_write: f=%p p=%p size=%u count_before=%u", f, p, (unsigned)size, (unsigned)(p ? p->count : 0));
+    log_info("PIPE", "pipe_write: f=%p p=%p size=%u count_before=%u",
+             f, p, (unsigned)size, (unsigned)(p ? p->count : 0));
+
     if (!p || size == 0)
         return 0;
 
     size_t space = PIPE_BUF_SIZE - p->count;
+
     if (space == 0) {
-        // Buffer full; for now, just fail
+        // Buffer full
+        if (f->flags & O_NONBLOCK) {
+            log_info("PIPE", "pipe_write: full + NONBLOCK → -EAGAIN");
+            return -EAGAIN;
+        }
+
+        // Blocking mode: for now return 0 (later: sleep)
+        log_info("PIPE", "pipe_write: full + BLOCKING → 0");
         return 0;
     }
 

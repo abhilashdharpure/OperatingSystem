@@ -26,9 +26,13 @@ enum {
     SYS_clock_gettime   = 20,
     SYS_nanosleep       = 21,
     SYS_socketpair      = 22,
+    SYS_sendmsg         = 23,
+    SYS_recvmsg         = 24,
+    SYS_memfd_create    = 25,
 
     // later: SYS_socket, ..
 };
+
 
 long syscall(long n, long a, long b, long c, long d);
 

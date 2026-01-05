@@ -5,12 +5,21 @@
 #define AF_UNIX 1
 #define SOCK_STREAM 1
 
-typedef struct socketpair {
-    uint8_t buf0[SOCKETPAIR_BUF_SIZE];
-    uint8_t buf1[SOCKETPAIR_BUF_SIZE];
+#define SP_MAX_FDS 16
 
-    uint32_t head0, tail0; // incoming for fd0
-    uint32_t head1, tail1; // incoming for fd1
+typedef struct socketpair {
+    char buf0[SOCKETPAIR_BUF_SIZE];
+    char buf1[SOCKETPAIR_BUF_SIZE];
+    uint32_t head0, tail0;
+    uint32_t head1, tail1;
+
+    int fdq0[SP_MAX_FDS];
+    int fdq0_head, fdq0_tail;
+
+    int fdq1[SP_MAX_FDS];
+    int fdq1_head, fdq1_tail;
+
+    int refcount;
 } socketpair_t;
 
 extern struct file_operations socketpair_fops;
