@@ -5,6 +5,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <types.h>
+#include "uapi_socket.h"
 
 ssize_t sp_read(struct file *f, void *buf, size_t count)
 {

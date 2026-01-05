@@ -8,6 +8,7 @@
 #define ENOMEM      12
 #define EPIPE       32
 #define ENOSYS      38
+#define ENOBUFS     105
 
 // errno is a global variable in simple libc
 extern int errno;

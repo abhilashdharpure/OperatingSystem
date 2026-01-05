@@ -659,6 +659,13 @@ uint64_t sys_socketpair(uint64_t domain,
     socketpair_t *sp = kmalloc(sizeof(socketpair_t));
     memset(sp, 0, sizeof(*sp));
 
+    sp->head0 = sp->tail0 = 0;
+    sp->head1 = sp->tail1 = 0;
+    sp->fdq0_head = sp->fdq0_tail = 0;
+    sp->fdq1_head = sp->fdq1_tail = 0;
+    sp->refcount = 2; // or whatever you already used before adding FD queues
+
+
     int fd0 = VFS_AllocFd();
     if (fd0 < 0) return (uint64_t)-1;
 
