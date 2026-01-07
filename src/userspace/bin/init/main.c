@@ -184,6 +184,27 @@ static void test_syscalls_presence(void)
     printf("memfd_create returned %d\n", fd);
 }
 
+static void test_memfd(void)
+{
+    printf("Testing memfd_create...\n");
+    int fd = memfd_create("test", 0);
+    printf("memfd_create returned %d\n", fd);
+
+    if (fd >= 0) {
+        const char *msg = "Hello memfd";
+        write(fd, msg, 11);
+
+        lseek(fd, 0, 0); // your existing lseek syscall
+
+        char buf[16] = {0};
+        int n = read(fd, buf, sizeof(buf));
+        printf("memfd read returned %d, buf='%s'\n", n, buf);
+
+        close(fd);
+    }
+
+}
+
 
 int main()
 {
@@ -414,7 +435,8 @@ int main()
     printf("Testing test_syscalls_presence\n");
     test_syscalls_presence();
 
-
+    printf("Testing test_memfd\n");
+    test_memfd();
 
 
     printf("About to call SYS_exit via SYSCALL\n");

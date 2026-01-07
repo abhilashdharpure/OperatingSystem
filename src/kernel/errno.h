@@ -9,6 +9,8 @@
 #define EPIPE       32
 #define ENOSYS      38
 #define ENOBUFS     105
+#define EMFILE 24 // Too many open files (per process)
+#define ENFILE 23 // Too many open files in system (optional)
 
 // errno is a global variable in simple libc
 extern int errno;

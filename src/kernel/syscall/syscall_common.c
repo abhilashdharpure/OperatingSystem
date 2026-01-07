@@ -455,6 +455,8 @@ uint64_t sys_fstat(uint64_t fd, uint64_t user_buf_ptr)
 
 uint64_t sys_lseek(uint64_t fd, uint64_t offset, uint64_t whence)
 {
+    log_info("SYSCALL", "sys_lseek fd=%u, offset=%u, whence=%u", fd,offset, whence);
+
     off_t ret = VFS_Lseek((fd_t)fd, (off_t)offset, (int)whence);
     return (uint64_t)ret; // return -1 on error as usual
 }

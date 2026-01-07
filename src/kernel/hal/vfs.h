@@ -19,8 +19,6 @@ typedef long off_t;
 #define O_WRONLY 0x2
 #define O_RDWR   0x3
 
-int VFS_Write(fd_t file, uint8_t* data, size_t size);
-
 #define MAX_VFS_ENTRIES 64
 #define MAX_OPEN_FILES  32
 
@@ -30,6 +28,7 @@ int VFS_RegisterDevice(const char *path, struct file_operations *fops, void *pri
 struct file *VFS_AllocFile(void);
 int VFS_Open(const char *path, int flags);
 int VFS_Read(fd_t fd, void *buf, size_t size);
+int VFS_Write(fd_t file, uint8_t* data, size_t size);
 int VFS_Close(fd_t fd);
 
 int VFS_List(const char *path, void (*callback)(const dirent_t *));
