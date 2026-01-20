@@ -12,6 +12,9 @@
 #include <time/time.h>   // your kernel-side time header
 #include <arch/x86_64/pit.h>
 #include <hal/socketpair.h>
+#include <paging.h>
+#include "fs/memfd.h"
+
 
 #define PAGE_SIZE 0x1000
 #define TICKS_PER_SEC 1000             // e.g. 1ms tick
@@ -21,6 +24,7 @@
 #define PROT_WRITE  0x2
 
 // Map flags
+#define MAP_SHARED    0x01
 #define MAP_PRIVATE   0x02
 #define MAP_ANONYMOUS 0x20
 
@@ -104,6 +108,96 @@ int64_t sys_close(uint64_t fd)
     return VFS_Close((int)fd);
 }
 
+static uint64_t mmap_file(uint64_t length, uint64_t prot, uint64_t flags,
+                          int fd, uint64_t offset)
+{
+    struct file *f = VFS_GetFile(fd);
+    if (!f) {
+        log_error("SYSCALL", "mmap_file: bad fd %d", fd);
+        return (uint64_t)-1;
+    }
+
+    if (f->fops != &memfd_fops) {
+        log_error("SYSCALL", "mmap_file: only memfd supported for now");
+        return (uint64_t)-1;
+    }
+
+    memfd_t *m = (memfd_t *)f->private_data;
+    if (!m) {
+        log_error("SYSCALL", "mmap_file: memfd has no private_data");
+        return (uint64_t)-1;
+    }
+
+    size_t page_size   = PAGE_SIZE;
+    size_t aligned_len = (length + page_size - 1) & ~(page_size - 1);
+
+    if (offset + aligned_len > m->size) {
+        log_error("SYSCALL",
+                  "mmap_file: requested range exceeds memfd size "
+                  "(offset=%llu len=%llu size=%llu)",
+                  (unsigned long long)offset,
+                  (unsigned long long)aligned_len,
+                  (unsigned long long)m->size);
+        return (uint64_t)-1;
+    }
+
+    // Allocate virtual space in user address space
+    uint64_t va_start = current_process->mmap_base;
+    uint64_t va       = va_start;
+    current_process->mmap_base += aligned_len;
+
+    // Physical base of memfd backing buffer
+    uint64_t phys_base = virt_to_phys(m->data);
+
+    // Map memfd->data directly into userspace
+    for (size_t off = 0; off < aligned_len; off += page_size) {
+        uint64_t phys = phys_base + offset + off;
+
+        map_page(current_process->page_directory,
+                 va,
+                 phys,
+                 PAGE_PRESENT | PAGE_RW | PAGE_USER);
+
+        va += page_size;
+    }
+
+    log_info("SYSCALL",
+             "mmap_file: memfd mapped %llu bytes at 0x%llx (offset=%llu)",
+             (unsigned long long)aligned_len,
+             (unsigned long long)va_start,
+             (unsigned long long)offset);
+
+    return va_start;
+}
+
+
+static uint64_t mmap_anon(uint64_t length)
+{
+    uint64_t pages = (length + PAGE_SIZE - 1) / PAGE_SIZE;
+
+    uint64_t va_start = current_process->mmap_base;
+    uint64_t va = va_start;
+    current_process->mmap_base += pages * PAGE_SIZE;
+
+    for (uint64_t i = 0; i < pages; ++i) {
+        uint64_t pa = pmm_alloc_page();
+        if (!pa) {
+            log_error("SYSCALL", "sys_mmap: out of physical memory");
+            return (uint64_t)-1;
+        }
+
+        map_page(current_process->page_directory, va, pa,
+                 PAGE_PRESENT | PAGE_RW | PAGE_USER);
+        va += PAGE_SIZE;
+    }
+
+    log_info("SYSCALL", "sys_mmap: anon mapped %llu pages at 0x%llx",
+             (unsigned long long)pages,
+             (unsigned long long)va_start);
+
+    return va_start;
+}
+
 uint64_t sys_mmap(uint64_t addr,
                   uint64_t length,
                   uint64_t prot,
@@ -119,58 +213,41 @@ uint64_t sys_mmap(uint64_t addr,
              (long long)fd,
              (unsigned long long)offset);
 
-    // Enforce our minimal subset
     if (addr != 0) {
         log_error("SYSCALL", "sys_mmap: non-zero addr not supported");
-        return (uint64_t)-1; // MAP_FAILED
-    }
-
-    if ((flags & (MAP_ANONYMOUS | MAP_PRIVATE)) != (MAP_ANONYMOUS | MAP_PRIVATE)) {
-        log_error("SYSCALL", "sys_mmap: only MAP_ANONYMOUS|MAP_PRIVATE supported");
         return (uint64_t)-1;
     }
 
-    if (fd != (uint64_t)-1 || offset != 0) {
-        log_error("SYSCALL", "sys_mmap: file-backed mappings not supported yet");
+    if (length == 0)
         return (uint64_t)-1;
-    }
 
     if (!(prot & PROT_READ) || !(prot & PROT_WRITE)) {
         log_error("SYSCALL", "sys_mmap: only RW mappings supported for now");
         return (uint64_t)-1;
     }
 
-    // Round length up to page size
-    if (length == 0) {
-        return (uint64_t)-1;
-    }
-
-    uint64_t pages = (length + PAGE_SIZE - 1) / PAGE_SIZE;
-
-    // Pick VA from per-process mmap_base
-    uint64_t va_start = current_process->mmap_base;
-    uint64_t va = va_start;
-    current_process->mmap_base += pages * PAGE_SIZE;
-
-    // Map pages
-    for (uint64_t i = 0; i < pages; ++i) {
-        uint64_t pa = pmm_alloc_page();
-        if (!pa) {
-            log_error("SYSCALL", "sys_mmap: out of physical memory");
-            // TODO: unmap already mapped pages
+    // CASE 1: anonymous mapping (what you already support)
+    if (fd == (uint64_t)-1 && (flags & MAP_ANONYMOUS)) {
+        if ((flags & MAP_PRIVATE) != MAP_PRIVATE) {
+            log_error("SYSCALL", "sys_mmap: anonymous must be MAP_PRIVATE");
             return (uint64_t)-1;
         }
 
-        map_page(current_process->page_directory, va, pa,
-                 PAGE_PRESENT | PAGE_RW | PAGE_USER);
-        va += PAGE_SIZE;
+        return mmap_anon(length);  // factor your existing code into a helper
     }
 
-    log_info("SYSCALL", "sys_mmap: mapped %llu pages at 0x%llx",
-             (unsigned long long)pages,
-             (unsigned long long)va_start);
+    // CASE 2: file-backed mapping (memfd)
+    if (!(flags & MAP_SHARED)) {
+        log_error("SYSCALL", "sys_mmap: file-backed must be MAP_SHARED for now");
+        return (uint64_t)-1;
+    }
 
-    return va_start;
+    if (offset != 0) {
+        log_error("SYSCALL", "sys_mmap: non-zero offset not supported yet");
+        return (uint64_t)-1;
+    }
+
+    return mmap_file(length, prot, flags, (int)fd, offset);
 }
 
 uint64_t sys_munmap(uint64_t addr, uint64_t length)

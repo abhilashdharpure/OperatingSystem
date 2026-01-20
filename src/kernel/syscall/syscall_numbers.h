@@ -28,6 +28,7 @@ enum {
     SYS_sendmsg         = 23,
     SYS_recvmsg         = 24,
     SYS_memfd_create    = 25,
+    SYS_ftruncate       = 26,
 
     // later: SYS_socket, ..
 };

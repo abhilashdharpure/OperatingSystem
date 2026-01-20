@@ -12,6 +12,7 @@ sources = [
     "src/unistd/lseek.c",
     "src/unistd/dup.c",
     "src/unistd/pipe.c",
+    "src/unistd/ftruncate.c",
     "src/time/clock_gettime.c",
     "src/time/nanosleep.c",
     "src/sys/mman/mmap.c",

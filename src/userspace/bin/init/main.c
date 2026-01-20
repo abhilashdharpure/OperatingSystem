@@ -13,13 +13,6 @@
 #include <string.h>
 #include <stdio.h>
 
-// Prot flags (mirror Linux for future compatibility)
-#define PROT_READ   0x1
-#define PROT_WRITE  0x2
-
-// Map flags
-#define MAP_PRIVATE   0x02
-#define MAP_ANONYMOUS 0x20
 
 void test_mmap(void) {
     size_t len = 4096;
@@ -202,9 +195,70 @@ static void test_memfd(void)
 
         close(fd);
     }
-
 }
 
+static void test_ftruncate_memfd(void)
+{
+    printf("Testing ftruncate on memfd...\n");
+
+    int fd = memfd_create("demo", 0);
+    printf("memfd fd=%d\n", fd);
+
+    ftruncate(fd, 4096);   // grow to 4 KB
+
+    lseek(fd, 0, 0);
+
+    char buf[16] = {0};
+    int n = read(fd, buf, sizeof(buf));
+    printf("read after truncate returned %d\n", n);
+
+    close(fd);
+}
+static void test_memfd_mmap(void)
+{
+    printf("Testing memfd + mmap...\n");
+
+    int fd = memfd_create("wayland-test", 0);
+    printf("memfd fd=%d\n", fd);
+
+    size_t size = 4096;
+    ftruncate(fd, size);
+
+    // printf("DEBUG: calling mmap: size=%zu, fd=%d, offset=%d\n",
+    //    size, fd, (long)0);
+
+    printf("DEBUG: calling mmap\n");
+
+    void *p = mmap(NULL, size,
+                   PROT_READ | PROT_WRITE,
+                   MAP_SHARED,   // <-- important
+                   fd,
+                   0);
+    printf("mmap returned %p\n", p);
+
+    if (p == MAP_FAILED) {
+        printf("mmap failed\n");
+        close(fd);
+        return;
+    }
+
+    // Write into the mapping
+    char *c = (char *)p;
+    c[0] = 'Z';
+    c[1] = 'Y';
+    c[2] = 'X';
+    c[3] = '\0';
+
+    printf("memfd mmap content: '%s'\n", c);
+
+    // Optionally: read via read() to see what you get
+    lseek(fd, 0, SEEK_SET);
+    char buf[8] = {0};
+    int n = read(fd, buf, sizeof(buf));
+    printf("read after mmap returned %d, buf='%s'\n", n, buf);
+
+    close(fd);
+}
 
 int main()
 {
@@ -438,6 +492,12 @@ int main()
     printf("Testing test_memfd\n");
     test_memfd();
 
+    printf("Testing test_ftruncate_memfd\n");
+    test_ftruncate_memfd();
+
+    printf("Testing test_memfd_mmap\n");
+
+    test_memfd_mmap();
 
     printf("About to call SYS_exit via SYSCALL\n");
     syscall(SYS_exit, 0, 0, 0, 0);

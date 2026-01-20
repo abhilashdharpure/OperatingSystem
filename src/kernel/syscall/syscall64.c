@@ -3,6 +3,7 @@
 #include "syscall_numbers.h"
 #include "debug.h"
 #include "arch/x86_64/msr.h"
+#include "fs/sys_ftruncate.h"
 
 extern void x64_syscall_entry(void);
 
@@ -40,17 +41,31 @@ uint64_t sys_mmap_simple(uint64_t length,
 }
 
 
-uint64_t syscall_dispatch(uint64_t nr,
-                          uint64_t a0,
+// syscall_common.c
+// uint64_t syscall_dispatch(uint64_t a0,
+//                           uint64_t a1,
+//                           uint64_t a2,
+//                           uint64_t a3,
+//                           uint64_t a4,
+//                           uint64_t a5)
+// {
+//     uint64_t nr;
+//     __asm__ volatile("mov %%rax, %0" : "=r"(nr));
+
+
+
+
+
+uint64_t syscall_dispatch(uint64_t a0,
                           uint64_t a1,
                           uint64_t a2,
-                          uint64_t a3)
+                          uint64_t a3,
+                          uint64_t a4,
+                          uint64_t a5)
+
 {
-    // log_info("SYSCALL", "syscall_dispatch: nr=%llu a0=%llx a1=%llx a2=%llx",
-    //          (unsigned long long)nr,
-    //          (unsigned long long)a0,
-    //          (unsigned long long)a1,
-    //          (unsigned long long)a2);
+    uint64_t nr;
+    __asm__ volatile("mov %%rax, %0" : "=r"(nr));
 
     switch (nr) {
     case SYS_write:
@@ -70,7 +85,15 @@ uint64_t syscall_dispatch(uint64_t nr,
         return sys_close(a0);
 
     case SYS_mmap:
-        return sys_mmap_simple(a0, a1, a2);
+        log_info("SYSCALL", "syscall_dispatch: nr=%llu a0=%llx a1=%llx a2=%llx a3=%llx a4=%llx a5=%llx",
+             (unsigned long long)nr,
+             (unsigned long long)a0,
+             (unsigned long long)a1,
+             (unsigned long long)a2,
+             (unsigned long long)a3,
+             (unsigned long long)a4,
+             (unsigned long long)a5);
+        return sys_mmap(a0, a1, a2, a3, a4, a5);
 
     case SYS_munmap:
         return sys_munmap(a0, a1);
@@ -134,6 +157,9 @@ uint64_t syscall_dispatch(uint64_t nr,
 
     case SYS_memfd_create:
         return sys_memfd_create(a0, a1);
+
+    case SYS_ftruncate:
+        return sys_ftruncate(a0, a1);
 
     case SYS_test:
         log_info("SYSCALL", "TEST: a0=%llx a1=%llx a2=%llx a3=%llx",

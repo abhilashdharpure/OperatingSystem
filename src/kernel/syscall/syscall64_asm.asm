@@ -10,37 +10,100 @@ x64_syscall_entry:
 
     ; On entry:
     ;   rax = syscall number
-    ;   rdi = arg0
-    ;   rsi = arg1
-    ;   rdx = arg2
+    ;   rdi = a0
+    ;   rsi = a1
+    ;   rdx = a2
     ;   rcx = user RIP
     ;   r11 = user RFLAGS
     ;   rsp = user RSP
-    ;   r10 = arg3 (from userspace wrapper)
+    ;   r10 = a3
+    ;   r8  = a4
+    ;   r9  = a5
 
-    mov     r9,  rax        ; r9 = syscall number
-    mov     r8,  rsp        ; r8 = user RSP (for iret frame)
+    mov     r13, rsp        ; save user RSP for IRET frame
 
-    ; Build IRETQ frame on the user stack
+    ; Build IRETQ frame on kernel stack
     push    qword 0x23      ; SS (user data)
-    push    r8              ; RSP (original user RSP)
+    push    r13             ; RSP (original user RSP)
     push    r11             ; RFLAGS
     push    qword 0x1B      ; CS (user code)
     push    rcx             ; RIP (original user RIP)
 
-    ; Now set up C call:
-    ;   syscall_dispatch(nr, a0, a1, a2, a3)
-    ; a0..a2 still in rdi,rsi,rdx
-    ; a3 is in r10 (from userspace wrapper)
+    ; Set up SysV call:
+    ;   syscall_dispatch(a0, a1, a2, a3, a4, a5)
+    ;
+    ; rdi = a0
+    ; rsi = a1
+    ; rdx = a2
+    ; r10 = a3
+    ; r8  = a4
+    ; r9  = a5
 
-    mov     r8, r10         ; arg4 (a3) = original r10
-
-    mov     rcx, rdx        ; arg3 (a2) = original rdx
-    mov     rdx, rsi        ; arg2 (a1) = original rsi
-    mov     rsi, rdi        ; arg1 (a0) = original rdi
-    mov     rdi, r9         ; arg0 (nr) = syscall number
+    mov     rcx, r10        ; rcx = a3
+    ; rdi, rsi, rdx, r8, r9 already correct
+    ; rax still holds nr
 
     call    syscall_dispatch
 
     swapgs
     iretq
+
+
+; ; syscall64.asm
+; [BITS 64]
+; global x64_syscall_entry
+; extern syscall_dispatch
+
+; section .text
+
+; x64_syscall_entry:
+;     swapgs
+
+;     ; On entry:
+;     ;   rax = syscall number
+;     ;   rdi = arg0
+;     ;   rsi = arg1
+;     ;   rdx = arg2
+;     ;   rcx = user RIP
+;     ;   r11 = user RFLAGS
+;     ;   rsp = kernel RSP
+;     ;   r10 = arg3
+;     ;   r8  = arg4
+;     ;   r9  = arg5
+
+;     mov     r12, rsp        ; save kernel RSP (optional, for debugging)
+
+;     ; Build IRETQ frame on kernel stack
+;     push    qword 0x23      ; SS (user data)
+;     push    qword 0         ; RSP (user RSP, fill later if you track it)
+;     push    r11             ; RFLAGS
+;     push    qword 0x1B      ; CS (user code)
+;     push    rcx             ; RIP (user RIP)
+
+;     ; Now set up C call:
+;     ;   syscall_dispatch(a0, a1, a2, a3, a4, a5)
+;     ;
+;     ; Current regs:
+;     ;   rdi = a0
+;     ;   rsi = a1
+;     ;   rdx = a2
+;     ;   r10 = a3
+;     ;   r8  = a4
+;     ;   r9  = a5
+;     ;
+;     ; SysV ABI wants:
+;     ;   rdi = a0
+;     ;   rsi = a1
+;     ;   rdx = a2
+;     ;   rcx = a3
+;     ;   r8  = a4
+;     ;   r9  = a5
+
+;     mov     rcx, r10        ; rcx = a3
+
+;     ; rdi, rsi, rdx, r8, r9 already correct
+
+;     call    syscall_dispatch
+
+;     swapgs
+;     iretq

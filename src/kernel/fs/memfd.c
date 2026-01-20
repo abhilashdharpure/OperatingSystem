@@ -50,7 +50,7 @@ uint64_t sys_memfd_create(uint64_t name_ptr, uint64_t flags)
 }
 
 
-static int memfd_ensure_capacity(memfd_t *m, size_t new_capacity)
+int memfd_ensure_capacity(memfd_t *m, size_t new_capacity)
 {
     if (new_capacity <= m->capacity)
         return 0;
@@ -150,7 +150,7 @@ static int memfd_close(struct file *f)
     return 0;
 }
 
-static int memfd_stat(struct file *f, struct kstat *st)
+int memfd_stat(struct file *f, struct kstat *st)
 {
     memfd_t *m = (memfd_t *)f->private_data;
     if (!m)

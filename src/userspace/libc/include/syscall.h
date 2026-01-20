@@ -29,10 +29,12 @@ enum {
     SYS_sendmsg         = 23,
     SYS_recvmsg         = 24,
     SYS_memfd_create    = 25,
+    SYS_ftruncate       = 26,
 
     // later: SYS_socket, ..
 };
 
 
 long syscall(long n, long a, long b, long c, long d);
+long syscall6(long n, long a, long b, long c, long d, long e, long f);
 

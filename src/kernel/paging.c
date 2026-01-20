@@ -40,17 +40,7 @@ extern void enter_user_mode(Process *p);
 // Simple phys<->virt helpers for current IDENTITY mapping
 // ----------------------------------------------------------------------
 
-// For now, kernel low memory is identity-mapped: VA == PA for all paging
-// structures and low RAM. This matches your current boot paging setup.
-static inline void *phys_to_virt(uint64_t pa)
-{
-    return (void *)(uintptr_t)pa;
-}
 
-static inline uint64_t virt_to_phys(void *va)
-{
-    return (uint64_t)(uintptr_t)va;
-}
 
 void debug_dump_va_mapping(uint64_t *pml4, uint64_t va)
 {
