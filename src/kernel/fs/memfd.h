@@ -5,10 +5,10 @@
 #include <hal/file.h>   // for struct file, struct file_operations
 
 typedef struct memfd {
-    char   *data;      // backing buffer
-    size_t  size;      // logical size (file size)
-    size_t  capacity;  // allocated bytes in data
-    int     refcount;
+    uint64_t *pages;   // physical page frames
+    size_t    npages;  // number of pages
+    size_t    size;    // logical size in bytes
+    int       refcount;
 } memfd_t;
 
 // Expose fops to VFS

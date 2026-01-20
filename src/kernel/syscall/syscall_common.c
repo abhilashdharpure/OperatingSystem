@@ -112,50 +112,35 @@ static uint64_t mmap_file(uint64_t length, uint64_t prot, uint64_t flags,
                           int fd, uint64_t offset)
 {
     struct file *f = VFS_GetFile(fd);
-    if (!f) {
-        log_error("SYSCALL", "mmap_file: bad fd %d", fd);
+    if (!f || f->fops != &memfd_fops)
         return (uint64_t)-1;
-    }
-
-    if (f->fops != &memfd_fops) {
-        log_error("SYSCALL", "mmap_file: only memfd supported for now");
-        return (uint64_t)-1;
-    }
 
     memfd_t *m = (memfd_t *)f->private_data;
-    if (!m) {
-        log_error("SYSCALL", "mmap_file: memfd has no private_data");
+    if (!m)
         return (uint64_t)-1;
-    }
 
     size_t page_size   = PAGE_SIZE;
     size_t aligned_len = (length + page_size - 1) & ~(page_size - 1);
 
-    if (offset + aligned_len > m->size) {
-        log_error("SYSCALL",
-                  "mmap_file: requested range exceeds memfd size "
-                  "(offset=%llu len=%llu size=%llu)",
-                  (unsigned long long)offset,
-                  (unsigned long long)aligned_len,
-                  (unsigned long long)m->size);
+    if (offset + aligned_len > m->size)
         return (uint64_t)-1;
-    }
 
-    // Allocate virtual space in user address space
     uint64_t va_start = current_process->mmap_base;
     uint64_t va       = va_start;
     current_process->mmap_base += aligned_len;
 
-    // Physical base of memfd backing buffer
-    uint64_t phys_base = virt_to_phys(m->data);
+    size_t start_page = offset / page_size;
+    size_t start_off  = offset % page_size;
 
-    // Map memfd->data directly into userspace
     for (size_t off = 0; off < aligned_len; off += page_size) {
-        uint64_t phys = phys_base + offset + off;
+        size_t page_idx = start_page + (start_off + off) / page_size;
+        size_t page_off = (start_off + off) % page_size;
+
+        uint64_t pa = m->pages[page_idx] + page_off;
 
         map_page(current_process->page_directory,
                  va,
-                 phys,
+                 pa,
                  PAGE_PRESENT | PAGE_RW | PAGE_USER);
 
         va += page_size;
@@ -169,7 +154,6 @@ static uint64_t mmap_file(uint64_t length, uint64_t prot, uint64_t flags,
 
     return va_start;
 }
-
 
 static uint64_t mmap_anon(uint64_t length)
 {

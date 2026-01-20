@@ -5,48 +5,78 @@
 #include "kmalloc.h"
 #include "errno.h"
 #include "debug.h"
-#include "memfd.h"
+#include "paging.h"
 
-static int memfd_truncate(struct file *f, off_t length)
+int sys_ftruncate(int fd, off_t length)
 {
-    memfd_t *m = (memfd_t *)f->private_data;
-    if (!m || length < 0)
+    struct file *f = VFS_GetFile(fd);
+    if (!f)
+        return -EBADF;
+
+    // Only memfd supports truncate for now
+    if (f->fops != &memfd_fops)
         return -EINVAL;
 
-    size_t new_size = (size_t)length;
+    memfd_t *m = (memfd_t *)f->private_data;
+    if (!m)
+        return -EINVAL;
 
-    if (new_size > m->capacity) {
-        int r = memfd_ensure_capacity(m, new_size);
-        if (r < 0)
-            return r;
+    return memfd_truncate(m, (size_t)length);
+}
+
+int memfd_truncate(memfd_t *m, size_t new_size)
+{
+    size_t page_size  = PAGE_SIZE;
+    size_t new_npages = (new_size + page_size - 1) / page_size;
+
+    // grow
+    if (new_npages > m->npages) {
+        uint64_t *new_pages = kmalloc(new_npages * sizeof(uint64_t));
+        if (!new_pages)
+            return -ENOMEM;
+
+        for (size_t i = 0; i < m->npages; ++i)
+            new_pages[i] = m->pages[i];
+
+        for (size_t i = m->npages; i < new_npages; ++i) {
+            uint64_t pa = pmm_alloc_page();
+            if (!pa) {
+                for (size_t j = m->npages; j < i; ++j)
+                    pmm_free_page(new_pages[j]);
+                kfree(new_pages);
+                return -ENOMEM;
+            }
+            memset((void *)(uintptr_t)pa, 0, page_size);
+            new_pages[i] = pa;
+        }
+
+        if (m->pages)
+            kfree(m->pages);
+        m->pages  = new_pages;
+        m->npages = new_npages;
+    }
+    // shrink
+    else if (new_npages < m->npages) {
+        for (size_t i = new_npages; i < m->npages; ++i)
+            pmm_free_page(m->pages[i]);
+
+        if (new_npages == 0) {
+            kfree(m->pages);
+            m->pages = NULL;
+        } else {
+            uint64_t *new_pages = kmalloc(new_npages * sizeof(uint64_t));
+            if (!new_pages)
+                return -ENOMEM;
+            for (size_t i = 0; i < new_npages; ++i)
+                new_pages[i] = m->pages[i];
+            kfree(m->pages);
+            m->pages = new_pages;
+        }
+
+        m->npages = new_npages;
     }
 
     m->size = new_size;
-    if (f->position > (off_t)m->size)
-        f->position = (off_t)m->size;
-
     return 0;
 }
 
-uint64_t sys_ftruncate(uint64_t fd_arg, uint64_t length_arg)
-{
-    int fd = (int)fd_arg;
-    off_t length = (off_t)length_arg;
-
-    struct file *f = VFS_GetFile(fd);
-    if (!f)
-        return (uint64_t)-EBADF;
-
-    if (!f->fops || !f->fops->write)
-        return (uint64_t)-EINVAL;
-
-    // memfd implements truncate via private function
-    if (f->fops->stat == memfd_stat) {
-        // memfd path
-        extern int memfd_truncate(struct file *f, off_t length);
-        return (uint64_t)memfd_truncate(f, length);
-    }
-
-    // fallback: regular files do not support truncate yet
-    return (uint64_t)-EINVAL;
-}

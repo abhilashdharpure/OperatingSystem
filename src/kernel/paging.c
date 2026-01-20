@@ -13,7 +13,6 @@
 #define USER_END   0x40200000ULL   // adjust to cover your program + stack
 
 
-#define PAGE_SIZE            4096ULL
 
 #define PML4_INDEX(va)       (((uint64_t)(va) >> 39) & 0x1FF)
 #define PDP_INDEX(va)        (((uint64_t)(va) >> 30) & 0x1FF)

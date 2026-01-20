@@ -13,6 +13,7 @@ typedef struct {
 #define PAGE_PRESENT   (1ULL << 0)
 #define PAGE_RW        (1ULL << 1)
 #define PAGE_USER      (1ULL << 2)
+#define PAGE_SIZE            4096ULL
 
 // For now, kernel low memory is identity-mapped: VA == PA for all paging
 // structures and low RAM. This matches your current boot paging setup.
