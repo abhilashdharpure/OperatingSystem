@@ -75,7 +75,16 @@ CC=x86_64-elf-gcc \
     --target=x86_64-myos \
     --prefix=/usr \
     --disable-shared
+    
+CC=x86_64-elf-gcc \
+AR=x86_64-elf-ar \
+RANLIB=x86_64-elf-ranlib \
+./configure \
+    --target=x86_64-myos \
+    --prefix=/usr \
+    --disable-shared
 
+make -j$(nproc)
 
 
 Test GCC is working

@@ -44,6 +44,15 @@ static inline uint64_t read_cr2(void)
     return v;
 }
 
+
+
+void dump_iret_frame(uint64_t *sp)
+{
+    log_info("IRET", "RIP=%lx CS=%lx RFLAGS=%lx RSP=%lx SS=%lx",
+        sp[0], sp[1], sp[2], sp[3], sp[4]);
+}
+
+
 void x64_ISR_Handler(ISRFrame64* r)
 {
     if (r->vector == 1)
@@ -83,6 +92,23 @@ void x64_ISR_Handler(ISRFrame64* r)
             debug_dump_va_mapping(current_process->page_directory, r->cpu.rip);
             debug_dump_user_bytes(current_process, r->cpu.rip, 0x40);
         }
+
+
+        if (r->vector == 13) {
+            log_critical("GP",
+                "#GP: error=%llx rip=%p cs=%llx ss=%llx rflags=%llx",
+                r->error,
+                (void*)r->cpu.rip,
+                r->cpu.cs,
+                r->cpu.ss,
+                r->cpu.rflags
+            );
+
+            // r is at top of stack; IRET frame is just below ISRFrame64
+            uint64_t *iret = (uint64_t *)((uint8_t *)r + sizeof(ISRFrame64));
+            dump_iret_frame(iret);
+        }
+
 
 
         log_critical("EXC",

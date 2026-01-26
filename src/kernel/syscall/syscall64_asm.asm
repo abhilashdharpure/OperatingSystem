@@ -5,95 +5,73 @@ extern g_syscall_rsp0
 
 section .text
 
+; MSR layout on syscall entry:
+;   rax = syscall number
+;   rdi = arg0
+;   rsi = arg1
+;   rdx = arg2
+;   r10 = arg3
+;   r8  = arg4
+;   r9  = arg5
+;   rcx = user RIP
+;   r11 = user RFLAGS
+;   rsp = user RSP
+
 x64_syscall_entry:
     swapgs
 
-    ; rsp is user RSP here
-    mov     r12, rsp              ; r12 = user RSP
+    ; capture user context from SYSCALL
+    mov     r12, rcx        ; user RIP
+    mov     r13, r11        ; user RFLAGS
+    mov     r14, rsp        ; user RSP
+
+    ; stash syscall args in callee-saved regs
+    mov     rbp, rdi        ; a0
+    mov     rbx, rsi        ; a1
+    ; rdx = a2, r10 = a3, r8 = a4, r9 = a5, rax = nr
 
     ; switch to kernel stack
     mov     rsp, [rel g_syscall_rsp0]
 
-    ; build IRET frame for user return
-    push    qword 0x23            ; SS (user data)
-    push    r12                   ; user RSP
-    push    r11                   ; user RFLAGS
-    push    qword 0x1B            ; CS (user code)
-    push    rcx                   ; user RIP
+    ; save callee-saved for C (SysV: rbx, rbp, r12–r15)
+    push    rbx
+    push    rbp
+    push    r12
+    push    r13
+    push    r14
+    push    r15
 
-    ; Registers still hold the SYSCALL ABI:
-    ;   rax = nr
-    ;   rdi = a0
-    ;   rsi = a1
-    ;   rdx = a2
-    ;   r10 = a3
-    ;   r8  = a4
-    ;   r9  = a5
-    ;
-    ; Let syscall_dispatch read them directly (Linux-style), or
-    ; reshuffle here if you want a different C signature.
+    ; set up args for:
+    ;   uint64_t syscall_dispatch(uint64_t a0,
+    ;                             uint64_t a1,
+    ;                             uint64_t a2,
+    ;                             uint64_t a3,
+    ;                             uint64_t a4,
+    ;                             uint64_t a5);
+    mov     rdi, rbp        ; a0
+    mov     rsi, rbx        ; a1
+    ; rdx = a2
+    mov     rcx, r10        ; a3
+    ; r8  = a4
+    ; r9  = a5
 
-    call    syscall_dispatch
+    call    syscall_dispatch    ; rax = return value to user
+
+    ; restore callee-saved
+    pop     r15
+    pop     r14
+    pop     r13
+    pop     r12
+    pop     rbp
+    pop     rbx
+
+    ; now build IRET frame from the saved user context:
+    ;   RIP, CS, RFLAGS, RSP, SS
+    push    qword 0x23      ; SS (user data, DPL=3)
+    push    r14             ; RSP (user)
+    push    r13             ; RFLAGS (user)
+    push    qword 0x1B      ; CS (user code, DPL=3)
+    push    r12             ; RIP (user)
 
     swapgs
     iretq
-
-
-; ; syscall64.asm
-; [BITS 64]
-; global x64_syscall_entry
-; extern syscall_dispatch
-
-; section .text
-
-; x64_syscall_entry:
-;     swapgs
-
-;     ; On entry:
-;     ;   rax = syscall number
-;     ;   rdi = arg0
-;     ;   rsi = arg1
-;     ;   rdx = arg2
-;     ;   rcx = user RIP
-;     ;   r11 = user RFLAGS
-;     ;   rsp = kernel RSP
-;     ;   r10 = arg3
-;     ;   r8  = arg4
-;     ;   r9  = arg5
-
-;     mov     r12, rsp        ; save kernel RSP (optional, for debugging)
-
-;     ; Build IRETQ frame on kernel stack
-;     push    qword 0x23      ; SS (user data)
-;     push    qword 0         ; RSP (user RSP, fill later if you track it)
-;     push    r11             ; RFLAGS
-;     push    qword 0x1B      ; CS (user code)
-;     push    rcx             ; RIP (user RIP)
-
-;     ; Now set up C call:
-;     ;   syscall_dispatch(a0, a1, a2, a3, a4, a5)
-;     ;
-;     ; Current regs:
-;     ;   rdi = a0
-;     ;   rsi = a1
-;     ;   rdx = a2
-;     ;   r10 = a3
-;     ;   r8  = a4
-;     ;   r9  = a5
-;     ;
-;     ; SysV ABI wants:
-;     ;   rdi = a0
-;     ;   rsi = a1
-;     ;   rdx = a2
-;     ;   rcx = a3
-;     ;   r8  = a4
-;     ;   r9  = a5
-
-;     mov     rcx, r10        ; rcx = a3
-
-;     ; rdi, rsi, rdx, r8, r9 already correct
-
-;     call    syscall_dispatch
-
-;     swapgs
-;     iretq

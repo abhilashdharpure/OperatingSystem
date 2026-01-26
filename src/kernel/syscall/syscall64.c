@@ -33,30 +33,6 @@ void x64_SYSCALL_Initialize(void)
     wrmsr(IA32_FMASK, fmask);
 }
 
-uint64_t sys_mmap_simple(uint64_t length,
-                         uint64_t prot,
-                         uint64_t flags)
-{
-    // addr = 0, fd = -1, offset = 0
-    return sys_mmap(0, length, prot, flags, (uint64_t)-1, 0);
-}
-
-
-// syscall_common.c
-// uint64_t syscall_dispatch(uint64_t a0,
-//                           uint64_t a1,
-//                           uint64_t a2,
-//                           uint64_t a3,
-//                           uint64_t a4,
-//                           uint64_t a5)
-// {
-//     uint64_t nr;
-//     __asm__ volatile("mov %%rax, %0" : "=r"(nr));
-
-
-
-
-
 uint64_t syscall_dispatch(uint64_t a0,
                           uint64_t a1,
                           uint64_t a2,
@@ -194,4 +170,10 @@ uint64_t syscall_dispatch(uint64_t a0,
 
     log_error("SYSCALL", "Unknown syscall %llu", (unsigned long long)nr);
     return (uint64_t)-1;
+}
+
+void debug_dump_syscall_iret(uint64_t *sp)
+{
+    log_info("IRET", "RIP=%lx CS=%lx RFLAGS=%lx RSP=%lx SS=%lx",
+             sp[0], sp[1], sp[2], sp[3], sp[4]);
 }
