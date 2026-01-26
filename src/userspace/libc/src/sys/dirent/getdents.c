@@ -1,5 +1,5 @@
 #include <dirent.h>
-#include <syscall.h>
+#include <sys/syscall.h>
 
 int getdents(const char *path, struct dirent *buf, int max_entries)
 {

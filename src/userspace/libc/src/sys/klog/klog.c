@@ -1,7 +1,6 @@
-#include <syscall.h>
-
+#include "syscall.h"
 
 void klog(const char *msg)
 {
-    syscall(SYS_klog, (long)msg, 0, 0, 0);
+    syscall6(SYS_klog, (long)msg, 0, 0, 0, 0, 0);
 }

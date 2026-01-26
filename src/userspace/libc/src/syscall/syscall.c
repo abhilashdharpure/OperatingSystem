@@ -1,5 +1,5 @@
 #include <stdint.h>
-#include <syscall.h>
+#include <sys/syscall.h>
 #include <stdio.h>
 
 long syscall(long n, long a, long b, long c, long d)

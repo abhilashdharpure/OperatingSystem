@@ -1,5 +1,5 @@
 #include <sys/socket.h>
-#include <syscall.h>
+#include <sys/syscall.h>
 
 ssize_t sendmsg(int fd, const struct msghdr *msg, int flags)
 {

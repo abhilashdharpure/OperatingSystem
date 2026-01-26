@@ -35,6 +35,12 @@ void debug_dump_user_bytes(Process *p, uint64_t va, size_t n)
     }
 }
 
+// helper: write to user stack via its mapped PA
+static inline void u64_store(Process *p, uint64_t va, uint64_t val) {
+    uint64_t pa = get_mapped_phys(p->page_directory, va);
+    *(uint64_t*)(uintptr_t)pa = val;
+}
+
 pid_t exec_elf_mem(void *data, size_t size, BootParams* bootParams)
 {
     (void)size;
@@ -145,27 +151,100 @@ pid_t exec_elf_mem(void *data, size_t size, BootParams* bootParams)
         }
     }
 
-    p->regs.rsp = stack_top;   // 64-bit stack pointer
+    uint64_t sp = USER_STACK_TOP;
+
+    #define PUSH(val) do { sp -= 8; u64_store(p, sp, (val)); } while (0)
+
+    // auxv (in reverse, because we’re pushing)
+    PUSH(0);        // AT_NULL value
+    PUSH(0);        // AT_NULL type
+
+    // Only advertise page size for now
+    PUSH(0x1000);   // AT_PAGESZ value
+    PUSH(6);        // AT_PAGESZ
+
+    // Optionally: zero out PHDR-related entries so musl won't use them
+    // (or just omit them entirely; musl tolerates missing PHDR info)
+
+    // envp: single NULL
+    PUSH(0);
+
+    // argv: single NULL
+    PUSH(0);
+
+    // argc = 0
+    PUSH(0);
+
+    p->regs.rsp = sp;
+
+
 
     uint64_t esp_pa_dbg = get_mapped_phys(p->page_directory, p->regs.rsp - 8);
     log_info("STACK", "After map: RSP VA=0x%llx -> PA=0x%llx",
              p->regs.rsp, esp_pa_dbg);
 
     // Map ELF64 PT_LOAD segments as user pages
+    // Elf64_Phdr *ph = (Elf64_Phdr*)((uint8_t*)data + eh->e_phoff);
+    // for (int i = 0; i < eh->e_phnum; i++) {
+    //     if (ph[i].p_type != PT_LOAD)
+    //         continue;
+
+    //     // // Skip low header segment under 1 GiB hugepage
+    //     // if (ph[i].p_vaddr < USER_BASE) {
+    //     //     log_info("ELF", "Skipping low PT_LOAD segment %d at vaddr=0x%llx",
+    //     //             i, ph[i].p_vaddr);
+    //     //     continue;
+    //     // }
+
+    //     uint64_t seg_start = ph[i].p_vaddr & ~(PAGE_SIZE - 1);
+    //     uint64_t last_byte = ph[i].p_vaddr + ph[i].p_memsz - 1;
+    //     uint64_t seg_end = (last_byte & ~(PAGE_SIZE - 1)) + PAGE_SIZE;
+
+    //     log_info("ELF", "Segment %d: vaddr=0x%llx memsz=0x%llx filesz=0x%llx",
+    //             i, ph[i].p_vaddr, ph[i].p_memsz, ph[i].p_filesz);
+
+
+    //     // You can derive RW from p_flags if you want; for now: RW+USER for simplicity
+    //     uint64_t seg_flags = user_rw_flags;
+
+    //     for (uint64_t va = seg_start; va < seg_end; va += PAGE_SIZE)
+    //     {
+
+
+
     Elf64_Phdr *ph = (Elf64_Phdr*)((uint8_t*)data + eh->e_phoff);
-    for (int i = 0; i < eh->e_phnum; i++) {
+
+    for (int i = 0; i < eh->e_phnum; i++)
+    {
         if (ph[i].p_type != PT_LOAD)
             continue;
 
-        uint64_t seg_start = ph[i].p_vaddr & ~(PAGE_SIZE - 1);
-        uint64_t last_byte = ph[i].p_vaddr + ph[i].p_memsz - 1;
-        uint64_t seg_end = (last_byte & ~(PAGE_SIZE - 1)) + PAGE_SIZE;
+        uint64_t vaddr = ph[i].p_vaddr;
 
-        log_info("ELF", "Segment %d: vaddr=0x%llx memsz=0x%llx filesz=0x%llx",
-                 i, ph[i].p_vaddr, ph[i].p_memsz, ph[i].p_filesz);
+        if (vaddr < 0x40000000ULL) {
+            // Low segment: use existing 1GiB identity mapping.
+            // Physical == virtual in that region.
+            uint8_t *dst = (uint8_t *)phys_to_virt((uint64_t)vaddr);
+            uint8_t *src = (uint8_t *)data + ph[i].p_offset;
 
-        // You can derive RW from p_flags if you want; for now: RW+USER for simplicity
+            memcpy(dst, src, ph[i].p_filesz);
+            // zero the rest up to memsz if needed
+            if (ph[i].p_memsz > ph[i].p_filesz) {
+                memset(dst + ph[i].p_filesz, 0, ph[i].p_memsz - ph[i].p_filesz);
+            }
+
+            log_info("ELF", "Loaded low PT_LOAD segment %d at ident-mapped VA=0x%llx",
+                    i, vaddr);
+            continue;
+        }
+
+        // High segments: your existing map_page path
+        uint64_t seg_start = vaddr & ~(PAGE_SIZE - 1);
+        uint64_t last_byte = vaddr + ph[i].p_memsz - 1;
+        uint64_t seg_end   = (last_byte & ~(PAGE_SIZE - 1)) + PAGE_SIZE;
+
         uint64_t seg_flags = user_rw_flags;
+
 
         for (uint64_t va = seg_start; va < seg_end; va += PAGE_SIZE)
         {

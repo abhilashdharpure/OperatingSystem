@@ -1,5 +1,5 @@
 #include "sys/mman.h"
-#include "syscall.h"
+#include "sys/syscall.h"
 
 int memfd_create(const char *name, unsigned int flags)
 {

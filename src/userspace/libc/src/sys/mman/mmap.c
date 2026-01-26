@@ -1,6 +1,6 @@
 // libc/src/sys/mman/mmap.c
 #include <sys/mman.h>
-#include <syscall.h>
+#include <sys/syscall.h>
 #include <stddef.h>
 #include <stdint.h>
 

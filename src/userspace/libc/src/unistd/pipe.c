@@ -1,5 +1,5 @@
 #include <unistd.h>
-#include <syscall.h>
+#include <sys/syscall.h>
 
 int pipe(int fds[2])
 {

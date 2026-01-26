@@ -1,6 +1,6 @@
 #include <sys/socket.h>
 #include <types.h>
-#include <syscall.h>
+#include <sys/syscall.h>
 
 ssize_t recvmsg(int fd, struct msghdr *msg, int flags)
 {

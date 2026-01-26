@@ -1,5 +1,5 @@
 #include <fcntl.h>
-#include <syscall.h>
+#include <sys/syscall.h>
 
 int fcntl(int fd, int cmd, long arg)
 {

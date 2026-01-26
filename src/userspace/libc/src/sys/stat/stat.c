@@ -1,5 +1,5 @@
 #include <sys/stat.h>
-#include <syscall.h>
+#include <sys/syscall.h>
 
 int stat(const char *path, struct stat *buf)
 {

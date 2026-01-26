@@ -12,7 +12,7 @@
 #include <time/time.h>   // your kernel-side time header
 #include <arch/x86_64/pit.h>
 #include <hal/socketpair.h>
-#include <paging.h>
+#include "errno.h"
 #include "fs/memfd.h"
 
 
@@ -27,6 +27,15 @@
 #define MAP_SHARED    0x01
 #define MAP_PRIVATE   0x02
 #define MAP_ANONYMOUS 0x20
+
+#define MSR_FS_BASE 0xC0000100
+
+// linux values
+#define ARCH_SET_FS 0x1002
+#define ARCH_GET_FS 0x1003
+
+static uint64_t current_fs_base; // per-thread in the future
+
 
 Process *current_process;
 
@@ -764,4 +773,29 @@ uint64_t sys_socketpair(uint64_t domain,
     sv[1] = fd1;
 
     return 0;
+}
+
+long sys_arch_prctl(long code, unsigned long addr)
+{
+    log_info("SYSCALL", "arch_prctl code=%lx addr=%lx", code, addr);
+    switch (code) {
+    case ARCH_SET_FS: {
+        current_process->fs_base = addr;
+
+        uint32_t lo = (uint32_t)(addr & 0xFFFFFFFF);
+        uint32_t hi = (uint32_t)(addr >> 32);
+
+        __asm__ volatile("wrmsr"
+                         :: "c"(MSR_FS_BASE), "a"(lo), "d"(hi));
+
+        return 0;
+    }
+
+    case ARCH_GET_FS:
+        // musl rarely uses this early; you can return 0 for now
+        return current_process->fs_base;
+
+    default:
+        return -EINVAL;
+    }
 }

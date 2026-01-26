@@ -64,6 +64,20 @@ Go to Project/Toolchain folder and run below commands:
         make install-gcc
         make install-target-libgcc
 
+# Download & Install musl
+wget https://musl.libc.org/releases/musl-1.2.5.tar.gz
+tar xf musl-1.2.5.tar.gz
+cd musl-1.2.5
+export PATH=$PATH:/home/abhilash/Project/OperatingSystem/toolchain/x86_64-elf/bin
+
+CC=x86_64-elf-gcc \
+./configure \
+    --target=x86_64-myos \
+    --prefix=/usr \
+    --disable-shared
+
+
+
 Test GCC is working
         cd /home/abhilash/Project/nanobyte_experiments/GccTest/
         export TOOLCHAIN="$HOME/Project/Toolchain/i686-elf"

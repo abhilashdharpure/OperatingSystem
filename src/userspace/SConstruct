@@ -20,18 +20,31 @@ env = Environment(
         "-Wall",
         "-Wextra",
         "-Werror=implicit-function-declaration",
-        "-Ilibc/include",
     ],
     LINKFLAGS=[
         "-nostdlib",
         "-Wl,-m,elf_x86_64",
         "-Wl,-z,max-page-size=0x1000",
+        "-Wl,-Ttext=0x40000000",
+        "/home/abhilash/myos-sysroot/usr/lib/crt1.o",
+        "/home/abhilash/myos-sysroot/usr/lib/crti.o",
+        "/home/abhilash/myos-sysroot/usr/lib/crtn.o",
     ],
 )
 
-# Build libc first
-SConscript("libc/SConscript", exports="env")
+# Correct include order
+env.Append(CPPPATH=[
+    "#libc/include",                         # note the leading '#'
+    "/home/abhilash/myos-sysroot/usr/include",
+])
 
-# Build user programs
-SConscript("bin/init/SConscript", exports="env")
-SConscript("bin/test/SConscript", exports="env")
+env.Append(LIBPATH=[
+    "/home/abhilash/myos-sysroot/usr/lib"
+])
+
+# Build libc once
+libc_objs = SConscript("libc/SConscript", exports="env")
+
+# Build programs
+SConscript("bin/init/SConscript", exports=["env", "libc_objs"])
+SConscript("bin/test/SConscript", exports=["env", "libc_objs"])

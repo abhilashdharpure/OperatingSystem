@@ -1,4 +1,4 @@
-#include <syscall.h>
+#include <sys/syscall.h>
 #include <fcntl.h>   // define O_RDONLY, O_WRONLY, etc.
 #include <stdint.h>
 

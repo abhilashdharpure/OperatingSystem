@@ -1,10 +1,12 @@
 // isr64.c
 #include "isr64.h"
 #include "debug.h"
+#include "hal/process.h"
 #include "arch/x86_64/serial.h"
 #include "arch/x86_64/irq.h"
 
 ISR64Handler g_ISR64Handlers[256];
+extern Process *current_process;
 
 void x64_ISR_InitializeGates();
 
@@ -75,6 +77,13 @@ void x64_ISR_Handler(ISRFrame64* r)
             uint64_t cr2 = read_cr2();
             log_critical("PF", "Page fault: cr2=%p error=%llx", (void*)cr2, r->error);
         }
+
+        if (r->vector == 6) {
+            log_info("EXC", "UD at rip=0x%llx", (unsigned long long)r->cpu.rip);
+            debug_dump_va_mapping(current_process->page_directory, r->cpu.rip);
+            debug_dump_user_bytes(current_process, r->cpu.rip, 0x40);
+        }
+
 
         log_critical("EXC",
             "vec=%llu rip=%p cs=%llx rflags=%llx",

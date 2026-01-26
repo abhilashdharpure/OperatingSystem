@@ -1,5 +1,5 @@
 #include <unistd.h>
-#include <syscall.h>
+#include <sys/syscall.h>
 
 void _exit(int code) {
     // syscall_exit(code);

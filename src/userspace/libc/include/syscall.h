@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <types.h>
 
+
 enum {
     SYS_test            = 0,
     SYS_write           = 1,
@@ -30,10 +31,18 @@ enum {
     SYS_recvmsg         = 24,
     SYS_memfd_create    = 25,
     SYS_ftruncate       = 26,
-
+    SYS_getpid          = 27,
+    SYS_getppid         = 28,
+    SYS_uname           = 29,
+    SYS_getcwd          = 30,
+    SYS_madvise         = 31,
+    SYS_set_tid_address = 32,
+    SYS_prlimit64       = 33,
+    SYS_getrandom       = 34,
+    SYS_exit_group      = 35,
+    SYS_arch_prctl      = 36,
     // later: SYS_socket, ..
 };
-
 
 long syscall(long n, long a, long b, long c, long d);
 long syscall6(long n, long a, long b, long c, long d, long e, long f);

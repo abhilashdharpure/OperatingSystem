@@ -5,6 +5,11 @@
 
 void x64_syscall_handler(ISRFrame64 *r)
 {
+    log_info("SYSCALL", "entry: rip=0x%llx rsp=0x%llx rax=%lld",
+             (unsigned long long)r->cpu.rip,
+             (unsigned long long)r->cpu.rsp,
+             (long long)r->rax);
+
     uint64_t num = r->rax;
     uint64_t a0  = r->rbx;
     uint64_t a1  = r->rcx;
@@ -23,4 +28,9 @@ void x64_syscall_handler(ISRFrame64 *r)
         log_error("SYSCALL", "Unknown int80 syscall %llu", num);
         r->rax = (uint64_t)-1;
     }
+
+    log_info("SYSCALL", "exit:  rip=0x%llx rsp=0x%llx rax=%lld",
+             (unsigned long long)r->cpu.rip,
+             (unsigned long long)r->cpu.rsp,
+             (long long)r->rax);
 }

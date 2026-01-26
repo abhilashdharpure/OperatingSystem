@@ -1,5 +1,5 @@
 #include <stdio.h>
-#include <syscall.h>
+#include <sys/syscall.h>
 #include <stdint.h>
 #include <fcntl.h>
 #include <unistd.h>

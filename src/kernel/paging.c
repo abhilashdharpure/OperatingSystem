@@ -371,6 +371,13 @@ void clone_kernel_mappings_for_user(uint64_t *user_pml4)
         for (int i = 0; i < 512; ++i)
             pdpt_dst[i] = pdpt_src[i];
 
+        // If PDPT[0] is a 1GiB hugepage in the kernel,
+        // drop it in the *user* PDPT so we can use normal PD/PT there.
+        if (pdpt_dst[0] & PAGE_PS)
+        { 
+            pdpt_dst[0] |= PAGE_USER;
+        } 
+
         // Copy original flags but add PAGE_USER for PML4[0]
         user_pml4[0] = new_pdpt_pa | (e0 & 0xFFFULL) | PAGE_USER;
     }
@@ -381,34 +388,6 @@ void clone_kernel_mappings_for_user(uint64_t *user_pml4)
     log_info("Paging", "clone_kernel_mappings_for_user done: user VA 0x%llx-0x%llx now USER-accessible",
              USER_START, USER_END);
 }
-
-
-// void clone_kernel_mappings(uint64_t *user_pml4)
-// {
-//     // Copy top-level entries
-//     for (int i = 0; i < 512; ++i) {
-//         user_pml4[i] = kernel_pml4_virt[i];
-//     }
-
-//     // For index 0, allocate a new PDPT and copy contents,
-//     uint64_t e0 = kernel_pml4_virt[0];
-//     if (e0 & PAGE_PRESENT) {
-//         uint64_t new_pdpt_pa = pmm_alloc_page();
-//         if (!new_pdpt_pa) panic("clone_kernel_mappings: failed to alloc PDPT");
-
-//         memset(phys_to_virt(new_pdpt_pa), 0, PAGE_SIZE);
-
-//         uint64_t *pdpt_src = (uint64_t *)phys_to_virt(e0 & ~0xFFFULL);
-//         uint64_t *pdpt_dst = (uint64_t *)phys_to_virt(new_pdpt_pa);
-
-//         for (int i = 0; i < 512; ++i) {
-//             pdpt_dst[i] = pdpt_src[i];
-//         }
-
-//         // Copy original flags but ADD PAGE_USER so user can walk PML4[0]
-//         user_pml4[0] = new_pdpt_pa | (e0 & 0xFFFULL) | PAGE_USER;
-//     }
-// }
 
 // ----------------------------------------------------------------------
 // Enter user mode (unchanged semantics – uses p->cr3 and enter_user_mode(p))
@@ -429,6 +408,15 @@ void enter_user_mode_from_process(Process *p)
     uint64_t k_rsp;
     __asm__ volatile("mov %%rsp, %0" : "=r"(k_rsp));
 
+    log_info("EXEC", "Before dump: RSP=0x%llx, RIP(entry)=0x%llx, cr3=0x%llx",
+             (unsigned long long)k_rsp,
+             (unsigned long long)p->regs.rip,
+             (unsigned long long)pml4_pa);
+    debug_dump_va_mapping(p->page_directory, p->regs.rip);
+    debug_dump_va_mapping(p->page_directory, p->regs.rsp - 8);
+
+    //  debug_dump_user_bytes(p, p->regs.rsp, 0x80);
+
     log_info("EXEC", "Before write_cr3: RSP=0x%llx, RIP(entry)=0x%llx, cr3=0x%llx",
              (unsigned long long)k_rsp,
              (unsigned long long)p->regs.rip,
@@ -439,6 +427,7 @@ void enter_user_mode_from_process(Process *p)
     log_info("EXEC", "enter_user_mode_from_process: after write_cr3, jumping to user");
 
     enter_user_mode(p);
+
 
     log_critical("EXEC", "enter_user_mode: returned unexpectedly from user mode");
     for (;;);

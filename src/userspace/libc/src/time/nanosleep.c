@@ -1,6 +1,6 @@
 // libc/time/nanosleep.c
 #include <time.h>
-#include <syscall.h>
+#include <sys/syscall.h>
 
 int nanosleep(const struct timespec *req, struct timespec *rem)
 {

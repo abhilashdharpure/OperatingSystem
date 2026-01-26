@@ -20,7 +20,9 @@ typedef struct Process {
     uint64_t    brk_start;  // heap region start
     uint64_t    brk_end;    // heap region limit (max)
     uint64_t    brk_cur;    // current program break
-    uint64_t    brk_end_limit
+    uint64_t    brk_end_limit;
+
+    uint64_t    fs_base;
 } Process;
 
 

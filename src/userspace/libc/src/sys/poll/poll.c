@@ -1,6 +1,6 @@
 // libc/src/sys/poll/poll.c
 #include <sys/poll.h>
-#include <syscall.h>
+#include <sys/syscall.h>
 
 int poll(struct pollfd *fds, nfds_t nfds, int timeout)
 {

@@ -1,6 +1,6 @@
 // libc/src/sys/mman/munmap.c
 #include <sys/mman.h>
-#include <syscall.h>
+#include <sys/syscall.h>
 
 int munmap(void *addr, size_t length)
 {

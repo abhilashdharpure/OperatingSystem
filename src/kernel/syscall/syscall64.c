@@ -2,6 +2,7 @@
 #include "syscall_common.h"
 #include "syscall_numbers.h"
 #include "debug.h"
+#include "errno.h"
 #include "arch/x86_64/msr.h"
 #include "fs/sys_ftruncate.h"
 
@@ -160,6 +161,27 @@ uint64_t syscall_dispatch(uint64_t a0,
 
     case SYS_ftruncate:
         return sys_ftruncate(a0, a1);
+
+    case SYS_getpid: return sys_getpid();
+    case SYS_getppid: return sys_getppid();
+    case SYS_uname: return sys_uname((struct utsname*)a0);
+    case SYS_getcwd: return sys_getcwd((char*)a0, a1);
+    case SYS_madvise: return sys_madvise((void*)a0, a1, a2);
+    case SYS_set_tid_address: return sys_set_tid_address((int*)a0);
+    case SYS_prlimit64: return sys_prlimit64(a0, a1, (void*)a2, (void*)a3);
+    case SYS_getrandom: return sys_getrandom((void*)a0, a1, a2);
+    case SYS_exit_group: return sys_exit_group(a0);
+
+    case SYS_arch_prctl:
+        // for now, just say "not supported"
+        return -ENOSYS;
+
+    case 158: // Linux x86_64 arch_prctl
+        return sys_arch_prctl(a0, a1);
+
+    case 218: // Linux x86_64 set_tid_address
+        return sys_set_tid_address((int*)a0);
+
 
     case SYS_test:
         log_info("SYSCALL", "TEST: a0=%llx a1=%llx a2=%llx a3=%llx",

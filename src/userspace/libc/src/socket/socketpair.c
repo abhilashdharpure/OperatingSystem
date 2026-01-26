@@ -1,6 +1,6 @@
 // libc/src/socket/socketpair.c
 #include <sys/socket.h>
-#include <syscall.h>
+#include <sys/syscall.h>
 #include <stdio.h>
 
 // Add this:

@@ -1,11 +1,3 @@
-Import("env", "libc")
+Import("env", "libc_objs")
 
-init_env = env.Clone()
-
-program = init_env.Program(
-    "init",
-    ["main.c", libc],
-    LINKFLAGS=env["LINKFLAGS"] + ["-T", "src/link.ld"],
-)
-
-Default(program)
+env.Program("init", ["main.o"] + libc_objs, LIBS=["c"])
