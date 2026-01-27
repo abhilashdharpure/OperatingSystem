@@ -3,11 +3,10 @@
 .extern main
 
 _start:
-    call   main            # int main(void)
+    call   main
     mov    %rax, %rdi      # exit code
-    mov    $2, %rax        # SYS_exit = 2
+    mov    $2, %rax        # SYS_exit
     xor    %rsi, %rsi
     xor    %rdx, %rdx
     syscall
-
-1:  jmp 1b                 # if syscall returns, spin forever
+1:  jmp 1b

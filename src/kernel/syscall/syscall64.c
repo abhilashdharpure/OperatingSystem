@@ -44,6 +44,10 @@ uint64_t syscall_dispatch(uint64_t a0,
     uint64_t nr;
     __asm__ volatile("mov %%rax, %0" : "=r"(nr));
 
+
+    log_info("SYSCALL", "nr=%llu a0=%llx a1=%llx a2=%llx a3=%llx a4=%llx a5=%llx",
+             nr, a0, a1, a2, a3, a4, a5);
+
     switch (nr) {
     case SYS_write:
         return sys_write(a0, (const char *)a1, a2);

@@ -40,7 +40,6 @@ static inline void u64_store(Process *p, uint64_t va, uint64_t val) {
     uint64_t pa = get_mapped_phys(p->page_directory, va);
     *(uint64_t*)(uintptr_t)pa = val;
 }
-
 pid_t exec_elf_mem(void *data, size_t size, BootParams* bootParams)
 {
     (void)size;
@@ -93,14 +92,12 @@ pid_t exec_elf_mem(void *data, size_t size, BootParams* bootParams)
     p->page_directory = pd.pd_virt;  // PML4 VA
     p->cr3            = pd.pd_phys;  // PML4 PA
     p->mmap_base      = USER_MMAP_BASE;
-    p->brk_start = USER_HEAP_START;
-    p->brk_end   = USER_HEAP_START;  // nothing mapped yet
-    p->brk_cur   = USER_HEAP_START;
-    p->brk_end_limit = USER_HEAP_END; // if you add that field
-
+    p->brk_start      = USER_HEAP_START;
+    p->brk_end        = USER_HEAP_START;
+    p->brk_cur        = USER_HEAP_START;
+    p->brk_end_limit  = USER_HEAP_END;
 
     log_info("EXEC", "exec_elf_mem clone_kernel_mappings");
-    // clone_kernel_mappings(p->page_directory);
     clone_kernel_mappings_for_user(p->page_directory);
 
     // Pick user memory region (for physical pages only)
@@ -121,16 +118,16 @@ pid_t exec_elf_mem(void *data, size_t size, BootParams* bootParams)
     log_info("ELF", "Selected User Region: start=0x%llx length=0x%llx type=%x",
              user_region->Begin, user_region->Length, user_region->Type);
 
-    // Stack in high user region (PML4[1])
+    // Stack in high user region
     uint64_t stack_top    = USER_STACK_TOP;
     uint64_t stack_bottom = stack_top - USER_STACK_SIZE;
 
     log_info("ELF", "Stack Top == 0x%llx stack_bottom=0x%llx",
              stack_top, stack_bottom);
 
-    // Map user stack pages: present, RW, user
     const uint64_t user_rw_flags = PAGE_PRESENT | PAGE_RW | PAGE_USER;
 
+    // Map user stack pages
     for (uint64_t va = stack_bottom; va < stack_top; va += PAGE_SIZE) {
         uint64_t pa = pmm_alloc_page();
         if (!pa) {
@@ -141,113 +138,100 @@ pid_t exec_elf_mem(void *data, size_t size, BootParams* bootParams)
         uint8_t *kva = (uint8_t*)(uintptr_t)pa;
         memset(kva, 0, PAGE_SIZE);
 
-        if (map_page(p->page_directory,
-                     va,
-                     pa,
-                     user_rw_flags) != 0)
-        {
+        if (map_page(p->page_directory, va, pa, user_rw_flags) != 0) {
             log_critical("EXEC", "map_page failed for stack VA=0x%llx", va);
             return -1;
         }
     }
 
+    // Build minimal Linux-like initial stack: argc=0, argv=NULL, envp=NULL, auxv with AT_PAGESZ
     uint64_t sp = USER_STACK_TOP;
+
+    // 16-byte align
+    sp &= ~0xFULL;
 
     #define PUSH(val) do { sp -= 8; u64_store(p, sp, (val)); } while (0)
 
-    // auxv (in reverse, because we’re pushing)
-    PUSH(0);        // AT_NULL value
-    PUSH(0);        // AT_NULL type
+    // Compute values for auxv
+    uint64_t load_base = 0x400000ULL;            // where you actually loaded PT_LOAD[0]
+    uint64_t phdr_addr = load_base + eh->e_phoff;
 
-    // Only advertise page size for now
-    PUSH(0x1000);   // AT_PAGESZ value
-    PUSH(6);        // AT_PAGESZ
+    uint64_t phent     = eh->e_phentsize;
+    uint64_t phnum     = eh->e_phnum;
+    uint64_t entry     = eh->e_entry;
 
-    // Optionally: zero out PHDR-related entries so musl won't use them
-    // (or just omit them entirely; musl tolerates missing PHDR info)
-
-    // envp: single NULL
+    // --- auxv (in reverse) ---
+    // AT_NULL
+    PUSH(0);
     PUSH(0);
 
-    // argv: single NULL
+    // AT_PAGESZ
+    PUSH(0x1000);
+    PUSH(6);          // AT_PAGESZ
+
+    // AT_ENTRY
+    PUSH(entry);
+    PUSH(9);          // AT_ENTRY
+
+    // AT_PHNUM
+    PUSH(phnum);
+    PUSH(5);          // AT_PHNUM
+
+    // AT_PHENT
+    PUSH(phent);
+    PUSH(4);          // AT_PHENT
+
+    // AT_PHDR
+    PUSH(phdr_addr);
+    PUSH(3);          // AT_PHDR
+
+    // --- envp: envp[0] = NULL ---
     PUSH(0);
 
-    // argc = 0
+    // --- argv: argv[0] = NULL ---
+    PUSH(0);
+
+    // --- argc = 0 ---
     PUSH(0);
 
     p->regs.rsp = sp;
 
 
-
-    uint64_t esp_pa_dbg = get_mapped_phys(p->page_directory, p->regs.rsp - 8);
+    uint64_t esp_pa_dbg = get_mapped_phys(p->page_directory, p->regs.rsp);
     log_info("STACK", "After map: RSP VA=0x%llx -> PA=0x%llx",
              p->regs.rsp, esp_pa_dbg);
 
-    // Map ELF64 PT_LOAD segments as user pages
-    // Elf64_Phdr *ph = (Elf64_Phdr*)((uint8_t*)data + eh->e_phoff);
-    // for (int i = 0; i < eh->e_phnum; i++) {
-    //     if (ph[i].p_type != PT_LOAD)
-    //         continue;
-
-    //     // // Skip low header segment under 1 GiB hugepage
-    //     // if (ph[i].p_vaddr < USER_BASE) {
-    //     //     log_info("ELF", "Skipping low PT_LOAD segment %d at vaddr=0x%llx",
-    //     //             i, ph[i].p_vaddr);
-    //     //     continue;
-    //     // }
-
-    //     uint64_t seg_start = ph[i].p_vaddr & ~(PAGE_SIZE - 1);
-    //     uint64_t last_byte = ph[i].p_vaddr + ph[i].p_memsz - 1;
-    //     uint64_t seg_end = (last_byte & ~(PAGE_SIZE - 1)) + PAGE_SIZE;
-
-    //     log_info("ELF", "Segment %d: vaddr=0x%llx memsz=0x%llx filesz=0x%llx",
-    //             i, ph[i].p_vaddr, ph[i].p_memsz, ph[i].p_filesz);
-
-
-    //     // You can derive RW from p_flags if you want; for now: RW+USER for simplicity
-    //     uint64_t seg_flags = user_rw_flags;
-
-    //     for (uint64_t va = seg_start; va < seg_end; va += PAGE_SIZE)
-    //     {
-
-
-
+    // Map ELF64 PT_LOAD segments
     Elf64_Phdr *ph = (Elf64_Phdr*)((uint8_t*)data + eh->e_phoff);
 
-    for (int i = 0; i < eh->e_phnum; i++)
-    {
+    for (int i = 0; i < eh->e_phnum; i++) {
         if (ph[i].p_type != PT_LOAD)
             continue;
 
         uint64_t vaddr = ph[i].p_vaddr;
 
         if (vaddr < 0x40000000ULL) {
-            // Low segment: use existing 1GiB identity mapping.
-            // Physical == virtual in that region.
+            // Low segment: identity-mapped
             uint8_t *dst = (uint8_t *)phys_to_virt((uint64_t)vaddr);
             uint8_t *src = (uint8_t *)data + ph[i].p_offset;
 
             memcpy(dst, src, ph[i].p_filesz);
-            // zero the rest up to memsz if needed
             if (ph[i].p_memsz > ph[i].p_filesz) {
                 memset(dst + ph[i].p_filesz, 0, ph[i].p_memsz - ph[i].p_filesz);
             }
 
             log_info("ELF", "Loaded low PT_LOAD segment %d at ident-mapped VA=0x%llx",
-                    i, vaddr);
+                     i, vaddr);
             continue;
         }
 
-        // High segments: your existing map_page path
         uint64_t seg_start = vaddr & ~(PAGE_SIZE - 1);
         uint64_t last_byte = vaddr + ph[i].p_memsz - 1;
         uint64_t seg_end   = (last_byte & ~(PAGE_SIZE - 1)) + PAGE_SIZE;
 
         uint64_t seg_flags = user_rw_flags;
 
-
-        for (uint64_t va = seg_start; va < seg_end; va += PAGE_SIZE)
-        {
+        for (uint64_t va = seg_start; va < seg_end; va += PAGE_SIZE) {
             uint64_t pa = pmm_alloc_page();
             if (!pa) {
                 log_critical("EXEC", "Out of pages while mapping ELF segment");
@@ -269,12 +253,11 @@ pid_t exec_elf_mem(void *data, size_t size, BootParams* bootParams)
                     to_copy = ph[i].p_filesz - offset_in_segment;
 
                 memcpy(kva,
-                    (uint8_t*)data + ph[i].p_offset + offset_in_segment,
-                    to_copy);
+                       (uint8_t*)data + ph[i].p_offset + offset_in_segment,
+                       to_copy);
             }
         }
 
-        /* Temporary safety net: one extra page after executable segment */
         if (ph[i].p_flags & PF_X) {
             uint64_t extra_va = seg_end;
             uint64_t extra_pa = pmm_alloc_page();
@@ -284,31 +267,28 @@ pid_t exec_elf_mem(void *data, size_t size, BootParams* bootParams)
                 map_page(p->page_directory, extra_va, extra_pa, seg_flags);
             }
         }
-
     }
 
-    // Set 64-bit entry point directly (already in high user range from linker)
+    // Set entry point
     p->regs.rip = eh->e_entry;
 
     log_info("EXEC", "Process regs: RIP=0x%llx RSP=0x%llx",
-            (unsigned long long)p->regs.rip,
-            (unsigned long long)p->regs.rsp);
+             (unsigned long long)p->regs.rip,
+             (unsigned long long)p->regs.rsp);
 
     uint64_t rip_pa = get_mapped_phys(p->page_directory, p->regs.rip);
-    uint64_t rsp_pa = get_mapped_phys(p->page_directory, p->regs.rsp - 8);
+    uint64_t rsp_pa = get_mapped_phys(p->page_directory, p->regs.rsp);
 
     log_info("EXEC", "RIP VA=0x%llx -> PA=0x%llx",
-            p->regs.rip, rip_pa);
+             p->regs.rip, rip_pa);
     log_info("EXEC", "RSP VA=0x%llx -> PA=0x%llx",
-            p->regs.rsp, rsp_pa);
+             p->regs.rsp, rsp_pa);
 
     if (!rip_pa || !rsp_pa) {
         log_critical("EXEC", "ELF pages not mapped!");
     }
 
     log_info("EXEC", "ELF64 loaded entry=0x%llx", eh->e_entry);
-
-    // debug_dump_user_bytes(p, p->regs.rip, 8);
 
     enter_user_mode_from_process(p);
     return 0;

@@ -1,49 +1,66 @@
+// gdt.c
 #include "gdt.h"
+#include "debug.h"
 
 extern void gdt_flush(uint64_t gdtr);
-extern void tss_flush(uint16_t selector);
 
-static TSSDescriptor tss_desc;
-GDTEntry g_GDT[7];   // add 6th entry for TSS
+GDTEntry g_GDT[7];
 GDTR g_GDT_Ptr;
 
 static inline GDTEntry gdt_make_entry(uint8_t access, uint8_t flags)
 {
-    // flags: bits 0-3 -> limit high (usually 0), bits 4-7 -> actual flags (L, D, G)
-    uint8_t gran = (flags & 0xF0);  // limit_high = 0, flags in high nibble
-
-    return (GDTEntry){
-        .limit_low = 0,
-        .base_low  = 0,
-        .base_mid  = 0,
-        .access    = access,
-        .gran      = gran,
-        .base_high = 0
-    };
+    GDTEntry e = {0};
+    e.limit_low = 0;
+    e.base_low  = 0;
+    e.base_mid  = 0;
+    e.access    = access;
+    e.gran      = (flags & 0xF0);   // limit_high = 0, flags in high nibble
+    e.base_high = 0;
+    return e;
 }
+
+static void dump_descriptor(const char *name, uint16_t sel)
+{
+    uint16_t index = sel >> 3;
+    GDTEntry *e = &g_GDT[index];
+    uint8_t access = e->access;
+    uint8_t flags  = e->gran >> 4;
+
+    log_info("GDT", "%s sel=0x%x access=0x%02x flags=0x%02x",
+             name, sel, access, flags);
+}
+
 
 void gdt_init(void)
 {
-    uint64_t* g = (uint64_t*)g_GDT;
+    g_GDT[0] = (GDTEntry){0};
 
-    // 0: null
-    g[0] = 0x0000000000000000ull;
+    // kernel code: present | ring0 | code | RW, L=1, G=1
+    g_GDT[1] = gdt_make_entry(
+        GDT_ACCESS_PRESENT | GDT_ACCESS_RING0 | GDT_ACCESS_CODE | GDT_ACCESS_RW,
+        GDT_FLAG_LONG_MODE | GDT_FLAG_GRAN_4K
+    );
 
-    // 1: kernel code (base=0, limit=0, 64-bit, DPL=0, RW)
-    g[1] = 0x00209A0000000000ull;
+    // kernel data: present | ring0 | data | RW
+    g_GDT[2] = gdt_make_entry(
+        GDT_ACCESS_PRESENT | GDT_ACCESS_RING0 | GDT_ACCESS_DATA | GDT_ACCESS_RW,
+        0
+    );
 
-    // 2: kernel data (base=0, limit=0, DPL=0, RW)
-    g[2] = 0x0000920000000000ull;
+    // user code: present | ring3 | code | RW, L=1, G=1
+    g_GDT[3] = gdt_make_entry(
+        GDT_ACCESS_PRESENT | GDT_ACCESS_RING3 | GDT_ACCESS_CODE | GDT_ACCESS_RW,
+        GDT_FLAG_LONG_MODE | GDT_FLAG_GRAN_4K
+    );
 
-    // 3: user code (DPL=3, 64-bit, RW)
-    g[3] = 0x0020FA0000000000ull;
+    // user data: present | ring3 | data | RW
+    g_GDT[4] = gdt_make_entry(
+        GDT_ACCESS_PRESENT | GDT_ACCESS_RING3 | GDT_ACCESS_DATA | GDT_ACCESS_RW,
+        0
+    );
 
-    // 4: user data (DPL=3, RW)
-    g[4] = 0x0000F20000000000ull;
-
-    // 5 + 6: zero for now (TSS placeholder)
-    g[5] = 0x0000000000000000ull;
-    g[6] = 0x0000000000000000ull;
+    g_GDT[5] = (GDTEntry){0};
+    g_GDT[6] = (GDTEntry){0};
 
     g_GDT_Ptr.limit = sizeof(g_GDT) - 1;
     g_GDT_Ptr.base  = (uint64_t)&g_GDT;
@@ -58,4 +75,7 @@ void gdt_init(void)
         : "r"(KERNEL_DATA_SELECTOR)
         : "memory"
     );
+
+    dump_descriptor("USER_CODE", USER_CODE_SELECTOR);
+
 }

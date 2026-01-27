@@ -14,7 +14,7 @@
 #include <hal/socketpair.h>
 #include "errno.h"
 #include "fs/memfd.h"
-
+#include <arch/x86_64/msr.h> 
 
 #define PAGE_SIZE 0x1000
 #define TICKS_PER_SEC 1000             // e.g. 1ms tick
@@ -775,26 +775,34 @@ uint64_t sys_socketpair(uint64_t domain,
     return 0;
 }
 
+// long sys_arch_prctl(int code, unsigned long addr)
+// {
+//     switch (code) {
+//     case ARCH_SET_FS:
+//         // addr is a full 64-bit canonical user VA
+//         // write it into FS base MSR
+//         wrmsr(0xC0000100, (uint32_t)(addr & 0xFFFFFFFF),
+//                           (uint32_t)(addr >> 32));
+//         return 0;
+
+//     default:
+//         return -EINVAL;
+//     }
+// }
+
 long sys_arch_prctl(long code, unsigned long addr)
 {
     log_info("SYSCALL", "arch_prctl code=%lx addr=%lx", code, addr);
+
     switch (code) {
     case ARCH_SET_FS: {
-        current_process->fs_base = addr;
+        wrmsr(0xC0000100, addr);
 
-        uint32_t lo = (uint32_t)(addr & 0xFFFFFFFF);
-        uint32_t hi = (uint32_t)(addr >> 32);
-
-        __asm__ volatile("wrmsr"
-                         :: "c"(MSR_FS_BASE), "a"(lo), "d"(hi));
-
+        uint64_t fs = rdmsr(0xC0000100);
+        log_info("ARCH", "FS_BASE now = 0x%llx",
+                 (unsigned long long)fs);
         return 0;
     }
-
-    case ARCH_GET_FS:
-        // musl rarely uses this early; you can return 0 for now
-        return current_process->fs_base;
-
     default:
         return -EINVAL;
     }

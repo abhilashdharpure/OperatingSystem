@@ -1,11 +1,12 @@
+// gdt.h
 #pragma once
 #include <stdint.h>
 
-/* Selectors */
-#define GDT_KERNEL_CODE 0x08
+/* Selectors (indexes << 3 | RPL) */
+#define GDT_KERNEL_CODE      0x08
 #define KERNEL_DATA_SELECTOR 0x10
-#define USER_CODE_SELECTOR   0x1B
-#define USER_DATA_SELECTOR   0x23
+#define USER_CODE_SELECTOR   0x1B  // index 3, RPL=3
+#define USER_DATA_SELECTOR   0x23  // index 4, RPL=3
 
 typedef struct __attribute__((packed)) {
     uint16_t limit_low;
@@ -44,8 +45,8 @@ extern GDTR g_GDT_Ptr;
 #define GDT_ACCESS_DATA      0x10
 #define GDT_ACCESS_RW        0x02
 
-/* Flags */
-#define GDT_FLAG_LONG_MODE   0x20
-#define GDT_FLAG_GRAN_4K     0x80
+/* Flags (go in gran high nibble) */
+#define GDT_FLAG_LONG_MODE   0x20  // L=1
+#define GDT_FLAG_GRAN_4K     0x80  // G=1 (not needed for base=0, limit=0)
 
 void gdt_init(void);

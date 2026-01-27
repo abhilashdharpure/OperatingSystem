@@ -85,6 +85,9 @@ void x64_ISR_Handler(ISRFrame64* r)
         {
             uint64_t cr2 = read_cr2();
             log_critical("PF", "Page fault: cr2=%p error=%llx", (void*)cr2, r->error);
+            debug_dump_va_mapping(current_process->page_directory, r->cpu.rip);
+            debug_dump_user_bytes(current_process, r->cpu.rip, 0x40);
+
         }
 
         if (r->vector == 6) {

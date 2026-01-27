@@ -262,6 +262,8 @@ static void test_memfd_mmap(void)
 
 int main()
 {
+
+    __asm__ volatile("int3"); 
     klog("Hello from userspace!\n");
     printf("Hello from userspace!\n");
 
@@ -488,7 +490,7 @@ int main()
 
     printf("Testing test_syscalls_presence\n");
     test_syscalls_presence();
-
+__asm__ volatile("int3"); 
     printf("Testing test_memfd\n");
     test_memfd();
 
