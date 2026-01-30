@@ -36,10 +36,26 @@ void debug_dump_user_bytes(Process *p, uint64_t va, size_t n)
 }
 
 // helper: write to user stack via its mapped PA
-static inline void u64_store(Process *p, uint64_t va, uint64_t val) {
-    uint64_t pa = get_mapped_phys(p->page_directory, va);
-    *(uint64_t*)(uintptr_t)pa = val;
+// static inline void u64_store(Process *p, uint64_t va, uint64_t val) {
+//     uint64_t pa = get_mapped_phys(p->page_directory, va);
+//     *(uint64_t*)(uintptr_t)pa = val;
+// }
+static void u64_store(Process *p, uint64_t user_va, uint64_t value)
+{
+    // Save current CR3 (kernel)
+    uint64_t old_cr3;
+    __asm__ volatile ("mov %%cr3, %0" : "=r"(old_cr3));
+
+    // Switch to the process's page table
+    __asm__ volatile ("mov %0, %%cr3" :: "r"(p->cr3) : "memory");
+
+    // Now user_va is valid in this address space
+    *(uint64_t *)user_va = value;
+
+    // Restore kernel CR3
+    __asm__ volatile ("mov %0, %%cr3" :: "r"(old_cr3) : "memory");
 }
+
 pid_t exec_elf_mem(void *data, size_t size, BootParams* bootParams)
 {
     (void)size;
@@ -152,10 +168,22 @@ pid_t exec_elf_mem(void *data, size_t size, BootParams* bootParams)
 
     #define PUSH(val) do { sp -= 8; u64_store(p, sp, (val)); } while (0)
 
-    // Compute values for auxv
-    uint64_t load_base = 0x400000ULL;            // where you actually loaded PT_LOAD[0]
-    uint64_t phdr_addr = load_base + eh->e_phoff;
+    // Find first PT_LOAD (the one you loaded at vaddr)
+    Elf64_Phdr *ph = (Elf64_Phdr*)((uint8_t*)data + eh->e_phoff);
 
+    uint64_t first_load_vaddr  = 0;
+    uint64_t first_load_offset = 0;
+
+    for (int i = 0; i < eh->e_phnum; i++) {
+        if (ph[i].p_type == PT_LOAD) {
+            first_load_vaddr  = ph[i].p_vaddr;
+            first_load_offset = ph[i].p_offset;
+            break;
+        }
+    }
+
+    // Compute values for auxv
+    uint64_t phdr_addr = first_load_vaddr + (eh->e_phoff - first_load_offset);
     uint64_t phent     = eh->e_phentsize;
     uint64_t phnum     = eh->e_phnum;
     uint64_t entry     = eh->e_entry;
@@ -202,7 +230,7 @@ pid_t exec_elf_mem(void *data, size_t size, BootParams* bootParams)
              p->regs.rsp, esp_pa_dbg);
 
     // Map ELF64 PT_LOAD segments
-    Elf64_Phdr *ph = (Elf64_Phdr*)((uint8_t*)data + eh->e_phoff);
+    // Elf64_Phdr *ph = (Elf64_Phdr*)((uint8_t*)data + eh->e_phoff);
 
     for (int i = 0; i < eh->e_phnum; i++) {
         if (ph[i].p_type != PT_LOAD)

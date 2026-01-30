@@ -5,6 +5,7 @@
 #include "errno.h"
 #include "arch/x86_64/msr.h"
 #include "fs/sys_ftruncate.h"
+#include "hal/process.h"
 
 extern void x64_syscall_entry(void);
 
@@ -12,6 +13,8 @@ extern void x64_syscall_entry(void);
 #define IA32_STAR   0xC0000081
 #define IA32_LSTAR  0xC0000082
 #define IA32_FMASK  0xC0000084
+
+extern uint64_t syscall_next_rip;
 
 void x64_SYSCALL_Initialize(void)
 {
@@ -33,6 +36,19 @@ void x64_SYSCALL_Initialize(void)
     wrmsr(IA32_FMASK, fmask);
 }
 
+
+void klog_asm(const char* s) {
+    sys_klog(s);
+}
+
+
+// uint64_t syscall_dispatch(uint64_t nr,
+//                           uint64_t a0,
+//                           uint64_t a1,
+//                           uint64_t a2,
+//                           uint64_t a3,
+//                           uint64_t a4,
+//                           uint64_t a5)
 uint64_t syscall_dispatch(uint64_t a0,
                           uint64_t a1,
                           uint64_t a2,
@@ -153,14 +169,34 @@ uint64_t syscall_dispatch(uint64_t a0,
     case SYS_exit_group: return sys_exit_group(a0);
 
     case SYS_arch_prctl:
-        // for now, just say "not supported"
-        return -ENOSYS;
-
     case 158: // Linux x86_64 arch_prctl
         return sys_arch_prctl(a0, a1);
 
-    case 218: // Linux x86_64 set_tid_address
-        return sys_set_tid_address((int*)a0);
+    // case 218: {
+    //     int ret = sys_set_tid_address((int*)a0);
+    //     log_info("SYSCALL", "218 ret=%d", ret);
+    //     return ret;
+    // }
+
+    // case 218: {
+    //     int ret = sys_set_tid_address((int*)a0);
+    //     log_info("SYSCALL", "218 ret=%d", ret);
+
+    //     // TEMP HACK: force user RIP to main()
+    //     // We know from objdump that main is at 0x4000098f
+    //     current_process->regs.rip = 0x4000098f;
+
+    //     return ret;
+    // }
+
+    case 218: {
+        int ret = sys_set_tid_address((int*)a0);
+        log_info("SYSCALL", "218 ret=%d", ret);
+        syscall_next_rip = 0x4000098f;   // address of main
+        return ret;
+    }
+
+
 
 
     case SYS_test:
@@ -173,6 +209,12 @@ uint64_t syscall_dispatch(uint64_t a0,
     }
 
     log_error("SYSCALL", "Unknown syscall %llu", (unsigned long long)nr);
+
+    log_error("SYSCALL", "Infinite while loop");
+    while(1)
+    {
+
+    }
     return (uint64_t)-1;
 }
 

@@ -82,32 +82,6 @@ void test_read_sector0(block_device_t *disk) {
     log_debug("TEST", "MBR signature: 0x%02x 0x%02x", buffer[510], buffer[511]);
 }
 
-// extern uint64_t *kernel_pml4_phys; 
-// void map_framebuffer(VbeModeInfo* fb)
-// {
-//     uint64_t pa = (uint64_t)fb->framebuffer;
-//     uint64_t size = fb->pitch * fb->height;
-//     uint64_t pages = (size + 0xFFF) / 0x1000;
-
-//     for (uint64_t i = 0; i < pages; i++)
-//     {
-//         // map_page(KERNEL_FB_VA + i*0x1000,
-//         //          pa + i*0x1000,
-//         //          PAGE_PRESENT | PAGE_WRITABLE);
-
-//         // map_page(KERNEL_FB_VA + i*0x1000,
-//         //  pa + i*0x1000,
-//         //  PAGE_PRESENT | PAGE_RW);
-
-//           map_page(kernel_pml4_phys, KERNEL_FB_VA + i*0x1000, pa + i*0x1000, PAGE_PRESENT | PAGE_RW);
-//     }
-
-//     fb->framebuffer = (uint32_t*)KERNEL_FB_VA;
-// }
-
-// #define KERNEL_FB_VA 0xFFFFFFFFC0000000ULL   // choose a free kernel VA range
-
-
 void init_filesystem(void)
 {
     log_debug("Main", "init_filesystem start");

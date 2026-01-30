@@ -15,6 +15,9 @@
 #include "errno.h"
 #include "fs/memfd.h"
 #include <arch/x86_64/msr.h> 
+#include <stdint.h>
+
+uint64_t syscall_next_rip = 0;
 
 #define PAGE_SIZE 0x1000
 #define TICKS_PER_SEC 1000             // e.g. 1ms tick

@@ -26,5 +26,7 @@ typedef struct Process {
 } Process;
 
 
+extern Process *current_process;
+
 Process *process_create(const char *name);
 uintptr_t process_setup_stack(Process *p);
