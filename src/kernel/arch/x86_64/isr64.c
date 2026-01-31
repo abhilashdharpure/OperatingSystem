@@ -70,7 +70,6 @@ void x64_ISR_Handler(ISRFrame64* r)
 
     if (vec < 32)
     {
-
         if (vec == 6)
         {
             log_info("EXC", "UD at rip=0x%llx", (unsigned long long)r->cpu.rip);

@@ -1,99 +1,124 @@
-;syscall64_asm.asm
+; syscall64_asm.asm
+; 64-bit syscall entry for x86_64, using SYSCALL
+; Assumes:
+;   - LSTAR points to x64_syscall_entry
+;   - STAR/FMASK set appropriately
+;   - User code uses "syscall" (not int 0x80)
+;
+; Linux x86_64 syscall ABI:
+;   On entry:
+;     RAX = syscall number
+;     RDI, RSI, RDX, R10, R8, R9 = args 0..5
+;     RCX = user RIP
+;     R11 = user RFLAGS
+;     RSP = user RSP
+;   On return:
+;     RAX = return value
+;     RCX, R11 may be clobbered
+;     All callee-saved (RBX, RBP, R12–R15, RSP) must be preserved
 
 [BITS 64]
 
 global x64_syscall_entry
 
-extern syscall_dispatch
-extern g_syscall_rsp0
-extern klog_asm
-extern syscall_next_rip
+extern syscall_dispatch        ; long syscall_dispatch(long nr, ...);
+extern g_syscall_rsp0          ; kernel stack top for syscalls
 
 section .text
 
-msg_syscall_entry:
-    db "[ASM] x64_syscall_entry reached", 10, 0
-
-; On syscall entry (x86_64):
-;   rax = syscall number
-;   rdi = arg0
-;   rsi = arg1
-;   rdx = arg2
-;   r10 = arg3
-;   r8  = arg4
-;   r9  = arg5
-;   rcx = user RIP
-;   r11 = user RFLAGS
-;   rsp = user RSP
-
 x64_syscall_entry:
+    ; SYSCALL entry:
+    ;   RCX = user RIP
+    ;   R11 = user RFLAGS
+    ;   RSP = user RSP
+    ;   RAX = nr
+    ;   RDI,RSI,RDX,R10,R8,R9 = args 0..5
+
     swapgs
 
-    ; capture user context
-    mov     r12, rcx        ; user RIP
-    mov     r13, r11        ; user RFLAGS
-    mov     r14, rsp        ; user RSP
+    ; Save user RIP/RFLAGS/RSP into caller-saved temps
+    mov     r10, rcx          ; user RIP
+    mov     r11, r11          ; user RFLAGS (already there)
+    mov     r9,  rsp          ; user RSP
 
-    ; save syscall args on current (user) stack
-    push    rdi             ; a0
-    push    rsi             ; a1
-    push    rdx             ; a2
-    push    r10             ; a3
-    push    r8              ; a4
-    push    r9              ; a5
-    push    rax             ; nr
-
-    ; log (clobbers caller-saved regs, but we saved what we need)
-    mov     rdi, msg_syscall_entry
-    call    klog_asm
-
-    ; restore syscall regs
-    pop     rax             ; nr
-    pop     r9              ; a5
-    pop     r8              ; a4
-    pop     r10             ; a3
-    pop     rdx             ; a2
-    pop     rsi             ; a1
-    pop     rdi             ; a0
-
-    ; switch to kernel stack
+    ; Switch to kernel syscall stack
     mov     rsp, [rel g_syscall_rsp0]
 
-    ; stash args in callee-saved regs for C
-    mov     rbp, rdi        ; a0
-    mov     rbx, rsi        ; a1
-    ; rdx = a2
-    mov     rcx, r10        ; a3
-    ; r8  = a4
-    ; r9  = a5
+    ; Save user callee-saved regs and user context on kernel stack
+    ; Layout (top of stack after pushes):
+    ;   [rsp+0x00] user RBX
+    ;   [rsp+0x08] user RBP
+    ;   [rsp+0x10] user R12
+    ;   [rsp+0x18] user R13
+    ;   [rsp+0x20] user R14
+    ;   [rsp+0x28] user R15
+    ;   [rsp+0x30] user RIP
+    ;   [rsp+0x38] user RFLAGS
+    ;   [rsp+0x40] user RSP
 
-    ; save callee-saved for C (but NOT r12–r14: they hold user context)
     push    rbx
     push    rbp
+    push    r12
+    push    r13
+    push    r14
     push    r15
+    push    r10             ; user RIP
+    push    r11             ; user RFLAGS
+    push    r9              ; user RSP
 
-    ; call C dispatcher: uint64_t syscall_dispatch(...)
+    ; Linux syscall ABI on entry:
+    ;   rax = nr
+    ;   rdi = a0
+    ;   rsi = a1
+    ;   rdx = a2
+    ;   r10 = a3
+    ;   r8  = a4
+    ;   r9  = a5
+    ;
+    ; SysV C ABI for syscall_dispatch:
+    ;   rdi = nr
+    ;   rsi = a0
+    ;   rdx = a1
+    ;   rcx = a2
+    ;   r8  = a3
+    ;   r9  = a4
+    ;   a5  on stack
+
+    mov     r15, r9         ; stash a5
+
+    mov     r9,  r8         ; r9 = a4
+    mov     r8,  r10        ; r8 = a3
+    mov     rcx, rdx        ; rcx = a2
+    mov     rdx, rsi        ; rdx = a1
+    mov     rsi, rdi        ; rsi = a0
+    mov     rdi, rax        ; rdi = nr
+
+    push    r15             ; a5 as 7th arg
+
     call    syscall_dispatch
 
-    ; restore callee-saved
-    pop     r15
-    pop     rbp
-    pop     rbx
+    add     rsp, 8          ; pop a5
 
-    ; optional RIP override from C (e.g. after SYS_set_tid_address)
-    mov     rax, [rel syscall_next_rip]
-    test    rax, rax
-    jz      .no_override
-    mov     r12, rax
-    mov     qword [rel syscall_next_rip], 0
-.no_override:
+    ; rax now holds return value
 
-    ; r12/r13/r14 now final user RIP/RFLAGS/RSP
-    push    qword 0x23      ; SS (user data)
-    push    r14             ; RSP (user)
-    push    r13             ; RFLAGS (user)
-    push    qword 0x1B      ; CS (user code)
-    push    r12             ; RIP (user)
+    ; Restore user context and callee-saved regs
+    pop     r9              ; user RSP
+    pop     r11             ; user RFLAGS
+    pop     r10             ; user RIP
+    pop     r15             ; user R15
+    pop     r14             ; user R14
+    pop     r13             ; user R13
+    pop     r12             ; user R12
+    pop     rbp             ; user RBP
+    pop     rbx             ; user RBX
+
+    ; Build IRET frame from restored user context
+    ; 0x1B = user CS, 0x23 = user SS (RPL=3)
+    push    qword 0x23      ; user SS
+    push    r9              ; user RSP
+    push    r11             ; user RFLAGS
+    push    qword 0x1B      ; user CS
+    push    r10             ; user RIP
 
     swapgs
     iretq

@@ -264,8 +264,8 @@ int main()
 {
 
     __asm__ volatile("int3"); 
-    klog("Hello from userspace!\n");
-    printf("Hello from userspace!\n");
+    klog("Hello from userspace from klog!\n");
+    printf("Hello from userspace from printf!\n");
 
     const char msg[] = "Hello from SYSCALL userland!\n";
     syscall(SYS_write, 1, (long)msg, sizeof(msg)-1, 0);

@@ -42,25 +42,36 @@ void klog_asm(const char* s) {
 }
 
 
-// uint64_t syscall_dispatch(uint64_t nr,
-//                           uint64_t a0,
-//                           uint64_t a1,
-//                           uint64_t a2,
-//                           uint64_t a3,
-//                           uint64_t a4,
-//                           uint64_t a5)
-uint64_t syscall_dispatch(uint64_t a0,
+void klog_rip_before(uint64_t rip) {
+    log_info("SYSCALL", "user RIP before = 0x%llx", (unsigned long long)rip);
+}
+
+void klog_rip_after(uint64_t rip) {
+    log_info("SYSCALL", "user RIP after  = 0x%llx", (unsigned long long)rip);
+}
+
+void klog_u64_rcx(uint64_t v) {
+    log_info("SYSCALL", "entry rcx = 0x%llx", (unsigned long long)v);
+}
+
+void klog_u64_r11(uint64_t v) {
+    log_info("SYSCALL", "entry r11 = 0x%llx", (unsigned long long)v);
+}
+
+void klog_u64_rsp(uint64_t v) {
+    log_info("SYSCALL", "entry rsp = 0x%llx", (unsigned long long)v);
+}
+
+
+
+uint64_t syscall_dispatch(uint64_t nr,
+                          uint64_t a0,
                           uint64_t a1,
                           uint64_t a2,
                           uint64_t a3,
                           uint64_t a4,
                           uint64_t a5)
-
 {
-    uint64_t nr;
-    __asm__ volatile("mov %%rax, %0" : "=r"(nr));
-
-
     log_info("SYSCALL", "nr=%llu a0=%llx a1=%llx a2=%llx a3=%llx a4=%llx a5=%llx",
              nr, a0, a1, a2, a3, a4, a5);
 
@@ -163,13 +174,26 @@ uint64_t syscall_dispatch(uint64_t a0,
     case SYS_uname: return sys_uname((struct utsname*)a0);
     case SYS_getcwd: return sys_getcwd((char*)a0, a1);
     case SYS_madvise: return sys_madvise((void*)a0, a1, a2);
-    case SYS_set_tid_address: return sys_set_tid_address((int*)a0);
+
+
+    // case SYS_set_tid_address: return sys_set_tid_address((int*)a0);
+    case SYS_set_tid_address: {
+        int ret = sys_set_tid_address((int*)a0);
+        log_info("SYSCALL", "set_tid_address ret=%d", ret);
+
+        // // TEMP HACK: force user RIP to main()
+        // // We know from objdump that main is at 0x4000098f
+        // current_process->regs.rip = 0x4000098f;
+        return ret;   // <-- let userspace resume
+    }
+
+
+
     case SYS_prlimit64: return sys_prlimit64(a0, a1, (void*)a2, (void*)a3);
     case SYS_getrandom: return sys_getrandom((void*)a0, a1, a2);
     case SYS_exit_group: return sys_exit_group(a0);
 
     case SYS_arch_prctl:
-    case 158: // Linux x86_64 arch_prctl
         return sys_arch_prctl(a0, a1);
 
     // case 218: {
@@ -189,15 +213,12 @@ uint64_t syscall_dispatch(uint64_t a0,
     //     return ret;
     // }
 
-    case 218: {
-        int ret = sys_set_tid_address((int*)a0);
-        log_info("SYSCALL", "218 ret=%d", ret);
-        syscall_next_rip = 0x4000098f;   // address of main
-        return ret;
-    }
-
-
-
+    // case 218: {
+    //     int ret = sys_set_tid_address((int*)a0);
+    //     log_info("SYSCALL", "218 ret=%d", ret);
+    //     // syscall_next_rip = 0x4000098f;   // address of main
+    //     return ret;
+    // }
 
     case SYS_test:
         log_info("SYSCALL", "TEST: a0=%llx a1=%llx a2=%llx a3=%llx",
@@ -210,11 +231,11 @@ uint64_t syscall_dispatch(uint64_t a0,
 
     log_error("SYSCALL", "Unknown syscall %llu", (unsigned long long)nr);
 
-    log_error("SYSCALL", "Infinite while loop");
-    while(1)
-    {
+    // log_error("SYSCALL", "Infinite while loop");
+    // while(1)
+    // {
 
-    }
+    // }
     return (uint64_t)-1;
 }
 

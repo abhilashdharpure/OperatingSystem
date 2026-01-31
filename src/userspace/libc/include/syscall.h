@@ -2,48 +2,50 @@
 #include <stdint.h>
 #include <types.h>
 
-
 enum {
-    SYS_test            = 0,
     SYS_write           = 1,
-    SYS_exit            = 2,
-    SYS_open            = 3,
-    SYS_read            = 4,
-    SYS_close           = 5,
-    SYS_mmap            = 6,
-    SYS_munmap          = 7,
-    SYS_mprotect        = 8,
-    SYS_brk             = 9,
-    SYS_poll            = 10,
-    SYS_stat            = 11,
-    SYS_fstat           = 12,
-    SYS_lseek           = 13,
-    SYS_getdents        = 14,
-    SYS_dup             = 15,
-    SYS_dup2            = 16,
-    SYS_fcntl           = 17,
-    SYS_pipe            = 18,
-    SYS_klog            = 19,
-    SYS_clock_gettime   = 20,
-    SYS_nanosleep       = 21,
-    SYS_socketpair      = 22,
-    SYS_sendmsg         = 23,
-    SYS_recvmsg         = 24,
-    SYS_memfd_create    = 25,
-    SYS_ftruncate       = 26,
-    SYS_getpid          = 27,
-    SYS_getppid         = 28,
-    SYS_uname           = 29,
-    SYS_getcwd          = 30,
-    SYS_madvise         = 31,
-    SYS_set_tid_address = 32,
-    SYS_prlimit64       = 33,
-    SYS_getrandom       = 34,
-    SYS_exit_group      = 35,
-    SYS_arch_prctl      = 36,
-    // later: SYS_socket, ..
+    SYS_exit            = 60,
+    SYS_open            = 2,
+    SYS_read            = 0,
+    SYS_close           = 3,
+    SYS_mmap            = 9,
+    SYS_munmap          = 11,
+    SYS_mprotect        = 10,
+    SYS_brk             = 12,
+    SYS_poll            = 7,
+    SYS_stat            = 4,   // or newfstatat/fstatat64 depending on what you wire
+    SYS_fstat           = 5,
+    SYS_lseek           = 8,
+    SYS_getdents        = 78,  // or getdents64 = 217
+    SYS_dup             = 32,
+    SYS_dup2            = 33,
+    SYS_fcntl           = 72,  // or fcntl64 = 72 on x86_64
+    SYS_pipe            = 22,
+    SYS_klog            = 0x1000, // your private one, keep out of Linux range
+    SYS_clock_gettime   = 228,
+    SYS_nanosleep       = 35,
+    SYS_socketpair      = 53,
+    SYS_sendmsg         = 46,
+    SYS_recvmsg         = 47,
+    SYS_memfd_create    = 319,
+    SYS_ftruncate       = 77,
+    SYS_getpid          = 39,
+    SYS_getppid         = 110,
+    SYS_uname           = 63,
+    SYS_getcwd          = 79,
+    SYS_madvise         = 28,
+    SYS_set_tid_address = 218,
+    SYS_prlimit64       = 302,
+    SYS_getrandom       = 318,
+    SYS_exit_group      = 231,
+    SYS_arch_prctl      = 158,
+
+    SYS_test            = 999,
+
 };
 
-long syscall(long n, long a, long b, long c, long d);
+
+// long syscall(long n, long a, long b, long c, long d);
+long syscall(long n, ...);
 long syscall6(long n, long a, long b, long c, long d, long e, long f);
 

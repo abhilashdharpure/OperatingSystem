@@ -56,6 +56,25 @@ static void u64_store(Process *p, uint64_t user_va, uint64_t value)
     __asm__ volatile ("mov %0, %%cr3" :: "r"(old_cr3) : "memory");
 }
 
+void debug_dump_user_stack(Process *p, uint64_t sp)
+{
+    log_info("USTACK", "Dumping initial user stack at RSP=0x%llx", sp);
+
+    for (int i = 0; i < 20; i++) {
+        uint64_t va = sp + i*8;
+        uint64_t pa = get_mapped_phys(p->page_directory, va);
+        uint64_t val = 0;
+
+        if (pa) {
+            val = *(uint64_t*)(uintptr_t)pa;
+        }
+
+        log_info("USTACK", "  [0x%llx] -> PA=0x%llx : 0x%llx",
+                 va, pa, val);
+    }
+}
+
+
 pid_t exec_elf_mem(void *data, size_t size, BootParams* bootParams)
 {
     (void)size;
@@ -134,40 +153,9 @@ pid_t exec_elf_mem(void *data, size_t size, BootParams* bootParams)
     log_info("ELF", "Selected User Region: start=0x%llx length=0x%llx type=%x",
              user_region->Begin, user_region->Length, user_region->Type);
 
+
+
     // Stack in high user region
-    uint64_t stack_top    = USER_STACK_TOP;
-    uint64_t stack_bottom = stack_top - USER_STACK_SIZE;
-
-    log_info("ELF", "Stack Top == 0x%llx stack_bottom=0x%llx",
-             stack_top, stack_bottom);
-
-    const uint64_t user_rw_flags = PAGE_PRESENT | PAGE_RW | PAGE_USER;
-
-    // Map user stack pages
-    for (uint64_t va = stack_bottom; va < stack_top; va += PAGE_SIZE) {
-        uint64_t pa = pmm_alloc_page();
-        if (!pa) {
-            log_info("EXEC", "Out of pages for stack!");
-            return -1;
-        }
-
-        uint8_t *kva = (uint8_t*)(uintptr_t)pa;
-        memset(kva, 0, PAGE_SIZE);
-
-        if (map_page(p->page_directory, va, pa, user_rw_flags) != 0) {
-            log_critical("EXEC", "map_page failed for stack VA=0x%llx", va);
-            return -1;
-        }
-    }
-
-    // Build minimal Linux-like initial stack: argc=0, argv=NULL, envp=NULL, auxv with AT_PAGESZ
-    uint64_t sp = USER_STACK_TOP;
-
-    // 16-byte align
-    sp &= ~0xFULL;
-
-    #define PUSH(val) do { sp -= 8; u64_store(p, sp, (val)); } while (0)
-
     // Find first PT_LOAD (the one you loaded at vaddr)
     Elf64_Phdr *ph = (Elf64_Phdr*)((uint8_t*)data + eh->e_phoff);
 
@@ -181,49 +169,86 @@ pid_t exec_elf_mem(void *data, size_t size, BootParams* bootParams)
             break;
         }
     }
-
-    // Compute values for auxv
     uint64_t phdr_addr = first_load_vaddr + (eh->e_phoff - first_load_offset);
-    uint64_t phent     = eh->e_phentsize;
-    uint64_t phnum     = eh->e_phnum;
-    uint64_t entry     = eh->e_entry;
 
-    // --- auxv (in reverse) ---
-    // AT_NULL
-    PUSH(0);
-    PUSH(0);
 
-    // AT_PAGESZ
-    PUSH(0x1000);
-    PUSH(6);          // AT_PAGESZ
+    const uint64_t user_rw_flags = PAGE_PRESENT | PAGE_RW | PAGE_USER;
 
-    // AT_ENTRY
-    PUSH(entry);
-    PUSH(9);          // AT_ENTRY
+    // ######################################################################################
 
-    // AT_PHNUM
-    PUSH(phnum);
-    PUSH(5);          // AT_PHNUM
+    // ------------------------------------------------------------
+    // Build Linux-compatible initial user stack for musl
+    // ------------------------------------------------------------
 
-    // AT_PHENT
-    PUSH(phent);
-    PUSH(4);          // AT_PHENT
+    uint64_t sp = USER_STACK_TOP;
 
-    // AT_PHDR
-    PUSH(phdr_addr);
-    PUSH(3);          // AT_PHDR
+    // 16-byte align
+    sp &= ~0xFULL;
 
-    // --- envp: envp[0] = NULL ---
-    PUSH(0);
+    // ---- 1. Build argv strings ----
+    sp -= 16;
+    uint64_t arg0_str = sp;
+    u64_store(p, arg0_str + 0, 'i' | ('n'<<8) | ('i'<<16) | ('t'<<24));
+    u64_store(p, arg0_str + 8, 0);
 
-    // --- argv: argv[0] = NULL ---
-    PUSH(0);
+    // ---- 2. Build envp (empty) ----
+    uint64_t envp_null = 0;
 
-    // --- argc = 0 ---
-    PUSH(0);
+    // ---- 3. Build argv pointers ----
+    uint64_t argv[2];
+    argv[0] = arg0_str;
+    argv[1] = 0;
 
+    // ---- 4. Build auxv ----
+    uint64_t auxv[32];
+    int ax = 0;
+
+    auxv[ax++] = 3;              // AT_PHDR
+    auxv[ax++] = phdr_addr;
+
+    auxv[ax++] = 4;              // AT_PHENT
+    auxv[ax++] = eh->e_phentsize;
+
+    auxv[ax++] = 5;              // AT_PHNUM
+    auxv[ax++] = eh->e_phnum;
+
+    auxv[ax++] = 6;              // AT_PAGESZ
+    auxv[ax++] = 4096;
+
+    auxv[ax++] = 9;              // AT_ENTRY
+    auxv[ax++] = eh->e_entry;
+
+    auxv[ax++] = 0;              // AT_NULL
+    auxv[ax++] = 0;
+
+    // ---- 5. Push auxv (type,val pairs) ----
+    for (int i = ax - 1; i >= 0; i--)
+    {
+        sp -= 8;
+        u64_store(p, sp, auxv[i]);
+    }
+
+    // ---- 6. Push envp ----
+    sp -= 8;
+    u64_store(p, sp, envp_null);
+
+    // ---- 7. Push argv ----
+    for (int i = 1; i >= 0; i--)
+    {
+        sp -= 8;
+        u64_store(p, sp, argv[i]);
+    }
+
+    // ---- 8. Push argc ----
+    sp -= 8;
+    u64_store(p, sp, 1);
+
+    // Done
     p->regs.rsp = sp;
+    p->regs.rip = eh->e_entry;
 
+    debug_dump_user_stack(p, sp);
+    // ######################################################################################
 
     uint64_t esp_pa_dbg = get_mapped_phys(p->page_directory, p->regs.rsp);
     log_info("STACK", "After map: RSP VA=0x%llx -> PA=0x%llx",

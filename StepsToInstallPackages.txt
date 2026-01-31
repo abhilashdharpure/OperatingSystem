@@ -401,3 +401,28 @@ toolchain/x86_64-elf/bin/x86_64-elf-addr2line -f -C  -e build/x86_64_debug/kerne
 losetup -a
 Detach like this, if wan to detach loo35:
 sudo losetup -d /dev/loop35
+
+
+cd toolchain/musl-1.2.5/
+
+
+make clean
+rm -rf obj
+rm -f config.mak
+
+
+CC=/home/abhilash/Project/OperatingSystem/toolchain/x86_64-elf/bin/x86_64-elf-gcc \
+AR=/home/abhilash/Project/OperatingSystem/toolchain/x86_64-elf/bin/x86_64-elf-ar \
+RANLIB=/home/abhilash/Project/OperatingSystem/toolchain/x86_64-elf/bin/x86_64-elf-ranlib \
+./configure \
+    --target=x86_64-elf \
+    --prefix=/usr \
+    --disable-shared \
+    --enable-static \
+    CFLAGS="-O2 -fno-pie" \
+    LDFLAGS="-static -no-pie"
+
+
+make -j$(nproc)
+
+make DESTDIR=/home/abhilash/myos-sysroot install

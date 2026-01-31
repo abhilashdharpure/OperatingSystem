@@ -21,15 +21,18 @@ env = Environment(
         "-Wextra",
         "-Werror=implicit-function-declaration",
     ],
-    LINKFLAGS=[
+    LINKFLAGS = [
         "-nostdlib",
+        "-no-pie",
+        "-static",
         "-Wl,-m,elf_x86_64",
         "-Wl,-z,max-page-size=0x1000",
-        "-Wl,-Ttext=0x40000000",
+        "-Wl,-T,/home/abhilash/Project/OperatingSystem/src/userspace/src/link.ld",
         "/home/abhilash/myos-sysroot/usr/lib/crt1.o",
         "/home/abhilash/myos-sysroot/usr/lib/crti.o",
         "/home/abhilash/myos-sysroot/usr/lib/crtn.o",
-    ],
+    ]
+
 )
 
 # Correct include order

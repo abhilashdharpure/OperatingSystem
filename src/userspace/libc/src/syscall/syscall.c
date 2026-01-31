@@ -1,24 +1,26 @@
 #include <stdint.h>
 #include <sys/syscall.h>
 #include <stdio.h>
+#include <stdarg.h>
 
-long syscall(long n, long a, long b, long c, long d)
-{
-    long ret;
-    asm volatile (
-        "mov %5, %%r10\n\t"   // use %5, not %4
-        "syscall"
-        : "=a"(ret)
-        : "a"(n), "D"(a), "S"(b), "d"(c), "r"(d)
-        : "rcx", "r11", "memory"
-    );
-    return ret;
-}
+// long syscall(long n, long a, long b, long c, long d)
+// {
+//     long ret;
+//     asm volatile (
+//         "mov %5, %%r10\n\t"   // use %5, not %4
+//         "syscall"
+//         : "=a"(ret)
+//         : "a"(n), "D"(a), "S"(b), "d"(c), "r"(d)
+//         : "rcx", "r11", "memory"
+//     );
+//     return ret;
+// }
 
 // long syscall6(long n, long a, long b, long c, long d, long e, long f)
 // {
 //     long ret;
 //     asm volatile (
+
 //         "mov %5, %%r10\n\t"
 //         "mov %6, %%r8\n\t"
 //         "mov %7, %%r9\n\t"
@@ -30,9 +32,25 @@ long syscall(long n, long a, long b, long c, long d)
 //     return ret;
 // }
 
+
+long syscall(long n, ...)
+{
+    va_list ap;
+    long a[6] = {0,0,0,0,0,0};
+
+    va_start(ap, n);
+    for (int i = 0; i < 6; ++i)
+        a[i] = va_arg(ap, long);
+    va_end(ap);
+
+    return syscall6(n, a[0], a[1], a[2], a[3], a[4], a[5]);
+}
+
+
 long syscall6(long n, long a, long b, long c, long d, long e, long f)
 {
     long ret;
+
     register long r10 __asm__("r10") = d;
     register long r8  __asm__("r8")  = e;
     register long r9  __asm__("r9")  = f;
@@ -44,13 +62,16 @@ long syscall6(long n, long a, long b, long c, long d, long e, long f)
           "D"(a),      // rdi = arg0
           "S"(b),      // rsi = arg1
           "d"(c),      // rdx = arg2
-          "r"(r10),    // will be placed in r10
-          "r"(r8),     // will be placed in r8
-          "r"(r9)      // will be placed in r9
+          "r"(r10),    // GCC already placed r10 in register r10
+          "r"(r8),     // GCC already placed r8  in register r8
+          "r"(r9)      // GCC already placed r9  in register r9
         : "rcx", "r11", "memory"
     );
+
     return ret;
 }
+
+
 
 
 
