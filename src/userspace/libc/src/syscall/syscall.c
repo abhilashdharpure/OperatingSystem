@@ -3,36 +3,6 @@
 #include <stdio.h>
 #include <stdarg.h>
 
-// long syscall(long n, long a, long b, long c, long d)
-// {
-//     long ret;
-//     asm volatile (
-//         "mov %5, %%r10\n\t"   // use %5, not %4
-//         "syscall"
-//         : "=a"(ret)
-//         : "a"(n), "D"(a), "S"(b), "d"(c), "r"(d)
-//         : "rcx", "r11", "memory"
-//     );
-//     return ret;
-// }
-
-// long syscall6(long n, long a, long b, long c, long d, long e, long f)
-// {
-//     long ret;
-//     asm volatile (
-
-//         "mov %5, %%r10\n\t"
-//         "mov %6, %%r8\n\t"
-//         "mov %7, %%r9\n\t"
-//         "syscall"
-//         : "=a"(ret)
-//         : "a"(n), "D"(a), "S"(b), "d"(c), "r"(d), "r"(e), "r"(f)
-//         : "rcx", "r11", "memory"
-//     );
-//     return ret;
-// }
-
-
 long syscall(long n, ...)
 {
     va_list ap;

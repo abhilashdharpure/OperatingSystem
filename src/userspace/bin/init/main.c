@@ -263,7 +263,7 @@ static void test_memfd_mmap(void)
 int main()
 {
 
-    __asm__ volatile("int3"); 
+    // __asm__ volatile("int3"); 
     klog("Hello from userspace from klog!\n");
     printf("Hello from userspace from printf!\n");
 
