@@ -1,3 +1,17 @@
+# Import("env", "libc_objs")
+
+# env.Program("init", ["main.o"] + libc_objs, LIBS=["c"])
+
 Import("env", "libc_objs")
 
-env.Program("init", ["main.o"] + libc_objs, LIBS=["c"])
+sources = [
+    "main.c",
+]
+
+objs = env.Object(sources)
+
+env.Program(
+    target="init",
+    source=objs + libc_objs,
+    LIBS=["c"],
+)

@@ -196,29 +196,12 @@ uint64_t syscall_dispatch(uint64_t nr,
     case SYS_arch_prctl:
         return sys_arch_prctl(a0, a1);
 
-    // case 218: {
-    //     int ret = sys_set_tid_address((int*)a0);
-    //     log_info("SYSCALL", "218 ret=%d", ret);
-    //     return ret;
-    // }
+     case SYS_ioctl: 
+        return sys_ioctl((int)a0, (unsigned long)a1, (unsigned long)a2);
 
-    // case 218: {
-    //     int ret = sys_set_tid_address((int*)a0);
-    //     log_info("SYSCALL", "218 ret=%d", ret);
+    case SYS_writev:
+        return sys_writev((int)a0, (const struct iovec*)a1, (int)a2);
 
-    //     // TEMP HACK: force user RIP to main()
-    //     // We know from objdump that main is at 0x4000098f
-    //     current_process->regs.rip = 0x4000098f;
-
-    //     return ret;
-    // }
-
-    // case 218: {
-    //     int ret = sys_set_tid_address((int*)a0);
-    //     log_info("SYSCALL", "218 ret=%d", ret);
-    //     // syscall_next_rip = 0x4000098f;   // address of main
-    //     return ret;
-    // }
 
     case SYS_test:
         log_info("SYSCALL", "TEST: a0=%llx a1=%llx a2=%llx a3=%llx",

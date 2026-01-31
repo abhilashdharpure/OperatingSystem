@@ -12,6 +12,8 @@ enum {
     SYS_munmap          = 11,
     SYS_mprotect        = 10,
     SYS_brk             = 12,
+    SYS_ioctl           = 16,
+    SYS_writev          = 20,
     SYS_poll            = 7,
     SYS_stat            = 4,   // or newfstatat/fstatat64 depending on what you wire
     SYS_fstat           = 5,
@@ -41,8 +43,8 @@ enum {
     SYS_arch_prctl      = 158,
 
     SYS_test            = 999,
-
 };
+
 
 
 // long syscall(long n, long a, long b, long c, long d);
