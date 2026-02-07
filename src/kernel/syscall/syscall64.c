@@ -61,6 +61,12 @@ void klog_u64_r11(uint64_t v) {
 void klog_u64_rsp(uint64_t v) {
     log_info("SYSCALL", "entry rsp = 0x%llx", (unsigned long long)v);
 }
+void klog_user_rip(uint64_t rip, uint64_t nr) {
+    log_info("SYSCALL", "entry rcx(user RIP) = 0x%llx (nr=%llu)",
+             (unsigned long long)rip,
+             (unsigned long long)nr);
+}
+
 
 
 
@@ -148,14 +154,23 @@ uint64_t syscall_dispatch(uint64_t nr,
     case SYS_nanosleep:
         return sys_nanosleep(a0, a1);
 
+    // case SYS_socketpair:
+    //     log_info("SYSCALL", "syscall_dispatch: nr=%llu a0=%llx a1=%llx a2=%llx a5=%llx",
+    //          (unsigned long long)nr,
+    //          (unsigned long long)a0,
+    //          (unsigned long long)a1,
+    //          (unsigned long long)a2,
+    //          (unsigned long long)a5);
+    //     return sys_socketpair((int)a0, (int)a1, (int)a2, (int *)a5);
+
     case SYS_socketpair:
         log_info("SYSCALL", "syscall_dispatch: nr=%llu a0=%llx a1=%llx a2=%llx a3=%llx",
-             (unsigned long long)nr,
-             (unsigned long long)a0,
-             (unsigned long long)a1,
-             (unsigned long long)a2,
-             (unsigned long long)a3);
-        return sys_socketpair(a0, a1, a2, a3);
+            (unsigned long long)nr,
+            (unsigned long long)a0,
+            (unsigned long long)a1,
+            (unsigned long long)a2,
+            (unsigned long long)a3);
+        return sys_socketpair((int)a0, (int)a1, (int)a2, (int *)a3);
 
     case SYS_sendmsg:
         return sys_sendmsg(a0, a1, a2);

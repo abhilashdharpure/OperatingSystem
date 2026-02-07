@@ -56,51 +56,6 @@ void gdt_set_tss64_descriptor(int index, uint64_t base, uint32_t limit)
     log_info("TSS", "TSS descriptor written: index=%d base=%p limit=%u", index, (void*)base, limit);
 }
 
-// /* Install TSS for x86_64 */
-// void x64_TSS_Install(uintptr_t stack_top) {
-//     log_info("TSS", "Start x64_TSS_Install");
-
-//     memset(&the_tss, 0, sizeof(the_tss));
-//     the_tss.rsp0 = stack_top;
-//     the_tss.iomap_base = sizeof(the_tss); // no IO map
-
-//     gdt_set_tss64_descriptor(TSS_GDT_INDEX, (uint64_t)&the_tss, sizeof(the_tss) - 1);
-
-//     // log_info("TSS", "Reloading GDT");
-//     // gdt_reload(); // reload GDTR and segment registers
-
-//     log_info("TSS", "Reloading GDT");
-//     gdt_flush((uint64_t)&g_GDT_Ptr);
-
-
-//     log_info("TSS", "Loading TSS selector 0x%x", TSS_SELECTOR);
-//     __asm__ volatile ("ltr %0" :: "r"((uint16_t)TSS_SELECTOR));
-//     log_info("TSS", "TSS installed at %p, rsp0=0x%llx", &the_tss, (unsigned long long)the_tss.rsp0);
-// }
-
-// // tss.c (or wherever this is)
-// #include <stdint.h>
-
-// typedef struct {
-//     uint32_t reserved0;
-//     uint64_t rsp0;
-//     uint64_t rsp1;
-//     uint64_t rsp2;
-//     uint64_t reserved1;
-//     uint64_t ist1;
-//     uint64_t ist2;
-//     uint64_t ist3;
-//     uint64_t ist4;
-//     uint64_t ist5;
-//     uint64_t ist6;
-//     uint64_t ist7;
-//     uint64_t reserved2;
-//     uint16_t reserved3;
-//     uint16_t iomap_base;
-// } __attribute__((packed)) TSS64;
-
-// static TSS64 the_tss;
-
 // exported for syscall64.asm
 uint64_t g_syscall_rsp0;
 

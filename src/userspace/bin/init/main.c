@@ -1,5 +1,5 @@
 #include <stdio.h>
-#include <sys/syscall.h>
+#include <syscall.h>
 #include <stdint.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -12,7 +12,6 @@
 #include <sys/socket.h>
 #include <string.h>
 #include <stdio.h>
-
 
 void test_mmap(void) {
     size_t len = 4096;
@@ -43,8 +42,46 @@ void test_mmap(void) {
     munmap(p, len);
 }
 
+// void *my_sbrk(intptr_t increment)
+// {
+//     long cur = syscall6(SYS_brk, 0, 0, 0, 0);
+//     // klog("my_sbrk: cur=0x%lx\n", cur);
+//     printf("my_sbrk: cur=0x%lx\n", cur);
+
+//     if (cur == 0)
+//         return (void *)-1;
+
+//     long new = cur + increment;
+//     long ret = syscall6(SYS_brk, new, 0, 0, 0);
+//     // klog("my_sbrk: new=0x%lx ret=0x%lx\n", new, ret);
+//     printf("my_sbrk: new=0x%lx ret=0x%lx\n", new, ret);
+
+//     if (ret != new)
+//         return (void *)-1;
+
+//     return (void *)cur;
+// }
+
+void *sbrk(intptr_t increment)
+{
+    long cur = syscall6(SYS_brk, 0, 0, 0, 0, 0, 0);
+    if (cur == 0)
+        return (void *)-1;
+
+    long new = cur + increment;
+    long ret = syscall6(SYS_brk, new, 0, 0, 0, 0, 0);
+
+    if (ret != new)
+        return (void *)-1;
+
+    return (void *)cur;
+}
+
+
 void test_brk(void)
 {
+    printf("Calling brk test\n");
+
     void *cur = sbrk(0);
 
 
@@ -53,14 +90,14 @@ void test_brk(void)
     void *p = sbrk(4096);
     printf("sbrk(+4096) returned 0x%lx\n", (unsigned long)p);
 
-    char *c = (char *)p;
-    for (int i = 0; i < 4; ++i)
-        c[i] = "HEAP"[i];
-    c[4] = '\n';
-    syscall(SYS_write, 1, (long)c, 5, 0);
+    // char *c = (char *)p;
+    // for (int i = 0; i < 4; ++i)
+    //     c[i] = "HEAP"[i];
+    // c[4] = '\n';
+    // syscall6(SYS_write, 1, (long)c, 5, 0);
 
-    void *q = sbrk(-4096);
-    printf("sbrk(-4096) returned 0x%lx\n", (unsigned long)q);
+    // void *q = sbrk(-4096);
+    // printf("sbrk(-4096) returned 0x%lx\n", (unsigned long)q);
 }
 
 void test_poll(int fd)
@@ -98,6 +135,7 @@ static void test_socketpair_poll(void)
     printf("Testing socketpair + poll...\n");
 
     int sv[2];
+    printf("sv at %p\n", (void*)sv);
     if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) != 0) {
         printf("socketpair failed\n");
         return;
@@ -260,15 +298,37 @@ static void test_memfd_mmap(void)
     close(fd);
 }
 
-int main()
+static void test_raw_socketpair(void)
 {
+    // int sv[2] = {-1, -1};
 
-    // __asm__ volatile("int3"); 
-    klog("Hello from userspace from klog!\n");
-    printf("Hello from userspace from printf!\n");
+    // long ret = syscall6(SYS_socketpair,
+    //                     AF_UNIX,
+    //                     SOCK_STREAM,
+    //                     0,
+    //                     (long)(uintptr_t)sv,
+    //                     0,
+    //                     0);
 
-    const char msg[] = "Hello from SYSCALL userland!\n";
-    syscall(SYS_write, 1, (long)msg, sizeof(msg)-1, 0);
+
+    int sv[2];
+    printf("raw: sv at %p\n", (void*)sv);
+    long ret = syscall6(SYS_socketpair,
+                        AF_UNIX,
+                        SOCK_STREAM,
+                        0,
+                        (long)(uintptr_t)sv,
+                        0,
+                        0);
+
+
+
+    printf("raw: syscall6 ret=%ld, sv[0]=%d sv[1]=%d\n", ret, sv[0], sv[1]);
+}
+
+
+void testAllSyscalls()
+{
 
     printf("About to test open/read/close via SYSCALL\n");
 
@@ -457,14 +517,13 @@ int main()
     printf(" sec (approx)\n");
 
 
-    long r_test = syscall(SYS_test,
+    long r_test = syscall6(SYS_test,
                  0x11,
                  0x22,
                  0x33,
-                 0x4444555566667777ULL);
+                 0x4444555566667777ULL, 0, 0);
 
-    printf("syscall(SYS_test,...) = %ld\n", r_test);
-
+    printf("syscall6(SYS_test,...) = %ld\n", r_test);
 
     printf("Testing socketpair...\n");
     int sv[2];
@@ -482,6 +541,11 @@ int main()
         close(sv[1]);
     }
 
+    
+    printf("Testing test_raw_socketpair...\n");
+
+    test_raw_socketpair();
+
     printf("About to call test_socketpair_poll\n");
     test_socketpair_poll();
 
@@ -490,7 +554,7 @@ int main()
 
     printf("Testing test_syscalls_presence\n");
     test_syscalls_presence();
-__asm__ volatile("int3"); 
+// __asm__ volatile("int3"); 
     printf("Testing test_memfd\n");
     test_memfd();
 
@@ -500,9 +564,28 @@ __asm__ volatile("int3");
     printf("Testing test_memfd_mmap\n");
 
     test_memfd_mmap();
+}
+
+
+
+
+int main()
+{
+    // __asm__ volatile("int3"); 
+    klog("Hello from userspace from klog from main!\n");
+    printf("Hello from userspace from printf!\n");
+
+     // Early probe
+     long ret = k_syscall6(SYS_test, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66);
+     printf("k_syscall6 early test ret=%ld\n", ret);
+
+    const char msg[] = "Hello from SYSCALL userland!\n";
+    syscall6(SYS_write, 1, (long)msg, sizeof(msg)-1, 0, 0, 0);
+
+    //testAllSyscalls();
 
     printf("About to call SYS_exit via SYSCALL\n");
-    syscall(SYS_exit, 0, 0, 0, 0);
+    syscall6(SYS_exit, 0, 0, 0, 0, 0, 0);
     printf("This should NEVER print\n");
     return 0;
 }

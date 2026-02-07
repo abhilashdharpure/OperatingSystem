@@ -74,6 +74,9 @@ void debug_dump_user_stack(Process *p, uint64_t sp)
     }
 }
 
+void dump_process_regs(Process *p) {
+    log_info("PROC", "RIP=%llx RSP=%llx", p->regs.rip, p->regs.rsp);
+}
 
 pid_t exec_elf_mem(void *data, size_t size, BootParams* bootParams)
 {
@@ -169,7 +172,8 @@ pid_t exec_elf_mem(void *data, size_t size, BootParams* bootParams)
             break;
         }
     }
-    uint64_t phdr_addr = first_load_vaddr + (eh->e_phoff - first_load_offset);
+    // uint64_t phdr_addr = first_load_vaddr + (eh->e_phoff - first_load_offset);
+    uint64_t phdr_addr = USER_BASE + eh->e_phoff;
 
 
     const uint64_t user_rw_flags = PAGE_PRESENT | PAGE_RW | PAGE_USER;
@@ -180,10 +184,16 @@ pid_t exec_elf_mem(void *data, size_t size, BootParams* bootParams)
     // Build Linux-compatible initial user stack for musl
     // ------------------------------------------------------------
 
-    uint64_t sp = USER_STACK_TOP;
+    // uint64_t sp = USER_STACK_TOP;
 
-    // 16-byte align
-    sp &= ~0xFULL;
+    // // 16-byte align
+    // sp &= ~0xFULL;
+
+
+    uint64_t sp = USER_STACK_TOP;
+    sp &= ~0xFULL;        // 16-byte align
+    sp -= 8;              // SysV ABI: RSP % 16 == 8 at call boundaries
+
 
     // ---- 1. Build argv strings ----
     sp -= 16;
@@ -336,6 +346,8 @@ pid_t exec_elf_mem(void *data, size_t size, BootParams* bootParams)
              p->regs.rip, rip_pa);
     log_info("EXEC", "RSP VA=0x%llx -> PA=0x%llx",
              p->regs.rsp, rsp_pa);
+
+    dump_process_regs(p);
 
     if (!rip_pa || !rsp_pa) {
         log_critical("EXEC", "ELF pages not mapped!");

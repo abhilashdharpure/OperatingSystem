@@ -247,6 +247,7 @@ cd src/userspace/
 scons
 cd ../../
 cp src/userspace/bin/init/init image/root/bin/init
+cp src/userspace/bin/init/init build/x86_64_debug/root/bin/init 
 scons -c && clear && scons run
 
 # Check file entry address
@@ -426,3 +427,10 @@ RANLIB=/home/abhilash/Project/OperatingSystem/toolchain/x86_64-elf/bin/x86_64-el
 make -j$(nproc)
 
 make DESTDIR=/home/abhilash/myos-sysroot install
+
+
+
+mount | grep root.mnt
+  If you something  /dev/loop36p1 on /home/.../build/x86_64_debug/root.mnt type vfat ...
+  Run below command to unmount
+sudo umount build/x86_64_debug/root.mnt

@@ -3,43 +3,116 @@
 #include <stdio.h>
 #include <stdarg.h>
 
-long syscall(long n, ...)
+long syscall(long nr, ...)
 {
     va_list ap;
-    long a[6] = {0,0,0,0,0,0};
+    va_start(ap, nr);
 
-    va_start(ap, n);
-    for (int i = 0; i < 6; ++i)
-        a[i] = va_arg(ap, long);
+    long a0 = va_arg(ap, long);
+    long a1 = va_arg(ap, long);
+    long a2 = va_arg(ap, long);
+    long a3 = va_arg(ap, long);
+    long a4 = va_arg(ap, long);
+    long a5 = va_arg(ap, long);
+
     va_end(ap);
 
-    return syscall6(n, a[0], a[1], a[2], a[3], a[4], a[5]);
+    return syscall6(nr, a0, a1, a2, a3, a4, a5);
 }
 
-
-long syscall6(long n, long a, long b, long c, long d, long e, long f)
+long syscall6(long nr,
+              long a0, long a1, long a2,
+              long a3, long a4, long a5)
 {
     long ret;
-
-    register long r10 __asm__("r10") = d;
-    register long r8  __asm__("r8")  = e;
-    register long r9  __asm__("r9")  = f;
-
-    asm volatile (
+    __asm__ volatile (
+        "movq %5, %%r10\n\t"   /* a3 -> r10 */
+        "movq %6, %%r8\n\t"    /* a4 -> r8  */
+        "movq %7, %%r9\n\t"    /* a5 -> r9  */
         "syscall"
         : "=a"(ret)
-        : "a"(n),      // rax = syscall number
-          "D"(a),      // rdi = arg0
-          "S"(b),      // rsi = arg1
-          "d"(c),      // rdx = arg2
-          "r"(r10),    // GCC already placed r10 in register r10
-          "r"(r8),     // GCC already placed r8  in register r8
-          "r"(r9)      // GCC already placed r9  in register r9
-        : "rcx", "r11", "memory"
+        : "a"(nr),             /* rax = nr  */
+          "D"(a0),             /* rdi = a0  */
+          "S"(a1),             /* rsi = a1  */
+          "d"(a2),             /* rdx = a2  */
+          "r"(a3),             /* temp for r10 */
+          "r"(a4),             /* temp for r8  */
+          "r"(a5)              /* temp for r9  */
+        : "rcx", "r11", "r10", "r8", "r9", "memory"
     );
-
     return ret;
 }
+
+long k_syscall6(long nr,
+                long a0, long a1, long a2,
+                long a3, long a4, long a5)
+{
+    long ret;
+    __asm__ volatile (
+        "movq %5, %%r10\n\t"   // a3 -> r10
+        "movq %6, %%r8\n\t"    // a4 -> r8
+        "movq %7, %%r9\n\t"    // a5 -> r9
+        "syscall"
+        : "=a"(ret)
+        : "a"(nr),             // rax = nr
+          "D"(a0),             // rdi = a0
+          "S"(a1),             // rsi = a1
+          "d"(a2),             // rdx = a2
+          "r"(a3),             // temp for r10
+          "r"(a4),             // temp for r8
+          "r"(a5)              // temp for r9
+        : "rcx", "r11", "r10", "r8", "r9", "memory"
+    );
+    return ret;
+}
+
+
+long raw_syscall6(long nr,
+                  long a0, long a1, long a2,
+                  long a3, long a4, long a5)
+{
+    long ret;
+    __asm__ volatile (
+        "movq %1, %%rax\n\t"
+        "movq %2, %%rdi\n\t"
+        "movq %3, %%rsi\n\t"
+        "movq %4, %%rdx\n\t"
+        "movq %5, %%r10\n\t"
+        "movq %6, %%r8\n\t"
+        "movq %7, %%r9\n\t"
+        "syscall\n\t"
+        : "=a"(ret)
+        : "g"(nr), "g"(a0), "g"(a1), "g"(a2),
+          "g"(a3), "g"(a4), "g"(a5)
+        : "rcx", "r11", "rdi", "rsi", "rdx", "r10", "r8", "r9", "memory"
+    );
+    return ret;
+}
+
+
+// long syscall6(long n, long a, long b, long c, long d, long e, long f)
+// {
+//     long ret;
+
+//     register long r10 __asm__("r10") = d;
+//     register long r8  __asm__("r8")  = e;
+//     register long r9  __asm__("r9")  = f;
+
+//     asm volatile (
+//         "syscall"
+//         : "=a"(ret)
+//         : "a"(n),      // rax = syscall number
+//           "D"(a),      // rdi = arg0
+//           "S"(b),      // rsi = arg1
+//           "d"(c),      // rdx = arg2
+//           "r"(r10),    // GCC already placed r10 in register r10
+//           "r"(r8),     // GCC already placed r8  in register r8
+//           "r"(r9)      // GCC already placed r9  in register r9
+//         : "rcx", "r11", "memory"
+//     );
+
+//     return ret;
+// }
 
 
 
