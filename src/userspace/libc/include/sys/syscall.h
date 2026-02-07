@@ -33,3 +33,8 @@
 #define __NR_recvmsg         SYS_recvmsg
 #define __NR_memfd_create    SYS_memfd_create
 #define __NR_ftruncate       SYS_ftruncate
+
+
+_Static_assert(SYS_test == 999, "SYS_test mismatch");
+_Static_assert(SYS_write == 1, "SYS_write mismatch");
+_Static_assert(SYS_exit == 60, "SYS_exit mismatch");

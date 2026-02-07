@@ -1,9 +1,4 @@
 ; enter_user_mode.asm
-; Jump from kernel to user mode (CPL=3) in x86_64
-; Input: RDI = pointer to Process struct
-;        Process.regs.rip = user entry
-;        Process.regs.rsp = user stack top
-
 [BITS 64]
 global enter_user_mode
 
@@ -16,18 +11,27 @@ global enter_user_mode
 section .text
 enter_user_mode:
     cli
-    mov rax, [rdi + OFFSET_REGS_RIP] ; user RIP
-    mov rbx, [rdi + OFFSET_REGS_RSP] ; user RSP
 
-    ; push iretq frame onto kernel stack
-    push qword USER_SS
-    push rbx
+    ; Load user RIP and RSP from Process struct
+    mov     rax, [rdi + OFFSET_REGS_RIP]   ; user RIP
+    mov     rbx, [rdi + OFFSET_REGS_RSP]   ; user RSP
+
+    ; Make sure DF is clear before entering user mode
+    cld
+
+    ; Build a clean RFLAGS for user:
+    ; start from current RFLAGS, clear DF, ensure IF=1
     pushfq
-    pop rcx
-    or rcx, 0x200
-    push rcx
-    push qword USER_CS
-    push rax
+    pop     rcx
+    and     rcx, ~(1 << 10)        ; clear DF
+    or      rcx,  (1 << 9)         ; set IF
+    ; you can also mask out other bits if you want to be stricter
+
+    ; Push iret frame: SS, RSP, RFLAGS, CS, RIP
+    push    qword USER_SS
+    push    rbx                    ; user RSP
+    push    rcx                    ; user RFLAGS
+    push    qword USER_CS
+    push    rax                    ; user RIP
 
     iretq
-

@@ -90,23 +90,36 @@ struct iovec {
     size_t iov_len;
 };
 
-long sys_writev(int fd, const struct iovec *iov, int iovcnt)
+long sys_writev(int fd, const struct iovec *user_iov, int iovcnt)
 {
+
+    log_info("SYSCALL", "writev fd=%d iov=%p cnt=%d", fd, user_iov, iovcnt);
+    if (iovcnt <= 0 || iovcnt > 64)
+        return -EINVAL;
+
+    struct iovec kiov[64];
+
+    // Copy iovec array from user
+    for (int i = 0; i < iovcnt; i++) {
+        log_info("SYSCALL", " iov[%d].base=%p len=%zu",
+         i, user_iov[i].iov_base, user_iov[i].iov_len);
+
+        kiov[i] = user_iov[i];   // safe only because user and kernel share CR3
+    }
+
     long total = 0;
 
     for (int i = 0; i < iovcnt; i++) {
-        // you’ll want a safe copy_from_user here eventually
-        const struct iovec *u = &iov[i];
-        if (!u->iov_base || u->iov_len == 0)
+        if (!kiov[i].iov_base || kiov[i].iov_len == 0)
             continue;
 
-        long n = sys_write(fd, u->iov_base, u->iov_len);
+        long n = sys_write(fd, kiov[i].iov_base, kiov[i].iov_len);
         if (n < 0)
             return (total > 0) ? total : n;
 
         total += n;
-        if (n < (long)u->iov_len)
-            break; // short write
+        if (n < (long)kiov[i].iov_len)
+            break;
     }
 
     return total;

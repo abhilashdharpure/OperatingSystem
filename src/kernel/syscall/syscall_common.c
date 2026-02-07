@@ -795,17 +795,10 @@ uint64_t sys_socketpair(uint64_t domain,
 
 long sys_arch_prctl(long code, unsigned long addr)
 {
-    log_info("SYSCALL", "arch_prctl code=%lx addr=%lx", code, addr);
-
     switch (code) {
-    case ARCH_SET_FS: {
-        wrmsr(0xC0000100, addr);
-
-        uint64_t fs = rdmsr(0xC0000100);
-        log_info("ARCH", "FS_BASE now = 0x%llx",
-                 (unsigned long long)fs);
+    case ARCH_SET_FS:
+        wrmsr(MSR_FS_BASE, addr);   // now correct
         return 0;
-    }
     default:
         return -EINVAL;
     }

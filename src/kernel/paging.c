@@ -371,12 +371,12 @@ void clone_kernel_mappings_for_user(uint64_t *user_pml4)
         for (int i = 0; i < 512; ++i)
             pdpt_dst[i] = pdpt_src[i];
 
-        // If PDPT[0] is a 1GiB hugepage in the kernel,
-        // drop it in the *user* PDPT so we can use normal PD/PT there.
         if (pdpt_dst[0] & PAGE_PS)
-        { 
-            pdpt_dst[0] |= PAGE_USER;
-        } 
+        {
+            // Keep the 1GiB kernel huge page mapping,
+            // but make it supervisor-only (U/S=0).
+            pdpt_dst[0] &= ~PAGE_USER;
+        }
 
         // Copy original flags but add PAGE_USER for PML4[0]
         user_pml4[0] = new_pdpt_pa | (e0 & 0xFFFULL) | PAGE_USER;

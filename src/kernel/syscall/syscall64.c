@@ -67,9 +67,6 @@ void klog_user_rip(uint64_t rip, uint64_t nr) {
              (unsigned long long)nr);
 }
 
-
-
-
 uint64_t syscall_dispatch(uint64_t nr,
                           uint64_t a0,
                           uint64_t a1,
@@ -153,15 +150,6 @@ uint64_t syscall_dispatch(uint64_t nr,
 
     case SYS_nanosleep:
         return sys_nanosleep(a0, a1);
-
-    // case SYS_socketpair:
-    //     log_info("SYSCALL", "syscall_dispatch: nr=%llu a0=%llx a1=%llx a2=%llx a5=%llx",
-    //          (unsigned long long)nr,
-    //          (unsigned long long)a0,
-    //          (unsigned long long)a1,
-    //          (unsigned long long)a2,
-    //          (unsigned long long)a5);
-    //     return sys_socketpair((int)a0, (int)a1, (int)a2, (int *)a5);
 
     case SYS_socketpair:
         log_info("SYSCALL", "syscall_dispatch: nr=%llu a0=%llx a1=%llx a2=%llx a3=%llx",

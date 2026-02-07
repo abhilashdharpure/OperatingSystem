@@ -43,51 +43,76 @@ long syscall6(long nr,
     return ret;
 }
 
-long k_syscall6(long nr,
-                long a0, long a1, long a2,
-                long a3, long a4, long a5)
+// long my_raw_syscall6(long n,
+//                                    long a0, long a1, long a2,
+//                                    long a3, long a4, long a5)
+// {
+//     long ret;
+//     register long r10 __asm__("r10") = a3;
+//     register long r8  __asm__("r8")  = a4;
+//     register long r9  __asm__("r9")  = a5;
+
+//     __asm__ volatile("syscall"
+//         : "=a"(ret)
+//         : "a"(n),
+//           "D"(a0),
+//           "S"(a1),
+//           "d"(a2),
+//           "r"(r10),
+//           "r"(r8),
+//           "r"(r9)
+//         : "rcx", "r11", "r10", "r8", "r9", "memory");
+
+//     return ret;
+// }
+
+// long k_syscall6(long nr,
+//                 long a0, long a1, long a2,
+//                 long a3, long a4, long a5)
+// {
+//     long ret;
+//     __asm__ volatile (
+//         "movq %5, %%r10\n\t"   // a3 -> r10
+//         "movq %6, %%r8\n\t"    // a4 -> r8
+//         "movq %7, %%r9\n\t"    // a5 -> r9
+//         "syscall"
+//         : "=a"(ret)
+//         : "a"(nr),             // rax = nr
+//           "D"(a0),             // rdi = a0
+//           "S"(a1),             // rsi = a1
+//           "d"(a2),             // rdx = a2
+//           "r"(a3),             // temp for r10
+//           "r"(a4),             // temp for r8
+//           "r"(a5)              // temp for r9
+//         : "rcx", "r11", "r10", "r8", "r9", "memory"
+//     );
+//     return ret;
+// }
+
+long my_raw_syscall6(long nr,
+                     long a0, long a1, long a2,
+                     long a3, long a4, long a5)
 {
     long ret;
     __asm__ volatile (
-        "movq %5, %%r10\n\t"   // a3 -> r10
-        "movq %6, %%r8\n\t"    // a4 -> r8
-        "movq %7, %%r9\n\t"    // a5 -> r9
+        "movq %5, %%r10\n\t"   /* a3 -> r10 */
+        "movq %6, %%r8\n\t"    /* a4 -> r8  */
+        "movq %7, %%r9\n\t"    /* a5 -> r9  */
         "syscall"
         : "=a"(ret)
-        : "a"(nr),             // rax = nr
-          "D"(a0),             // rdi = a0
-          "S"(a1),             // rsi = a1
-          "d"(a2),             // rdx = a2
-          "r"(a3),             // temp for r10
-          "r"(a4),             // temp for r8
-          "r"(a5)              // temp for r9
+        : "a"(nr),             /* rax = nr  */
+          "D"(a0),             /* rdi = a0  */
+          "S"(a1),             /* rsi = a1  */
+          "d"(a2),             /* rdx = a2  */
+          "r"(a3),             /* temp for r10 */
+          "r"(a4),             /* temp for r8  */
+          "r"(a5)              /* temp for r9  */
         : "rcx", "r11", "r10", "r8", "r9", "memory"
     );
     return ret;
 }
 
 
-long raw_syscall6(long nr,
-                  long a0, long a1, long a2,
-                  long a3, long a4, long a5)
-{
-    long ret;
-    __asm__ volatile (
-        "movq %1, %%rax\n\t"
-        "movq %2, %%rdi\n\t"
-        "movq %3, %%rsi\n\t"
-        "movq %4, %%rdx\n\t"
-        "movq %5, %%r10\n\t"
-        "movq %6, %%r8\n\t"
-        "movq %7, %%r9\n\t"
-        "syscall\n\t"
-        : "=a"(ret)
-        : "g"(nr), "g"(a0), "g"(a1), "g"(a2),
-          "g"(a3), "g"(a4), "g"(a5)
-        : "rcx", "r11", "rdi", "rsi", "rdx", "r10", "r8", "r9", "memory"
-    );
-    return ret;
-}
 
 
 // long syscall6(long n, long a, long b, long c, long d, long e, long f)

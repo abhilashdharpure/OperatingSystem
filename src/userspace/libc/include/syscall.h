@@ -54,3 +54,6 @@ long syscall6(long n, long a, long b, long c, long d, long e, long f);
 long k_syscall6(long nr,
                 long a0, long a1, long a2,
                 long a3, long a4, long a5);
+long my_raw_syscall6(long n,
+                                   long a0, long a1, long a2,
+                                   long a3, long a4, long a5);
