@@ -13,7 +13,7 @@ enum {
     SYS_ioctl           = 16,
     SYS_writev          = 20,
     SYS_poll            = 7,
-    SYS_stat            = 4,   // or newfstatat/fstatat64 depending on what you wire
+    SYS_stat            = 4,   // or newfstatat/fstatat6~4 depending on what you wire
     SYS_fstat           = 5,
     SYS_lseek           = 8,
     SYS_getdents        = 78,  // or getdents64 = 217

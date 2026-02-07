@@ -566,57 +566,6 @@ void testAllSyscalls()
     test_memfd_mmap();
 }
 
-
-// long my_raw_syscall6(long n,
-//                                    long a0, long a1, long a2,
-//                                    long a3, long a4, long a5)
-// {
-//     printf("my_raw_syscall6 entered using printf!\n");
-//     klog("my_raw_syscall6 entered\n");   // or write directly to serial
-
-//     long ret;
-//     register long r10 __asm__("r10") = a3;
-//     register long r8  __asm__("r8")  = a4;
-//     register long r9  __asm__("r9")  = a5;
-
-//     __asm__ volatile("syscall"
-//         : "=a"(ret)
-//         : "a"(n),
-//           "D"(a0),
-//           "S"(a1),
-//           "d"(a2),
-//           "r"(r10),
-//           "r"(r8),
-//           "r"(r9)
-//         : "rcx", "r11", "memory");
-
-
-//     printf("my_raw_syscall6 entered end!\n");
-//     return ret;
-// }
-
-// int main() {
-//     klog("INIT BUILD MARKER: 0xDEADBEEF\n");
-//     for (;;);
-// }
-
-
-// extern void *my_raw_syscall6_addr;
-
-// int main(void) {
-//     klog("MAIN MARKER: 0xAAAABBBB\n");
-//     printf("MAIN MARKER: 0xAAAABBBB\n");
-
-//     klog("my_raw_syscall6 at\n");
-//     printf("my_raw_syscall6 at %p\n", my_raw_syscall6);
-
-//     long ret = my_raw_syscall6(SYS_test, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66);
-//     printf("AFTER my_raw_syscall6, ret=%ld\n", ret);
-
-//     for (;;);
-// }
-
-
 int main()
 {
     // __asm__ volatile("int3"); 
@@ -624,16 +573,16 @@ int main()
     printf("Hello from userspace from printf!\n");
 
      // Early probe
-     long ret = my_raw_syscall6(SYS_test, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66);
+     long ret = syscall6(SYS_test, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66);
      printf("syscall6 early test ret=%ld\n", ret);
 
     const char msg[] = "Hello from SYSCALL userland!\n";
-    my_raw_syscall6(SYS_write, 1, (long)msg, sizeof(msg)-1, 0, 0, 0);
+    syscall6(SYS_write, 1, (long)msg, sizeof(msg)-1, 0, 0, 0);
 
     testAllSyscalls();
 
     printf("About to call SYS_exit via SYSCALL\n");
-    my_raw_syscall6(SYS_exit, 0, 0, 0, 0, 0, 0);
+    syscall6(SYS_exit, 0, 0, 0, 0, 0, 0);
     printf("This should NEVER print\n");
     return 0;
 }

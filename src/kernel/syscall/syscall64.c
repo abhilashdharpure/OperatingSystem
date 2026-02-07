@@ -36,37 +36,6 @@ void x64_SYSCALL_Initialize(void)
     wrmsr(IA32_FMASK, fmask);
 }
 
-
-void klog_asm(const char* s) {
-    sys_klog(s);
-}
-
-
-void klog_rip_before(uint64_t rip) {
-    log_info("SYSCALL", "user RIP before = 0x%llx", (unsigned long long)rip);
-}
-
-void klog_rip_after(uint64_t rip) {
-    log_info("SYSCALL", "user RIP after  = 0x%llx", (unsigned long long)rip);
-}
-
-void klog_u64_rcx(uint64_t v) {
-    log_info("SYSCALL", "entry rcx = 0x%llx", (unsigned long long)v);
-}
-
-void klog_u64_r11(uint64_t v) {
-    log_info("SYSCALL", "entry r11 = 0x%llx", (unsigned long long)v);
-}
-
-void klog_u64_rsp(uint64_t v) {
-    log_info("SYSCALL", "entry rsp = 0x%llx", (unsigned long long)v);
-}
-void klog_user_rip(uint64_t rip, uint64_t nr) {
-    log_info("SYSCALL", "entry rcx(user RIP) = 0x%llx (nr=%llu)",
-             (unsigned long long)rip,
-             (unsigned long long)nr);
-}
-
 uint64_t syscall_dispatch(uint64_t nr,
                           uint64_t a0,
                           uint64_t a1,
@@ -190,8 +159,6 @@ uint64_t syscall_dispatch(uint64_t nr,
         return ret;   // <-- let userspace resume
     }
 
-
-
     case SYS_prlimit64: return sys_prlimit64(a0, a1, (void*)a2, (void*)a3);
     case SYS_getrandom: return sys_getrandom((void*)a0, a1, a2);
     case SYS_exit_group: return sys_exit_group(a0);
@@ -223,10 +190,4 @@ uint64_t syscall_dispatch(uint64_t nr,
 
     // }
     return (uint64_t)-1;
-}
-
-void debug_dump_syscall_iret(uint64_t *sp)
-{
-    log_info("IRET", "RIP=%lx CS=%lx RFLAGS=%lx RSP=%lx SS=%lx",
-             sp[0], sp[1], sp[2], sp[3], sp[4]);
 }
