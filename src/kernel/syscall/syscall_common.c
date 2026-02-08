@@ -48,25 +48,24 @@ extern int VFS_CanWrite(int fd);  // for now: maybe also 1
 
 ssize_t sys_write(uint64_t fd, const char *buf, uint64_t len)
 {
-    // Optional debug:
-    // log_info("SYSCALL", "sys_write fd=%d size=%d", (int)fd, (int)len);
-
     if (len == 0)
         return 0;
 
-    if (!VFS_IsValidFd((fd_t)fd) &&
-        fd != VFS_FD_STDIN &&
-        fd != VFS_FD_STDOUT &&
-        fd != VFS_FD_STDERR &&
-        fd != VFS_FD_DEBUG)
-    {
-        return -1;
-    }
-
-    // TODO: Remove it afterwards. It is added just to check logs from userspace
+    // Always mirror to serial for debugging
     for (uint64_t i = 0; i < len; ++i)
-    {
         serial_putc(buf[i]);
+
+    // If it's not a real VFS fd but is one of the stdio fds,
+    // pretend it succeeded (serial-only).
+    if (!VFS_IsValidFd((fd_t)fd)) {
+        if (fd == VFS_FD_STDIN ||
+            fd == VFS_FD_STDOUT ||
+            fd == VFS_FD_STDERR ||
+            fd == VFS_FD_DEBUG)
+        {
+            return (ssize_t)len;
+        }
+        return -1;
     }
 
     int written = VFS_Write((fd_t)fd, (uint8_t *)buf, (size_t)len);

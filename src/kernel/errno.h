@@ -27,7 +27,7 @@
 #define EINVAL          22
 #define ENFILE          23
 #define EMFILE          24
-#define ENOTTY          25   // <-- THIS ONE
+#define ENOTTY          25
 #define ETXTBSY         26
 #define EFBIG           27
 #define ENOSPC          28
@@ -38,7 +38,8 @@
 #define EDOM            33
 #define ERANGE          34
 #define ENOSYS          38
-
+#define ENOTCONN        107
+#define ECONNREFUSED    111
 
 // errno is a global variable in simple libc
 extern int errno;

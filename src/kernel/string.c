@@ -89,6 +89,13 @@ unsigned strlen(const char* str)
 
     return len;
 }
+size_t strnlen(const char *s, size_t maxlen)
+{
+    size_t i = 0;
+    while (i < maxlen && s[i])
+        i++;
+    return i;
+}
 
 int strcmp(const char* a, const char* b)
 {
@@ -127,6 +134,27 @@ char* strncpy(char* dst, const char* src, size_t n)
         dst[i] = '\0';
 
     return dst;
+}
+
+void *memmove(void *dest, const void *src, size_t n)
+{
+    unsigned char *d = dest;
+    const unsigned char *s = src;
+
+    if (d == s || n == 0)
+        return dest;
+
+    if (d < s) {
+        // forward copy
+        for (size_t i = 0; i < n; i++)
+            d[i] = s[i];
+    } else {
+        // backward copy
+        for (size_t i = n; i != 0; i--)
+            d[i - 1] = s[i - 1];
+    }
+
+    return dest;
 }
 
 

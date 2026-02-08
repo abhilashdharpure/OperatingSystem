@@ -43,6 +43,13 @@ enum {
     SYS_arch_prctl      = 158,
 
     SYS_test            = 999,
+
+    SYS_socket          = 41,
+    SYS_connect         = 42,
+    SYS_accept          = 43,
+    SYS_bind            = 49,
+    SYS_listen          = 50,
+
 };
 
 long syscall(long n, ...);

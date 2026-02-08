@@ -1,4 +1,4 @@
-#include <stdio.h>
+// #include <stdio.h>
 #include <syscall.h>
 #include <stdint.h>
 #include <fcntl.h>
@@ -11,7 +11,28 @@
 #include <time.h>
 #include <sys/socket.h>
 #include <string.h>
-#include <stdio.h>
+
+#include <sys/un.h>
+#include "../../libc/include/stdio.h"
+
+static void klog_hex(const char *label, long v)
+{
+    char buf[64];
+    char *p = buf;
+    *p++ = '[';
+    while (*label) *p++ = *label++;
+    *p++ = ' ';
+    *p++ = '0'; *p++ = 'x';
+
+    const char *hex = "0123456789abcdef";
+    for (int i = (sizeof(long)*2)-1; i >= 0; --i) {
+        *p++ = hex[(v >> (i*4)) & 0xf];
+    }
+    *p++ = ']';
+    *p++ = '\n';
+    *p = 0;
+    klog(buf);
+}
 
 void test_mmap(void) {
     size_t len = 4096;
@@ -566,23 +587,100 @@ void testAllSyscalls()
     test_memfd_mmap();
 }
 
+int test_client_server_socket(void)
+{
+    klog("[Userspace] Testing socket..\n");
+
+    // 1) server: create, bind, listen
+    int s = socket(AF_UNIX, SOCK_STREAM, 0);
+    printf("[Userspace] socket s=%d\n", s);
+
+    struct sockaddr_un addr = {0};
+    addr.sun_family = AF_UNIX;
+    strcpy(addr.sun_path, "/wayland-0");
+    klog("[Userspace] Before bind\n");
+
+    bind(s, (struct sockaddr *)&addr, sizeof(addr));
+    klog("[Userspace] After bind\n");
+
+    listen(s, 16);
+    klog("[Userspace] server: listening on /wayland-0\n");
+
+    // 2) client: create + connect
+    int c = socket(AF_UNIX, SOCK_STREAM, 0);
+    klog("[Userspace] client: connecting...\n");
+    // int r = connect(c, (struct sockaddr *)&addr, sizeof(addr));
+    // printf("[Userspace] client: connect returned %d\n", r);
+
+    int r = connect(c, (struct sockaddr *)&addr, sizeof(addr));
+    if (r < 0) {
+        klog("[Userspace] connect FAILED\n");
+    } else {
+        klog("[Userspace] connect OK\n");
+        klog_hex("connect_ret", r);
+    }
+
+
+    if (r < 0) {
+        klog("[Userspace] client: connect failed, aborting\n");
+        close(c);
+        syscall6(SYS_exit, 0, 0, 0, 0, 0, 0);
+        return 0;
+    }
+
+    // // 3) server: accept that client
+    // int as = accept(s, NULL, NULL);
+    // printf("[Userspace] server: accept returned %d\n", as);
+
+    int as = accept(s, NULL, NULL);
+    if (as < 0) {
+        klog("[Userspace] accept FAILED\n");
+        klog_hex("accept_ret", as);
+    } else {
+        klog("[Userspace] accept OK\n");
+        klog_hex("accept_ret", as);
+    }
+
+
+    // 4) server: write to accepted socket
+    const char smsg[] = "hello from server\n";
+    write(as, smsg, sizeof(smsg)-1);
+    close(as);
+
+    // 5) client: read from its socket
+    char buf[128];
+    int n = read(c, buf, sizeof(buf));
+    printf("[Userspace] client: read returned %d\n", n);
+    if (n > 0) {
+        write(1, buf, n);
+    }
+    close(c);
+}
+
+
+
+
+
 int main()
 {
-    // __asm__ volatile("int3"); 
-    klog("Hello from userspace from klog from main!\n");
-    printf("Hello from userspace from printf!\n");
+    klog("[Userspace] *** NEW INIT BUILD v3 ***\n");
 
-     // Early probe
-     long ret = syscall6(SYS_test, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66);
-     printf("syscall6 early test ret=%ld\n", ret);
+    klog("[Userspace] Hello from userspace from klog from main!\n");
+    printf("[Userspace] Hello from userspace from printf!\n");
+    printf("[Userspace] Issue after first printf, this will not print\n");
+    klog("[Userspace] KLog is still fine..!\n");
 
-    const char msg[] = "Hello from SYSCALL userland!\n";
+    long ret = syscall6(SYS_test, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66);
+    printf("[Userspace] syscall6 early test ret=%ld\n", ret);
+
+    const char msg[] = "[Userspace] Hello from SYSCALL userland!\n";
     syscall6(SYS_write, 1, (long)msg, sizeof(msg)-1, 0, 0, 0);
 
     testAllSyscalls();
+    
+    test_client_server_socket();
 
-    printf("About to call SYS_exit via SYSCALL\n");
+    printf("[Userspace] About to call SYS_exit via SYSCALL\n");
     syscall6(SYS_exit, 0, 0, 0, 0, 0, 0);
-    printf("This should NEVER print\n");
     return 0;
 }

@@ -102,7 +102,8 @@ void VFS_Init(void)
 struct file *VFS_AllocFile(void)
 {
     for (int i = 0; i < MAX_OPEN_FILES; i++) {
-        if (file_table[i].path == NULL) {
+        if (!file_table[i].in_use) {
+            file_table[i].in_use = true;
             return &file_table[i];
         }
     }
@@ -238,6 +239,7 @@ int VFS_Close(fd_t fd)
     f->private_data = NULL;
     f->position = 0;
     f->refcount = 0;
+    f->in_use = false;
 
     return 0;
 }

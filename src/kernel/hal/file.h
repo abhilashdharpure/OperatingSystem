@@ -2,6 +2,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdbool.h>
 #include <kstat.h>
 
 #define NAME_MAX 100
@@ -13,6 +14,7 @@ typedef struct {
 } dirent_t;
 
 struct file {
+    bool in_use;
     const char *path;           // full original path (e.g., "/bin/init")
     const char *subpath;        // path relative to mount (e.g., "bin/init")
     struct file_operations *fops;

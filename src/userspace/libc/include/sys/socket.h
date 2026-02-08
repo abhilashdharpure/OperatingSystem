@@ -2,6 +2,8 @@
 
 #include <stddef.h>
 #include <types.h>
+#include <sys/un.h> 
+#include <stdint.h>
 
 #define AF_UNIX 1
 #define SOCK_STREAM 1
@@ -9,6 +11,12 @@
 // Socket levels
 #define SOL_SOCKET  1
 
+
+// Address families
+#define AF_LOCAL AF_UNIX
+
+// Socket types
+#define SOCK_DGRAM  2
 // Control message types
 #define SCM_RIGHTS  1
 
@@ -42,3 +50,28 @@ struct cmsghdr {
 int socketpair(int domain, int type, int protocol, int sv[2]);
 ssize_t sendmsg(int fd, const struct msghdr *msg, int flags);
 ssize_t recvmsg(int fd, struct msghdr *msg, int flags);
+
+
+
+
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+
+struct sockaddr {
+    uint16_t sa_family;
+    char     sa_data[14];
+};
+
+int socket(int domain, int type, int protocol);
+int bind(int fd, const struct sockaddr *addr, socklen_t len);
+int listen(int fd, int backlog);
+int accept(int fd, struct sockaddr *addr, socklen_t *len);
+int connect(int fd, const struct sockaddr *addr, socklen_t len);
+
+#ifdef __cplusplus
+}
+#endif

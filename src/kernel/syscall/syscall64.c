@@ -44,8 +44,8 @@ uint64_t syscall_dispatch(uint64_t nr,
                           uint64_t a4,
                           uint64_t a5)
 {
-    log_info("SYSCALL", "nr=%llu a0=%llx a1=%llx a2=%llx a3=%llx a4=%llx a5=%llx",
-             nr, a0, a1, a2, a3, a4, a5);
+    // log_info("SYSCALL", "nr=%llu a0=%llx a1=%llx a2=%llx a3=%llx a4=%llx a5=%llx",
+    //          nr, a0, a1, a2, a3, a4, a5);
 
     switch (nr) {
     case SYS_write:
@@ -172,14 +172,27 @@ uint64_t syscall_dispatch(uint64_t nr,
     case SYS_writev:
         return sys_writev((int)a0, (const struct iovec*)a1, (int)a2);
 
+    case SYS_socket:
+        return sys_socket(a0, a1, a2);
+    case SYS_bind:
+        return sys_bind(a0, a1, a2);
+    case SYS_listen:
+        return sys_listen(a0, a1);
+    case SYS_accept:
+        return sys_accept(a0, a1, a2);
+    case SYS_connect:
+        return sys_connect(a0, a1, a2);
+
 
     case SYS_test:
-        log_info("SYSCALL", "TEST: a0=%llx a1=%llx a2=%llx a3=%llx",
+        log_info("SYSCALL", "TEST: a0=%llx a1=%llx a2=%llx a3=%llx a4=%llx a5=%llx",
                 (unsigned long long)a0,
                 (unsigned long long)a1,
                 (unsigned long long)a2,
-                (unsigned long long)a3);
-        return 123;
+                (unsigned long long)a3,
+                (unsigned long long)a4,
+                (unsigned long long)a5);
+        return 12345;
     }
 
     log_error("SYSCALL", "Unknown syscall %llu", (unsigned long long)nr);

@@ -3,9 +3,5 @@
 
 ssize_t write(int fd, const void *buf, size_t len)
 {
-    return (ssize_t)syscall(SYS_write,
-                            (long)fd,
-                            (long)buf,
-                            (long)len,
-                            0);
+    return (ssize_t)syscall6(SYS_write, fd, (long)buf, len, 0, 0, 0);
 }
