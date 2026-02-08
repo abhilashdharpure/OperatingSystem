@@ -4,6 +4,7 @@ libc_sources = [
     "src/syscall/musl_syscall.c",
     "src/syscall/syscall.c",
     "src/sys/klog/klog.c",
+    "src/stdio/uprintf.c",
 ]
 
 libc_objs = env.Object(libc_sources)

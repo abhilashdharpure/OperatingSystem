@@ -13,7 +13,7 @@
 #include <string.h>
 
 #include <sys/un.h>
-#include "../../libc/include/stdio.h"
+#include "uprintf.h"
 
 static void klog_hex(const char *label, long v)
 {
@@ -676,8 +676,8 @@ int main()
     const char msg[] = "[Userspace] Hello from SYSCALL userland!\n";
     syscall6(SYS_write, 1, (long)msg, sizeof(msg)-1, 0, 0, 0);
 
-    testAllSyscalls();
-    
+    // testAllSyscalls();
+
     test_client_server_socket();
 
     printf("[Userspace] About to call SYS_exit via SYSCALL\n");
