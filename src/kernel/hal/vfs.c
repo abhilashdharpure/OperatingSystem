@@ -349,13 +349,15 @@ int VFS_List(const char *path, void (*callback)(const dirent_t *))
     if (fd < 0) return -1;
 
     struct file *dir = open_files[fd];
-    if (!dir->fops || !dir->fops->readdir) {
+    if (!dir->fops || !dir->fops->readdir)
+    {
         VFS_Close(fd);
         return -1;
     }
 
     dirent_t entry;
-    while (dir->fops->readdir(dir, &entry) == 0) {
+    while (dir->fops->readdir(dir, &entry) == 0)
+    {
         callback(&entry);
     }
 
@@ -365,17 +367,23 @@ int VFS_List(const char *path, void (*callback)(const dirent_t *))
 int VFS_CanRead(fd_t fd)
 {
     if (!VFS_IsValidFd(fd))
+    {
         return 0;
+    }
 
     struct file *f = open_files[fd];
 
     // If the file provides a readiness callback, use it
     if (f->fops && f->fops->can_read)
+    {
         return f->fops->can_read(f);
+    }
 
     // Otherwise: readable only if it has a read op
     if (f->fops && f->fops->read)
+    {
         return 1;
+    }
 
     return 0;
 }
@@ -383,17 +391,23 @@ int VFS_CanRead(fd_t fd)
 int VFS_CanWrite(fd_t fd)
 {
     if (!VFS_IsValidFd(fd))
+    {
         return 0;
+    }
 
     struct file *f = open_files[fd];
 
     // If the file provides a readiness callback, use it
     if (f->fops && f->fops->can_write)
+    {
         return f->fops->can_write(f);
+    }
 
     // Otherwise: writable only if it has a write op
     if (f->fops && f->fops->write)
+    {
         return 1;
+    }
 
     return 0;
 }
@@ -404,7 +418,6 @@ struct file *VFS_GetFile(fd_t fd)
         return NULL;
     return open_files[fd];
 }
-
 
 off_t VFS_Lseek(fd_t fd, off_t offset, int whence)
 {

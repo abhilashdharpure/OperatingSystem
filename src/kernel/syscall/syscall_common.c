@@ -16,6 +16,9 @@
 #include "fs/memfd.h"
 #include <arch/x86_64/msr.h> 
 #include <stdint.h>
+// #include <kernel/time.h>   // whatever you use for time / nanosleep
+// #include <kernel/syscall.h>
+// #include <kernel/poll.h>   // struct pollfd, POLLIN, POLLOUT, POLLNVAL
 
 uint64_t syscall_next_rip = 0;
 
@@ -405,82 +408,86 @@ uint64_t sys_brk(uint64_t new_brk)
     return old_brk;
 }
 
-uint64_t sys_poll(uint64_t ufds_ptr,
-                  uint64_t nfds,
-                  uint64_t timeout_ms)
-{
-    (void)timeout_ms; // ignore for now (non-blocking)
-    if (ufds_ptr == 0 || nfds == 0)
-        return 0;
+// uint64_t sys_poll(uint64_t ufds_ptr,
+//                   uint64_t nfds,
+//                   uint64_t timeout_ms)
+// {
+//     (void)timeout_ms; // ignore for now (non-blocking)
+//     if (ufds_ptr == 0 || nfds == 0)
+//         return 0;
 
-    // Very small upper bound for now to keep stack usage sane
-    if (nfds > 64) {
-        log_error("SYSCALL", "sys_poll: nfds too large (%llu)",
-                  (unsigned long long)nfds);
-        return (uint64_t)-1;
-    }
+//     // Very small upper bound for now to keep stack usage sane
+//     if (nfds > 64) {
+//         log_error("SYSCALL", "sys_poll: nfds too large (%llu)",
+//                   (unsigned long long)nfds);
+//         return (uint64_t)-1;
+//     }
 
-    struct pollfd local_fds[64];
+//     struct pollfd local_fds[64];
 
-    // Copy from user
-    // For now, assuming user and kernel share address space; if you later
-    // enforce user/kernel VA separation, you'll need a safe copy routine.
-    struct pollfd *user_fds = (struct pollfd *)ufds_ptr;
-    for (uint64_t i = 0; i < nfds; ++i) {
-        local_fds[i] = user_fds[i];
-    }
+//     // Copy from user
+//     // For now, assuming user and kernel share address space; if you later
+//     // enforce user/kernel VA separation, you'll need a safe copy routine.
+//     struct pollfd *user_fds = (struct pollfd *)ufds_ptr;
+//     for (uint64_t i = 0; i < nfds; ++i) {
+//         local_fds[i] = user_fds[i];
+//     }
 
-    log_info("SYSCALL", "sys_poll: nfds = %i", nfds);
+//     log_info("SYSCALL", "sys_poll: nfds = %i", nfds);
 
-    int ready_count = 0;
+//     int ready_count = 0;
 
-    for (uint64_t i = 0; i < nfds; ++i)
-    {
-        struct pollfd *pfd = &local_fds[i];
-        pfd->revents = 0;
+//     for (uint64_t i = 0; i < nfds; ++i)
+//     {
+//         struct pollfd *pfd = &local_fds[i];
+//         pfd->revents = 0;
 
-        if (pfd->fd < 0)
-        {
-            continue;
-        }
+//         if (pfd->fd < 0)
+//         {
+//             continue;
+//         }
 
-        if (!VFS_IsValidFd(pfd->fd))
-        {
-            pfd->revents |= POLLNVAL;
-            continue;
-        }
-        if (pfd->events & POLLIN)
-        {
-            if (VFS_CanRead(pfd->fd))
-            {
-                log_info("SYSCALL", "sys_poll: VFS_CanRead");
-                pfd->revents |= POLLIN;
-            }
-        }
+//         if (!VFS_IsValidFd(pfd->fd))
+//         {
+//             pfd->revents |= POLLNVAL;
+//             continue;
+//         }
+//         if (pfd->events & POLLIN)
+//         {
+//             if (VFS_CanRead(pfd->fd))
+//             {
+//                 log_info("SYSCALL", "sys_poll: VFS_CanRead");
+//                 pfd->revents |= POLLIN;
+//             }
+//         }
 
-        if (pfd->events & POLLOUT)
-        {
-            if (VFS_CanWrite(pfd->fd))
-            {
-                log_info("SYSCALL", "sys_poll: VFS_CanWrite");
-                pfd->revents |= POLLOUT;
-            }
-        }
+//         if (pfd->events & POLLOUT)
+//         {
+//             if (VFS_CanWrite(pfd->fd))
+//             {
+//                 log_info("SYSCALL", "sys_poll: VFS_CanWrite");
+//                 pfd->revents |= POLLOUT;
+//             }
+//         }
 
-        if (pfd->revents != 0)
-            ready_count++;
-    }
+//         if (pfd->revents != 0)
+//             ready_count++;
+//     }
 
-    // Copy back to user
-    for (uint64_t i = 0; i < nfds; ++i)
-    {
-        user_fds[i] = local_fds[i];
-    }
-
-    log_info("SYSCALL", "sys_poll: 9");
-
-    return (uint64_t)ready_count;
+//     // Copy back to user
+//     for (uint64_t i = 0; i < nfds; ++i)
+//     {
+//         user_fds[i] = local_fds[i];
+//     #include <stdint.h>
 }
+
+//     log_info("SYSCALL", "sys_poll: 9");
+
+//     return (uint64_t)ready_count;
+// }
+
+
+
 
 uint64_t sys_stat(uint64_t user_path_ptr, uint64_t user_buf_ptr)
 {

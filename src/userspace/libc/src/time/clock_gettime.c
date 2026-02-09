@@ -1,6 +1,8 @@
 #include <sys/syscall.h>
 #include <unistd.h>
 #include <time.h>
+#include <stddef.h>
+#include <stdint.h>
 
 int clock_gettime(clockid_t clk_id, struct timespec *tp)
 {

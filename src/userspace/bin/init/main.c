@@ -15,6 +15,15 @@
 #include <sys/un.h>
 #include "uprintf.h"
 
+
+uint64_t get_time_ms(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000ULL + (ts.tv_nsec / 1000000ULL);
+}
+
+
 static void klog_hex(const char *label, long v)
 {
     char buf[64];
@@ -598,8 +607,8 @@ int test_client_server_socket(void)
     struct sockaddr_un addr = {0};
     addr.sun_family = AF_UNIX;
     strcpy(addr.sun_path, "/wayland-0");
-    klog("[Userspace] Before bind\n");
 
+    klog("[Userspace] Before bind\n");
     bind(s, (struct sockaddr *)&addr, sizeof(addr));
     klog("[Userspace] After bind\n");
 
@@ -609,43 +618,36 @@ int test_client_server_socket(void)
     // 2) client: create + connect
     int c = socket(AF_UNIX, SOCK_STREAM, 0);
     klog("[Userspace] client: connecting...\n");
-    // int r = connect(c, (struct sockaddr *)&addr, sizeof(addr));
-    // printf("[Userspace] client: connect returned %d\n", r);
 
     int r = connect(c, (struct sockaddr *)&addr, sizeof(addr));
     if (r < 0) {
         klog("[Userspace] connect FAILED\n");
-    } else {
-        klog("[Userspace] connect OK\n");
-        klog_hex("connect_ret", r);
-    }
-
-
-    if (r < 0) {
-        klog("[Userspace] client: connect failed, aborting\n");
         close(c);
-        syscall6(SYS_exit, 0, 0, 0, 0, 0, 0);
-        return 0;
+        return -1;
     }
 
-    // // 3) server: accept that client
-    // int as = accept(s, NULL, NULL);
-    // printf("[Userspace] server: accept returned %d\n", as);
+    klog("[Userspace] connect OK\n");
+    klog_hex("connect_ret", r);
 
+    // 3) server: accept client
     int as = accept(s, NULL, NULL);
     if (as < 0) {
         klog("[Userspace] accept FAILED\n");
         klog_hex("accept_ret", as);
-    } else {
-        klog("[Userspace] accept OK\n");
-        klog_hex("accept_ret", as);
+        close(c);
+        close(s);
+        return -1;
     }
 
+    klog("[Userspace] accept OK\n");
+    klog_hex("accept_ret", as);
 
     // 4) server: write to accepted socket
     const char smsg[] = "hello from server\n";
     write(as, smsg, sizeof(smsg)-1);
-    close(as);
+
+    // DO NOT CLOSE 'as' — we want to return it alive
+    // close(as);   <-- removed
 
     // 5) client: read from its socket
     char buf[128];
@@ -654,11 +656,132 @@ int test_client_server_socket(void)
     if (n > 0) {
         write(1, buf, n);
     }
-    close(c);
+
+    // Close listening socket
+    close(s);
+
+    // Optionally close client socket
+    // close(c);
+
+    // Return the accepted socket (still open)
+    return as;
 }
 
 
+void testPollWakesWhenDataArrives() 
+{
+    printf("=== testPollWakesWhenDataArrives ===\n");
 
+    int s = socket(AF_UNIX, SOCK_STREAM, 0);
+
+    struct sockaddr_un addr = {0};
+    addr.sun_family = AF_UNIX;
+    strcpy(addr.sun_path, "/test-sock");
+
+    bind(s, (struct sockaddr*)&addr, sizeof(addr));
+    listen(s, 1);
+
+    printf("Server: waiting for client...\n");
+
+    struct pollfd p;
+    p.fd = s;
+    p.events = POLLIN;
+
+    // Spawn client
+    int c = socket(AF_UNIX, SOCK_STREAM, 0);
+    connect(c, (struct sockaddr*)&addr, sizeof(addr));
+
+    // Now poll should wake because a connection is pending
+    int ret = poll(&p, 1, -1);
+    printf("poll ret=%d revents=%x\n", ret, p.revents);
+
+    int as = accept(s, NULL, NULL);
+    printf("accept returned %d\n", as);
+
+    close(as);
+    close(c);
+    close(s);
+}
+
+
+void testPoll()
+{
+    struct pollfd p;
+    p.fd = 0;        // stdin
+    p.events = POLLIN;
+
+    int ret = poll(&p, 1, 0);
+    printf("poll ret=%d revents=%x\n", ret, p.revents);
+}
+
+void testPollWithTimeout()
+{
+    klog("testPollWithTimeout start\n");
+
+    struct pollfd p;
+    p.fd = 0;
+    p.events = POLLIN;
+
+    uint64_t start = get_time_ms();
+    printf("testPollWithTimeout start=%d \n", start);
+
+    int ret = poll(&p, 1, 2000);  // 2 seconds
+    printf("testPollWithTimeout ret=%d \n", ret);
+
+    uint64_t end = get_time_ms();
+    printf("testPollWithTimeout end=%d \n", end);
+
+    printf("poll ret=%d elapsed=%ld ms\n", ret, (long)(end - start));
+}
+
+void testPollOnUNIXSocket()
+{
+    printf("=== testPollOnUNIXSocket ===\n");
+
+    int s = socket(AF_UNIX, SOCK_STREAM, 0);
+
+    struct sockaddr_un addr = {0};
+    addr.sun_family = AF_UNIX;
+    strcpy(addr.sun_path, "/test-sock2");
+
+    bind(s, (struct sockaddr*)&addr, sizeof(addr));
+    listen(s, 1);
+
+    // Create client
+    int c = socket(AF_UNIX, SOCK_STREAM, 0);
+    connect(c, (struct sockaddr*)&addr, sizeof(addr));
+
+    int as = accept(s, NULL, NULL);
+
+    // Write something from client → server should wake
+    write(c, "X", 1);
+
+    struct pollfd p;
+    p.fd = as;
+    p.events = POLLIN;
+
+    int ret = poll(&p, 1, -1);
+    printf("poll ret=%d revents=%x\n", ret, p.revents);
+
+    char buf[8];
+    int n = read(as, buf, sizeof(buf));
+    printf("server read %d bytes: '%c'\n", n, buf[0]);
+
+    close(as);
+    close(c);
+    close(s);
+}
+
+void testPollOnClientSocket(int fd)
+{
+    struct pollfd p;
+    p.fd = fd;
+    p.events = POLLIN;
+
+    printf("poll on client fd=%d...\n", fd);
+    int ret = poll(&p, 1, 0);
+    printf("poll ret=%d revents=%x\n", ret, p.revents);
+}
 
 
 int main()
@@ -676,9 +799,13 @@ int main()
     const char msg[] = "[Userspace] Hello from SYSCALL userland!\n";
     syscall6(SYS_write, 1, (long)msg, sizeof(msg)-1, 0, 0, 0);
 
-    // testAllSyscalls();
+    int cfd = test_client_server_socket();
+    testPollOnClientSocket(cfd);
 
-    test_client_server_socket();
+    testPoll() ;
+    testPollWithTimeout();
+    testPollWakesWhenDataArrives();
+    testPollOnUNIXSocket();
 
     printf("[Userspace] About to call SYS_exit via SYSCALL\n");
     syscall6(SYS_exit, 0, 0, 0, 0, 0, 0);

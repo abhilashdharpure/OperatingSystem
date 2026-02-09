@@ -8,7 +8,6 @@ typedef struct unix_socket
     bool listening;
     struct unix_socket *peer;
 
-    // Simple message buffer for one-direction communication
     char   buf[4096];
     size_t buf_len;
 
