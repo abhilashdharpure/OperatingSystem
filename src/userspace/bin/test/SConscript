@@ -1,3 +1,5 @@
 Import("env", "libc_objs")
 
+#For MUSL
 env.Program("init", ["test.o"] + libc_objs, LIBS=["c"])
+# env.Program("init", ["test.o"] + libc_objs)

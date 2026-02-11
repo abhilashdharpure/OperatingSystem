@@ -4,6 +4,9 @@
 
 #define AF_UNIX     1
 #define SOCK_STREAM 1
+#define SOL_SOCKET 1
+#define SCM_RIGHTS 1
+
 
 typedef unsigned int socklen_t;
 

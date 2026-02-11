@@ -10,8 +10,13 @@ sources = [
 
 objs = env.Object(sources)
 
+#For MUSL
 env.Program(
     target="init",
     source=objs + libc_objs,
     LIBS=["c"],
 )
+# env.Program(
+#     target="init",
+#     source=objs + libc_objs,
+# )

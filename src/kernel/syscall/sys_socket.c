@@ -9,9 +9,13 @@
 #include "socket.h"
 #include "syscall/un.h"
 #include "debug.h"
+#include "syscall/uio.h"
+#include "syscall/cmsg.h"
+#include "socket.h"
 
 #define MAX_UNIX_SOCKS 64
 
+extern struct file_operations unix_socket_fops;
 
 int unix_sock_write(struct file *f, const void *buf, size_t size)
 {
@@ -80,6 +84,244 @@ int unix_sock_close(struct file *f)
     return 0;
 }
 
+static int unix_can_read(struct file *f)
+{
+    unix_socket_t *us = (unix_socket_t *)f->private_data;
+    if (!us)
+        return 0;
+
+    if (us->listening) {
+        // readable only if accept() would succeed
+        return us->pending_head != us->pending_tail;
+    }
+
+    // connected socket: readable if buffer has data
+    return us->buf_len > 0;
+}
+
+static int unix_can_write(struct file *f)
+{
+    unix_socket_t *us = (unix_socket_t *)f->private_data;
+    if (!us)
+        return 0;
+
+    if (us->listening)
+        return 0; // listening sockets are never writable
+
+    // writable if buffer has space
+    return us->buf_len < sizeof(us->buf);
+}
+
+static int unix_fdq_push(unix_socket_t *s, int fd)
+{
+    int next = (s->fdq_tail + 1) % 16;
+    if (next == s->fdq_head)
+        return -1; // full
+    s->fdq[s->fdq_tail] = fd;
+    s->fdq_tail = next;
+    return 0;
+}
+
+static int unix_fdq_pop(unix_socket_t *s, int *out_fd)
+{
+    if (s->fdq_head == s->fdq_tail)
+        return -1; // empty
+    *out_fd = s->fdq[s->fdq_head];
+    s->fdq_head = (s->fdq_head + 1) % 16;
+    return 0;
+}
+
+
+uint64_t sys_unix_sendmsg(uint64_t fd_arg, uint64_t msg_ptr_arg, uint64_t flags_arg)
+{
+    int fd = (int)fd_arg;
+    (void)flags_arg;
+
+    struct file *f = VFS_GetFile(fd);
+    if (!f || f->fops != &unix_socket_fops)
+        return (uint64_t)-EBADF;
+
+    unix_socket_t *us = (unix_socket_t *)f->private_data;
+    if (!us || !us->peer)
+        return (uint64_t)-ENOTCONN;
+
+    unix_socket_t *peer = us->peer;
+    struct msghdr_k *msg = (struct msghdr_k *)msg_ptr_arg;
+
+    // 1. data
+    ssize_t total = 0;
+    for (size_t i = 0; i < msg->msg_iovlen; ++i) {
+        struct iovec_k *iov = &msg->msg_iov[i];
+        if (!iov->iov_base || iov->iov_len == 0)
+            continue;
+
+        size_t space = sizeof(peer->buf) - peer->buf_len;
+        if (space == 0)
+            break;
+
+        size_t n = iov->iov_len;
+        if (n > space)
+            n = space;
+
+        memcpy(peer->buf + peer->buf_len, iov->iov_base, n);
+        peer->buf_len += n;
+        total += (ssize_t)n;
+
+        if (n < iov->iov_len)
+            break;
+    }
+
+    // 2. SCM_RIGHTS
+    if (msg->msg_control && msg->msg_controllen >= sizeof(struct cmsghdr_k)) {
+        struct cmsghdr_k *cmsg = (struct cmsghdr_k *)msg->msg_control;
+
+        if (cmsg->cmsg_level == SOL_SOCKET && cmsg->cmsg_type == SCM_RIGHTS) {
+            size_t hdr_len = CMSG_ALIGN_K(sizeof(struct cmsghdr_k));
+            if (cmsg->cmsg_len < hdr_len)
+                return (uint64_t)-EINVAL;
+
+            size_t data_len = cmsg->cmsg_len - hdr_len;
+            int *fds = (int *)((char *)cmsg + hdr_len);
+            int nfds = (int)(data_len / sizeof(int));
+
+            for (int i = 0; i < nfds; ++i) {
+                int pass_fd = fds[i];
+
+                if (!VFS_IsValidFd(pass_fd))
+                    return (uint64_t)-EBADF;
+
+                struct file *pf = VFS_GetFile(pass_fd);
+                if (!pf)
+                    return (uint64_t)-EBADF;
+
+                pf->refcount++;
+
+                if (unix_fdq_push(peer, pass_fd) < 0)
+                    return (uint64_t)-ENOBUFS;
+            }
+        }
+    }
+
+    return (uint64_t)total;
+}
+
+uint64_t sys_unix_recvmsg(uint64_t fd_arg, uint64_t msg_ptr_arg, uint64_t flags_arg)
+{
+    int fd = (int)fd_arg;
+    (void)flags_arg;
+
+    struct file *f = VFS_GetFile(fd);
+    if (!f || f->fops != &unix_socket_fops)
+        return (uint64_t)-EBADF;
+
+    unix_socket_t *us = (unix_socket_t *)f->private_data;
+    if (!us)
+        return (uint64_t)-ENOTCONN;
+
+    struct msghdr_k *msg = (struct msghdr_k *)msg_ptr_arg;
+
+    // 1. data
+    ssize_t total = 0;
+    for (size_t i = 0; i < msg->msg_iovlen; ++i) {
+        struct iovec_k *iov = &msg->msg_iov[i];
+        if (!iov->iov_base || iov->iov_len == 0)
+            continue;
+
+        if (us->buf_len == 0)
+            break;
+
+        size_t n = iov->iov_len;
+        if (n > us->buf_len)
+            n = us->buf_len;
+
+        memcpy(iov->iov_base, us->buf, n);
+
+        size_t remaining = us->buf_len - n;
+        if (remaining > 0)
+            memmove(us->buf, us->buf + n, remaining);
+        us->buf_len = remaining;
+
+        total += (ssize_t)n;
+        if (n < iov->iov_len)
+            break;
+    }
+
+    msg->msg_flags = 0;
+
+    // 2. SCM_RIGHTS receive
+    if (msg->msg_control && msg->msg_controllen >= sizeof(struct cmsghdr_k)) {
+        int available = (us->fdq_tail - us->fdq_head + 16) % 16;
+        if (available > 0) {
+            size_t max_fd_bytes = msg->msg_controllen - CMSG_ALIGN_K(sizeof(struct cmsghdr_k));
+            int max_fds = (int)(max_fd_bytes / sizeof(int));
+            if (max_fds <= 0) {
+                msg->msg_controllen = 0;
+                return (uint64_t)total;
+            }
+
+            int nfds = available;
+            if (nfds > max_fds)
+                nfds = max_fds;
+
+            struct cmsghdr_k *cmsg = (struct cmsghdr_k *)msg->msg_control;
+            size_t hdr_len = CMSG_ALIGN_K(sizeof(struct cmsghdr_k));
+            int *fds = (int *)((char *)cmsg + hdr_len);
+
+            for (int i = 0; i < nfds; ++i) {
+                int fd_val;
+                if (unix_fdq_pop(us, &fd_val) < 0)
+                    break;
+                fds[i] = fd_val;
+            }
+
+            size_t fd_bytes = nfds * sizeof(int);
+            cmsg->cmsg_level = SOL_SOCKET;
+            cmsg->cmsg_type  = SCM_RIGHTS;
+            cmsg->cmsg_len   = CMSG_LEN_K(fd_bytes);
+
+            msg->msg_controllen = CMSG_SPACE_K(fd_bytes);
+        } else {
+            msg->msg_controllen = 0;
+        }
+    } else {
+        msg->msg_controllen = 0;
+    }
+
+    return (uint64_t)total;
+}
+
+
+uint64_t sys_sendmsg(uint64_t fd_arg, uint64_t msg_ptr_arg, uint64_t flags_arg)
+{
+    int fd = (int)fd_arg;
+
+    struct file *f = VFS_GetFile(fd);
+    if (!f)
+        return (uint64_t)-EBADF;
+
+    // AF_UNIX stream socket
+    if (f->fops == &unix_socket_fops) {
+        return sys_unix_sendmsg(fd_arg, msg_ptr_arg, flags_arg);
+    }
+
+    // socketpair or other type
+    return sys_sp_sendmsg(fd_arg, msg_ptr_arg, flags_arg);
+}
+
+uint64_t sys_recvmsg(uint64_t fd_arg, uint64_t msg_ptr_arg, uint64_t flags_arg)
+{
+    int fd = (int)fd_arg;
+
+    struct file *f = VFS_GetFile(fd);
+    if (!f)
+        return (uint64_t)-EBADF;
+
+    if (f->fops == &unix_socket_fops) {
+        return sys_unix_recvmsg(fd_arg, msg_ptr_arg, flags_arg);
+    }
+
+    return sys_sp_recvmsg(fd_arg, msg_ptr_arg, flags_arg);
+}
 
 struct file_operations unix_socket_fops = {
     .open      = NULL,
@@ -89,9 +331,10 @@ struct file_operations unix_socket_fops = {
     .ioctl     = unix_sock_ioctl,
     .readdir   = NULL,
     .stat      = NULL,
-    .can_read  = NULL,
-    .can_write = NULL,
+    .can_read  = unix_can_read,
+    .can_write = unix_can_write,
 };
+
 
 static unix_socket_t *g_unix_socks[MAX_UNIX_SOCKS];
 
@@ -182,12 +425,19 @@ uint64_t sys_bind(uint64_t fd, uint64_t addr_ptr, uint64_t addrlen)
     if (len == 0 || len >= sizeof(us->path))
         return (uint64_t)-EINVAL;
 
+    // NEW: check if path already bound
+    if (unix_find_by_path(sun.sun_path) != NULL) {
+        log_info("SYS_SOCKET", "sys_bind: path %s already in use", sun.sun_path);
+        return (uint64_t)-EADDRINUSE;
+    }
+
     memcpy(us->path, sun.sun_path, len + 1);
     unix_register_socket(us);
     log_info("SYS_SOCKET", "sys_bind: registered path=%s us=%p", us->path, us);
 
     return 0;
 }
+
 
 uint64_t sys_listen(uint64_t fd, uint64_t backlog)
 {

@@ -25,3 +25,6 @@ int pipe(int fds[2]);
 void klog(const char *msg);
 int clock_gettime(clockid_t clk_id, struct timespec *tp);
 int ftruncate(int fd, off_t length);
+
+ssize_t write(int fd, const void *buf, size_t len);
+ssize_t read(int fd, void *buf, size_t len);

@@ -11,13 +11,18 @@ _start:
     syscall
 1:  jmp 1b
 
-; .section .text.crt0,"ax"
-; .globl _start
-; .extern main
 
+
+; .global _start
 ; _start:
-;     call   main            # int main(void)
-;     mov    %rax, %rdi      # exit code in rdi
-;     mov    $60, %rax       # SYS_exit (Linux x86_64)
+;     // System V AMD64 ABI: argc in %rdi, argv in %rsi, envp in %rdx if you want
+;     // For now, just call main() with no args.
+
+;     call main
+
+;     // main() returns int in %eax
+;     mov %eax, %edi        // exit code in %edi
+;     mov $60, %eax         // SYS_exit on Linux; in your OS use your SYS_exit number
 ;     syscall
-; 1:  jmp 1b
+
+;     hlt                   // just in case

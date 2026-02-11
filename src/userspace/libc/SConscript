@@ -1,11 +1,33 @@
 Import("env")
 
+# For MUSL
 libc_sources = [
     "src/syscall/musl_syscall.c",
     "src/syscall/syscall.c",
     "src/sys/klog/klog.c",
     "src/stdio/uprintf.c",
 ]
+
+# libc_sources = [
+#     "src/syscall/musl_syscall.c",
+#     "src/syscall/syscall.c",
+#     "src/syscall/syscall_wrapper.c",
+#     "src/sys/klog/klog.c",
+#     "src/stdio/uprintf.c",
+#     "src/string/string.c",
+#     "src/time/clock_gettime.c",
+#     "src/time/nanosleep.c",
+#     "src/sys/mman/mmap.c",
+#     "src/sys/mman/munmap.c",
+#     "src/sys/mman/mprotect.c",
+#     "src/sys/mman/memfd_create.c",
+#     "src/sys/fcntl/fcntl.c",
+#     "src/unistd/open.c",
+#     "src/sys/stat/stat.c",
+#     "src/sys/dirent/getdents.c",
+#     "src/unistd/dup.c",
+#     "src/unistd/pipe.c",
+# ]
 
 libc_objs = env.Object(libc_sources)
 

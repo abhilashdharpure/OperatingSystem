@@ -43,6 +43,33 @@ long syscall6(long nr,
     return ret;
 }
 
+#include <sys/syscall.h>
+
+extern long syscall6(long nr,
+                     long a0, long a1, long a2,
+                     long a3, long a4, long a5);
+
+long syscall1(long nr, long a0) {
+    return syscall6(nr, a0, 0, 0, 0, 0, 0);
+}
+
+long syscall2(long nr, long a0, long a1) {
+    return syscall6(nr, a0, a1, 0, 0, 0, 0);
+}
+
+long syscall3(long nr, long a0, long a1, long a2) {
+    return syscall6(nr, a0, a1, a2, 0, 0, 0);
+}
+
+long syscall4(long nr, long a0, long a1, long a2, long a3) {
+    return syscall6(nr, a0, a1, a2, a3, 0, 0);
+}
+
+long syscall5(long nr, long a0, long a1, long a2, long a3, long a4) {
+    return syscall6(nr, a0, a1, a2, a3, a4, 0);
+}
+
+
 // //// Syscall using intterupt 0x80.
 // ssize_t syscall_write(int fd, const void *buf, size_t len)
 // {    

@@ -38,6 +38,8 @@
 #define EDOM            33
 #define ERANGE          34
 #define ENOSYS          38
+#define EADDRINUSE      98     
+#define EADDRNOTAVAIL   99
 #define ENOTCONN        107
 #define ECONNREFUSED    111
 

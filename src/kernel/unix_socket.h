@@ -15,5 +15,10 @@ typedef struct unix_socket
     int pending_head;
     int pending_tail;
 
+    // SCM_RIGHTS queue (simple ring)
+    int  fdq[16];
+    int  fdq_head;
+    int  fdq_tail;
+
     char path[108];
 } unix_socket_t;

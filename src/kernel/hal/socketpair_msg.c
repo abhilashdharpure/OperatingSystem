@@ -45,7 +45,7 @@ static int sp_get_from_fd(int fd, socketpair_t **out_sp, int *out_side)
     return 0;
 }
 
-uint64_t sys_sendmsg(uint64_t fd_arg, uint64_t msg_ptr_arg, uint64_t flags_arg)
+uint64_t sys_sp_sendmsg(uint64_t fd_arg, uint64_t msg_ptr_arg, uint64_t flags_arg)
 {
     int fd = (int)fd_arg;
     (void)flags_arg; // ignore MSG_* flags for now
@@ -127,7 +127,7 @@ uint64_t sys_sendmsg(uint64_t fd_arg, uint64_t msg_ptr_arg, uint64_t flags_arg)
     return (uint64_t)total;
 }
 
-uint64_t sys_recvmsg(uint64_t fd_arg, uint64_t msg_ptr_arg, uint64_t flags_arg)
+uint64_t sys_sp_recvmsg(uint64_t fd_arg, uint64_t msg_ptr_arg, uint64_t flags_arg)
 {
     int fd = (int)fd_arg;
     (void)flags_arg;

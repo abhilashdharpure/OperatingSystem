@@ -28,6 +28,7 @@ env = Environment(
         "-Wl,-m,elf_x86_64",
         "-Wl,-z,max-page-size=0x1000",
         "-Wl,-T,/home/abhilash/Project/OperatingSystem/src/userspace/src/link.ld",
+        # For MUSL
         "/home/abhilash/myos-sysroot/usr/lib/crt1.o",
         "/home/abhilash/myos-sysroot/usr/lib/crti.o",
         "/home/abhilash/myos-sysroot/usr/lib/crtn.o",
@@ -38,9 +39,9 @@ env = Environment(
 # Correct include order
 env.Append(CPPPATH=[
     "#libc/include",                         # note the leading '#'
-    "/home/abhilash/myos-sysroot/usr/include",
 ])
 
+# For MUSL
 env.Append(LIBPATH=[
     "/home/abhilash/myos-sysroot/usr/lib"
 ])

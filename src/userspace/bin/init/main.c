@@ -14,7 +14,8 @@
 
 #include <sys/un.h>
 #include "uprintf.h"
-
+#include <sys/types.h>
+#include <sys/uio.h>
 
 uint64_t get_time_ms(void)
 {
@@ -783,6 +784,117 @@ void testPollOnClientSocket(int fd)
     printf("poll ret=%d revents=%x\n", ret, p.revents);
 }
 
+int testSocket()
+{
+    int s1 = socket(AF_UNIX, SOCK_STREAM, 0);
+    int s2 = socket(AF_UNIX, SOCK_STREAM, 0);
+
+    struct sockaddr_un addr = {0};
+    addr.sun_family = AF_UNIX;
+    strcpy(addr.sun_path, "/test-sock");
+
+    printf("bind1 = %d\n", bind(s1, (struct sockaddr*)&addr, sizeof(addr)));
+    printf("bind2 = %d\n", bind(s2, (struct sockaddr*)&addr, sizeof(addr)));
+
+}
+
+void testSCMRights()
+{
+    printf("=== testSCMRights ===\n");
+
+    // 1. Create memfd
+    int memfd = memfd_create("demo", 0);
+    if (memfd < 0) {
+        printf("memfd_create failed\n");
+        return;
+    }
+
+    // Write something into it
+    const char *msg = "HELLO-FD";
+    write(memfd, msg, strlen(msg));
+
+    // 2. Create UNIX socketpair
+    int sv[2];
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) < 0) {
+        printf("socketpair failed\n");
+        return;
+    }
+
+    // 3. Prepare sendmsg with SCM_RIGHTS
+    struct iovec iov;
+    iov.iov_base = "X";
+    iov.iov_len  = 1;
+
+    char control[CMSG_SPACE(sizeof(int))];
+    memset(control, 0, sizeof(control));
+
+    struct msghdr msg_send = {0};
+    msg_send.msg_iov = &iov;
+    msg_send.msg_iovlen = 1;
+    msg_send.msg_control = control;
+    msg_send.msg_controllen = sizeof(control);
+
+    struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msg_send);
+    cmsg->cmsg_level = SOL_SOCKET;
+    cmsg->cmsg_type  = SCM_RIGHTS;
+    cmsg->cmsg_len   = CMSG_LEN(sizeof(int));
+
+    memcpy(CMSG_DATA(cmsg), &memfd, sizeof(int));
+
+    // 4. Send the fd
+    if (sendmsg(sv[0], &msg_send, 0) < 0) {
+        printf("sendmsg failed\n");
+        return;
+    }
+
+    // 5. Prepare recvmsg
+    char buf[1];
+    struct iovec riov;
+    riov.iov_base = buf;
+    riov.iov_len  = 1;
+
+    char rcontrol[CMSG_SPACE(sizeof(int))];
+    memset(rcontrol, 0, sizeof(rcontrol));
+
+    struct msghdr msg_recv = {0};
+    msg_recv.msg_iov = &riov;
+    msg_recv.msg_iovlen = 1;
+    msg_recv.msg_control = rcontrol;
+    msg_recv.msg_controllen = sizeof(rcontrol);
+
+    // 6. Receive
+    if (recvmsg(sv[1], &msg_recv, 0) < 0) {
+        printf("recvmsg failed\n");
+        return;
+    }
+
+    struct cmsghdr *rc = CMSG_FIRSTHDR(&msg_recv);
+    if (!rc || rc->cmsg_type != SCM_RIGHTS) {
+        printf("No FD received\n");
+        return;
+    }
+
+    int received_fd;
+    memcpy(&received_fd, CMSG_DATA(rc), sizeof(int));
+
+    printf("Received FD = %d\n", received_fd);
+
+    // 7. mmap the received fd
+    void *map = mmap(NULL, 4096, PROT_READ, MAP_SHARED, received_fd, 0);
+    if (map == MAP_FAILED) {
+        printf("mmap failed\n");
+        return;
+    }
+
+    printf("Mapped contents: '%s'\n", (char*)map);
+
+    munmap(map, 4096);
+    close(received_fd);
+    close(memfd);
+    close(sv[0]);
+    close(sv[1]);
+}
+
 
 int main()
 {
@@ -806,6 +918,11 @@ int main()
     testPollWithTimeout();
     testPollWakesWhenDataArrives();
     testPollOnUNIXSocket();
+
+    testSocket();
+
+    testSCMRights();
+
 
     printf("[Userspace] About to call SYS_exit via SYSCALL\n");
     syscall6(SYS_exit, 0, 0, 0, 0, 0, 0);
