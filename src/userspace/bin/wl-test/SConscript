@@ -1,0 +1,4 @@
+Import("env", "libc_objs")
+
+wl_test = env.Program("wl-test", ["wl-test.c"] + libc_objs, LIBS=["c"])
+env.Install('#root/bin', wl_test)

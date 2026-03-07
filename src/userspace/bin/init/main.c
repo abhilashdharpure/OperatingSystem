@@ -937,9 +937,6 @@ int main()
     // If execve fails:
     printf("execve /bin/test failed\n");
 
-
-
-
     printf("[Userspace] About to call SYS_exit via SYSCALL\n");
     syscall6(SYS_exit, 0, 0, 0, 0, 0, 0);
     return 0;

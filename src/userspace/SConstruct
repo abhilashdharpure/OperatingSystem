@@ -52,3 +52,4 @@ libc_objs = SConscript("libc/SConscript", exports="env")
 # Build programs
 SConscript("bin/init/SConscript", exports=["env", "libc_objs"])
 SConscript("bin/test/SConscript", exports=["env", "libc_objs"])
+SConscript("bin/wl-test/SConscript", exports=["env", "libc_objs"])
