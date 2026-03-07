@@ -39,7 +39,7 @@ void crash_me();
 
 extern uint32_t mb_info_ptr;
 
-static BootParams   g_bootParams;
+BootParams   g_bootParams;
 static VbeModeInfo  g_fbInfo;
 
 /* reasonable upper bound */

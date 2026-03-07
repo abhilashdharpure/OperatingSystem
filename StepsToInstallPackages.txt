@@ -247,7 +247,9 @@ cd src/userspace/
 scons
 cd ../../
 cp src/userspace/bin/init/init image/root/bin/init
+cp src/userspace/bin/test/test image/root/bin/test
 cp src/userspace/bin/init/init build/x86_64_debug/root/bin/init 
+cp src/userspace/bin/test/test build/x86_64_debug/root/bin/test
 scons -c && clear && scons run
 
 # Check file entry address

@@ -183,6 +183,9 @@ uint64_t syscall_dispatch(uint64_t nr,
     case SYS_connect:
         return sys_connect(a0, a1, a2);
 
+    case SYS_execve:
+        return sys_execve(a0, a1, a2);
+
 
     case SYS_test:
         log_info("SYSCALL", "TEST: a0=%llx a1=%llx a2=%llx a3=%llx a4=%llx a5=%llx",

@@ -16,6 +16,7 @@
 #include "uprintf.h"
 #include <sys/types.h>
 #include <sys/uio.h>
+#include <sys/execve.h>
 
 uint64_t get_time_ms(void)
 {
@@ -895,16 +896,8 @@ void testSCMRights()
     close(sv[1]);
 }
 
-
-int main()
+void testClientSocketPool()
 {
-    klog("[Userspace] *** NEW INIT BUILD v3 ***\n");
-
-    klog("[Userspace] Hello from userspace from klog from main!\n");
-    printf("[Userspace] Hello from userspace from printf!\n");
-    printf("[Userspace] Issue after first printf, this will not print\n");
-    klog("[Userspace] KLog is still fine..!\n");
-
     long ret = syscall6(SYS_test, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66);
     printf("[Userspace] syscall6 early test ret=%ld\n", ret);
 
@@ -922,6 +915,29 @@ int main()
     testSocket();
 
     testSCMRights();
+}
+
+int main()
+{
+    klog("[Userspace] *** NEW INIT BUILD v3 ***\n");
+
+    klog("[Userspace] Hello from userspace from klog from main!\n");
+    printf("[Userspace] Hello from userspace from printf!\n");
+    printf("[Userspace] Issue after first printf, this will not print\n");
+    klog("[Userspace] KLog is still fine..!\n");
+
+    //testClientSocketPool();
+
+
+    printf("Hello from /bin/init!\n");
+
+    char *argv[] = { "test", NULL };
+    execve("/bin/test", argv, NULL);
+
+    // If execve fails:
+    printf("execve /bin/test failed\n");
+
+
 
 
     printf("[Userspace] About to call SYS_exit via SYSCALL\n");

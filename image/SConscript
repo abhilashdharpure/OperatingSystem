@@ -209,11 +209,23 @@ def build_grub_iso(target, source, env):
     shutil.copy2('/usr/share/grub/unicode.pf2', fontdir / 'unicode.pf2')
 
     # copy /bin/init from your image/root/bin/init
-    init_path = Path('image/root/bin/init')
-    if init_path.exists():
-        shutil.copy2(init_path, workdir / 'bin/init')
-    else:
-        raise FileNotFoundError("init binary not found at " + str(init_path))
+    # init_path = Path('image/root/bin/init')
+    # if init_path.exists():
+    #     shutil.copy2(init_path, workdir / 'bin/init')
+    # else:
+    #     raise FileNotFoundError("init binary not found at " + str(init_path))
+
+    bin_src = Path('image/root/bin')
+    bin_dst = workdir / 'bin'
+    bin_dst.mkdir(parents=True, exist_ok=True)
+
+    if not bin_src.exists():
+        raise FileNotFoundError("bin directory not found at " + str(bin_src))
+
+    for f in bin_src.iterdir():
+        if f.is_file():
+            shutil.copy2(f, bin_dst / f.name)
+
 
     # grub.cfg
     grub_cfg = grubdir / 'grub.cfg'

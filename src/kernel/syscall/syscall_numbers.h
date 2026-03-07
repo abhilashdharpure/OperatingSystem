@@ -48,5 +48,7 @@ enum {
     SYS_accept          = 43,
     SYS_bind            = 49,
     SYS_listen          = 50,
+    
+    SYS_execve          = 59,
 
 };

@@ -1,5 +1,7 @@
 Import("env", "libc_objs")
 
-#For MUSL
-env.Program("init", ["test.o"] + libc_objs, LIBS=["c"])
-# env.Program("init", ["test.o"] + libc_objs)
+# Build the test binary
+test = env.Program("test", ["test.c"] + libc_objs, LIBS=["c"])
+
+# Install it into the root filesystem
+env.Install('#root/bin', test)
