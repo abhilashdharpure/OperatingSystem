@@ -136,8 +136,14 @@ static uint64_t mmap_file(uint64_t length, uint64_t prot, uint64_t flags,
     size_t page_size   = PAGE_SIZE;
     size_t aligned_len = (length + page_size - 1) & ~(page_size - 1);
 
-    if (offset + aligned_len > m->size)
+    // Ensure backing store is big enough for [offset, offset+aligned_len)
+    size_t needed = offset + aligned_len;
+    if (memfd_ensure_capacity(m, needed) != 0)
         return (uint64_t)-1;
+
+    // Optionally bump logical size
+    if (needed > m->size)
+        m->size = needed;
 
     uint64_t va_start = current_process->mmap_base;
     uint64_t va       = va_start;
@@ -146,16 +152,28 @@ static uint64_t mmap_file(uint64_t length, uint64_t prot, uint64_t flags,
     size_t start_page = offset / page_size;
     size_t start_off  = offset % page_size;
 
+    uint64_t pte_flags = PAGE_PRESENT | PAGE_USER;
+    if (prot & PROT_WRITE)
+        pte_flags |= PAGE_RW;
+
     for (size_t off = 0; off < aligned_len; off += page_size) {
         size_t page_idx = start_page + (start_off + off) / page_size;
         size_t page_off = (start_off + off) % page_size;
 
-        uint64_t pa = m->pages[page_idx] + page_off;
+        uint64_t pa = m->pages[page_idx];
+        if (!pa) {
+            pa = pmm_alloc_page();
+            if (!pa)
+                return (uint64_t)-1;
+
+            memset((void*)(uintptr_t)pa, 0, PAGE_SIZE);
+            m->pages[page_idx] = pa;
+        }
 
         map_page(current_process->page_directory,
                  va,
-                 pa,
-                 PAGE_PRESENT | PAGE_RW | PAGE_USER);
+                 pa + page_off,
+                 pte_flags);
 
         va += page_size;
     }
@@ -169,32 +187,34 @@ static uint64_t mmap_file(uint64_t length, uint64_t prot, uint64_t flags,
     return va_start;
 }
 
-static uint64_t mmap_anon(uint64_t length)
+
+static uint64_t mmap_anon(uint64_t length, uint64_t prot)
 {
-    uint64_t pages = (length + PAGE_SIZE - 1) / PAGE_SIZE;
+    if (!current_process)
+        return (uint64_t)-1;
 
-    uint64_t va_start = current_process->mmap_base;
-    uint64_t va = va_start;
-    current_process->mmap_base += pages * PAGE_SIZE;
+    uint64_t start = current_process->mmap_base;
+    uint64_t len   = (length + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
 
-    for (uint64_t i = 0; i < pages; ++i) {
+    uint64_t flags = PAGE_PRESENT | PAGE_USER;
+    if (prot & PROT_WRITE)
+        flags |= PAGE_RW;
+
+    for (uint64_t va = start; va < start + len; va += PAGE_SIZE) {
         uint64_t pa = pmm_alloc_page();
-        if (!pa) {
-            log_error("SYSCALL", "sys_mmap: out of physical memory");
+        if (!pa)
             return (uint64_t)-1;
-        }
 
-        map_page(current_process->page_directory, va, pa,
-                 PAGE_PRESENT | PAGE_RW | PAGE_USER);
-        va += PAGE_SIZE;
+        memset((void*)(uintptr_t)pa, 0, PAGE_SIZE);
+        if (map_page(current_process->page_directory, va, pa, flags) != 0)
+            return (uint64_t)-1;
     }
 
-    log_info("SYSCALL", "sys_mmap: anon mapped %llu pages at 0x%llx",
-             (unsigned long long)pages,
-             (unsigned long long)va_start);
-
-    return va_start;
+    current_process->mmap_base = start + len;
+    return start;
 }
+
+
 
 uint64_t sys_mmap(uint64_t addr,
                   uint64_t length,
@@ -219,19 +239,25 @@ uint64_t sys_mmap(uint64_t addr,
     if (length == 0)
         return (uint64_t)-1;
 
-    if (!(prot & PROT_READ) || !(prot & PROT_WRITE)) {
-        log_error("SYSCALL", "sys_mmap: only RW mappings supported for now");
+    // if (!(prot & PROT_READ) || !(prot & PROT_WRITE)) {
+    //     log_error("SYSCALL", "sys_mmap: only RW mappings supported for now");
+    //     return (uint64_t)-1;
+    // }
+
+    bool can_read  = prot & PROT_READ;
+    bool can_write = prot & PROT_WRITE;
+
+    if (!can_read) {
+        log_error("SYSCALL", "sys_mmap: pages must be readable");
         return (uint64_t)-1;
     }
 
-    // CASE 1: anonymous mapping (what you already support)
     if (fd == (uint64_t)-1 && (flags & MAP_ANONYMOUS)) {
         if ((flags & MAP_PRIVATE) != MAP_PRIVATE) {
             log_error("SYSCALL", "sys_mmap: anonymous must be MAP_PRIVATE");
             return (uint64_t)-1;
         }
-
-        return mmap_anon(length);  // factor your existing code into a helper
+        return mmap_anon(length, prot);
     }
 
     // CASE 2: file-backed mapping (memfd)
