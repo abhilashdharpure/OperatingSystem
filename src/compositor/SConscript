@@ -1,0 +1,201 @@
+import os
+
+# --- Project setup ---
+project_name = 'luma-compositor'
+build_dir = 'build'
+generated_dir = os.path.join(build_dir, 'generated')
+
+# Ensure debug symbols and deterministic flags for debugging
+base_cxxflags = ['-std=c++17', '-g', '-O0', '-Wall', '-Wextra']
+base_ccflags  = ['-g', '-O0']
+
+env = Environment(
+    CXX='g++',
+    CC='gcc',
+    CPPPATH=['.', 'src', generated_dir],
+    LIBS=['wayland-server', 'SDL2', 'xkbcommon'],
+    CXXFLAGS=base_cxxflags,
+    CCFLAGS=base_ccflags,
+    LINKFLAGS=['-pthread']
+)
+
+# Extra warnings
+env.Append(CCFLAGS=["-Wunused-variable", "-Wno-unused-parameter", "-Wmissing-field-initializers"])
+env.Append(CXXFLAGS=["-Wunused-variable", "-Wno-unused-parameter", "-Wmissing-field-initializers"])
+
+# Ensure directories exist
+env.Execute(Mkdir(build_dir))
+env.Execute(Mkdir(generated_dir))
+
+# generated_dir_node = env.Dir(generated_dir)
+
+
+generated_dir_node = env.Dir(generated_dir)
+project_root = env.Dir('#')  # top-level SConstruct folder
+
+protocols = [
+    project_root.File('src/luma-compositor/protocols/xdg-shell.xml'),
+    project_root.File('src/luma-compositor/protocols/wayland.xml')
+]
+
+generated_sources = []
+
+for xml_file in protocols:
+    base = os.path.splitext(os.path.basename(xml_file.path))[0]
+    
+    c_out = generated_dir_node.File(f"{base}-protocol.c")
+    h_out = generated_dir_node.File(f"{base}-protocol.h")
+
+    env.Command(
+        [c_out, h_out],
+        xml_file,
+        [
+            f'wayland-scanner private-code {xml_file.path} {c_out.path}',
+            f'wayland-scanner server-header {xml_file.path} {h_out.path}'
+        ]
+    )
+    generated_sources.append(c_out)
+
+
+# --- User-space source files ---
+sources = [
+    'src/main.cpp',
+    'src/compositor.cpp',
+    'src/compositor_input.cpp',
+    'src/compositor_helper.cpp'
+] + generated_sources
+
+# --- Build binary ---
+program = env.Program(
+    target=os.path.join(build_dir, project_name),
+    source=sources
+)
+
+# --- Run command ---
+def run_compositor(target, source, env):
+    display = os.environ.get('WAYLAND_DISPLAY', 'luma-0')
+    print(f"[Run] Using WAYLAND_DISPLAY={display}")
+    os.environ['WAYLAND_DISPLAY'] = display
+    os.system(str(source[0]))
+
+Run = env.Command('run', program, run_compositor)
+AlwaysBuild(Run)
+
+# Default target
+Default(program)
+
+# # Compile objects
+objects = env.Object(sources)
+luma_compositor = env.Program('luma-compositor', objects)
+
+
+# Export the binary so top-level SConstruct can see it
+Export('luma_compositor')
+
+
+
+
+
+
+
+
+
+# # src/luma-compositor/SConscript
+# import os
+# from SCons.Environment import Environment
+# from build_scripts.utility import GlobRecursive
+
+# Import('TARGET_ENVIRONMENT')
+# TARGET_ENVIRONMENT: Environment
+
+# env = TARGET_ENVIRONMENT.Clone()
+
+# # Include paths
+# env.Append(
+#     CPPPATH=[
+#         env.Dir('.').srcnode(),                  # current folder
+#         env['PROJECTDIR'].Dir('src/libs'),       # shared libraries
+#     ]
+# )
+
+# # Gather sources automatically
+# sources = GlobRecursive(env, '*.c') + GlobRecursive(env, '*.cpp')
+
+# # Compile objects
+# objects = env.Object(sources)
+
+# # Build the user-space binary
+# luma_compositor = env.Program('luma-compositor', objects)
+
+# # Set default target
+# env.Default(luma_compositor)
+
+# # Export binary
+# Export('luma_compositor')
+
+
+
+
+
+
+
+
+
+
+
+# # ============================================================
+# # User-space SConscript for Luma Compositor
+# # ============================================================
+
+# import os
+# from SCons.Environment import Environment
+# from build_scripts.utility import GlobRecursive
+
+# # ------------------------------------------------------------
+# # 1️⃣ Use host environment for Ubuntu testing
+# # ------------------------------------------------------------
+# # For testing on host Ubuntu, we just create a new environment
+# # so we can use standard C/C++ headers (stdlib.h, etc.)
+# env = Environment(
+#     ENV=os.environ,
+#     CC='g++',
+#     CXX='g++',
+#     CXXFLAGS=['-std=c++17', '-g', '-O0', '-Wall', '-Wextra'],
+#     LINKFLAGS=[]
+# )
+
+# # Include paths for your user-space code
+# env.Append(
+#     CPPPATH=[
+#         env.Dir('.').srcnode(),               # current folder
+#         env.Dir('../libs')                    # shared libraries, adjust as needed
+#     ]
+# )
+
+# # ------------------------------------------------------------
+# # 2️⃣ Gather all source files
+# # ------------------------------------------------------------
+# sources = GlobRecursive(env, '*.c') + GlobRecursive(env, '*.cpp')
+
+# # ------------------------------------------------------------
+# # 3️⃣ Compile objects
+# # ------------------------------------------------------------
+# objects = env.Object(sources)
+
+# # ------------------------------------------------------------
+# # 4️⃣ Build the final binary
+# # ------------------------------------------------------------
+# user_binary = env.Program(
+#     target='luma-compositor',
+#     source=objects
+# )
+
+# # ------------------------------------------------------------
+# # 5️⃣ Set default target to this binary
+# # ------------------------------------------------------------
+# env.Default(user_binary)
+
+# # ------------------------------------------------------------
+# # 6️⃣ Export binary if needed for top-level SConstruct
+# # ------------------------------------------------------------
+# Export('user_binary')
