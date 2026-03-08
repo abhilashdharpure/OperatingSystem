@@ -109,8 +109,6 @@ void start_userspace(BootParams* bootParams)
 {
     log_info("Main", "calling start_userspace");
 
-    uint32_t part_lba = 0;
-
     int fd = VFS_Open("/bin/init", O_RDONLY);
     if (fd < 0) panic("Cannot start user space");
 
@@ -131,8 +129,15 @@ void start_userspace(BootParams* bootParams)
     mf->size = total;
     VFS_Close(fd);
 
-    // Hand off to ELF loader
-    pid_t pid = exec_elf_mem(mf->data, mf->size, bootParams);
+    // Build argv for /bin/init
+    static char *init_argv[] = {
+        "init",
+        NULL
+    };
+
+    // Hand off to ELF loader with argc=1, argv[0]="init"
+    pid_t pid = exec_elf_mem(mf->data, mf->size, bootParams,
+                             1, init_argv);
     if (pid < 0)
     {
         panic("Failed to exec init");

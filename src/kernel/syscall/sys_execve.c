@@ -1,5 +1,6 @@
 // kernel/sys/execve.c
 
+#include <syscall/sys_execve.h>
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
@@ -9,9 +10,33 @@
 #include "hal/elf.h"
 #include "kmalloc.h"
 #include <boot/bootparams.h>
+#include "paging.h"
+
 
 extern BootParams g_bootParams;
 extern Process *current_process;
+
+static bool copy_from_user_byte(uint8_t *out, const uint8_t *user_ptr)
+{
+    uint64_t pa = get_mapped_phys(current_process->page_directory,
+                                  (uint64_t)user_ptr);
+    if (!pa)
+        return false;
+
+    *out = *(volatile uint8_t *)phys_to_virt(pa);
+    return true;
+}
+
+static bool copy_from_user_ptr(void *out, const void *user_ptr)
+{
+    uint64_t pa = get_mapped_phys(current_process->page_directory,
+                                  (uint64_t)user_ptr);
+    if (!pa)
+        return false;
+
+    *(uint64_t *)out = *(uint64_t *)phys_to_virt(pa);
+    return true;
+}
 
 static void *read_entire_file(const char *path, size_t *out_size)
 {
@@ -64,38 +89,96 @@ static void *read_entire_file(const char *path, size_t *out_size)
     return buf;
 }
 
+
+
 uint64_t sys_execve(uint64_t path_ptr,
                     uint64_t argv_ptr,
                     uint64_t envp_ptr)
 {
+    (void)envp_ptr; // ignore for now
+
     if (!current_process) {
         log_error("EXEC", "sys_execve: no current process");
         return (uint64_t)-1;
     }
 
+    // ---- 1. Copy path from userspace ----
     char kpath[256];
-    const char *upath = (const char *)path_ptr;
-
     size_t i = 0;
+
     for (; i < sizeof(kpath) - 1; i++) {
-        char c = upath[i];   // TODO: copy_from_user
-        kpath[i] = c;
+        uint8_t c;
+        if (!copy_from_user_byte(&c, (const uint8_t *)path_ptr + i)) {
+            // failed to read from user, abort
+            kpath[i] = '\0';
+            log_error("EXEC", "sys_execve: bad path pointer");
+            return (uint64_t)-1;
+        }
+        kpath[i] = (char)c;
         if (c == '\0')
             break;
     }
     kpath[sizeof(kpath) - 1] = '\0';
 
+
     log_info("EXEC", "sys_execve('%s')", kpath);
 
+    // ---- 2. Copy argv[] from userspace ----
+    size_t argc = 0;
+    char *k_argv[MAX_EXEC_ARGS] = {0};
+
+    if (argv_ptr) {
+        while (argc < MAX_EXEC_ARGS) {
+
+            // ---- 1. Copy pointer from user ----
+            char *u_str = NULL;
+            if (!copy_from_user_ptr(&u_str, (char **)argv_ptr + argc))
+                break;
+            if (!u_str)
+                break;
+
+            // ---- 2. Copy string from user ----
+            char *buf = kmalloc(MAX_EXEC_ARG_LEN);
+            if (!buf)
+                break;
+
+            size_t k = 0;
+            for (; k < MAX_EXEC_ARG_LEN - 1; k++) {
+                uint8_t c;
+                if (!copy_from_user_byte(&c, (uint8_t*)u_str + k))
+                    break;
+                buf[k] = c;
+                if (c == '\0')
+                    break;
+            }
+            buf[k] = '\0';
+
+            k_argv[argc] = buf;
+            argc++;
+        }
+    }
+
+    // ---- 3. Load ELF from filesystem ----
     size_t elf_size = 0;
     void *elf_data = read_entire_file(kpath, &elf_size);
-    if (!elf_data)
+    if (!elf_data) {
+        log_error("EXEC", "sys_execve: cannot open '%s'", kpath);
+        // free argv buffers
+        for (size_t j = 0; j < argc; j++) {
+            if (k_argv[j]) kfree(k_argv[j]);
+        }
         return (uint64_t)-1;
+    }
 
-    pid_t rc = exec_elf_mem(elf_data, elf_size, &g_bootParams);
+    // ---- 4. Execute ELF with argc/argv ----
+    pid_t rc = exec_elf_mem(elf_data, elf_size, &g_bootParams, argc, k_argv);
 
+    // exec_elf_mem should not return on success
     kfree(elf_data);
+    for (size_t j = 0; j < argc; j++) {
+        if (k_argv[j]) kfree(k_argv[j]);
+    }
 
-    log_error("EXEC", "sys_execve: exec_elf_mem returned unexpectedly");
+    log_error("EXEC", "sys_execve: exec_elf_mem returned unexpectedly (rc=%d)", rc);
     return (uint64_t)-1;
 }

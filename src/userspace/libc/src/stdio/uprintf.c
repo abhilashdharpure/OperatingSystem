@@ -7,8 +7,13 @@ static void putc_internal(char c) {
 }
 
 static void print_string(const char *s) {
+    if (!s) {
+        print_string("(null)");
+        return;
+    }
     while (*s) putc_internal(*s++);
 }
+
 
 static void print_decimal_long(long v) {
     char buf[32];
@@ -84,7 +89,8 @@ void printf(const char *fmt, ...) {
 
         case 's': {
             const char *s = va_arg(args, const char*);
-            print_string(s);
+            if (!s) print_string("(null)");
+            else    print_string(s);
             break;
         }
 

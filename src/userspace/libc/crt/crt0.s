@@ -1,15 +1,14 @@
-.section .text.crt0,"ax"
-.globl _start
-.extern main
+global _start
+extern main
+extern _exit
 
 _start:
-    call   main
-    mov    %rax, %rdi      # exit code
-    mov    $2, %rax        # SYS_exit
-    xor    %rsi, %rsi
-    xor    %rdx, %rdx
-    syscall
-1:  jmp 1b
+    xor     ebp, ebp
+    mov     rdi, [rsp]        ; argc
+    lea     rsi, [rsp+8]      ; argv
+    call    main
+    mov     edi, eax
+    call    _exit
 
 
 

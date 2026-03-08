@@ -1,10 +1,14 @@
 #include <stdio.h>
 #include <unistd.h>
+#include <syscall.h>
+#include <string.h>
 #include <sys/execve.h>
 
 int main(int argc, char **argv)
 {
     printf("Hello from /bin/test userspace!\n");
+
+    printf("argv[0] ptr = %p\n", (void*)argv[0]);
 
     printf("argc = %d\n", argc);
     for (int i = 0; i < argc; i++) {
