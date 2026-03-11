@@ -1,7 +1,7 @@
 #pragma once
 
 #include <fcntl.h>
-#include <linux/input.h>
+#include <input_events.h>
 #include <unistd.h>
 #include <poll.h>
 #include <vector>

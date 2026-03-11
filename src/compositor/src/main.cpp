@@ -1,12 +1,3 @@
-
-// int main() {
-//     LumaCompositor comp{};
-//     luma_init(&comp);
-//     luma_run(&comp);
-//     return 0;
-// }
-
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <fcntl.h>

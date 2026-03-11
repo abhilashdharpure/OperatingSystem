@@ -6,6 +6,7 @@
 #include <sys/time.h>
 #include "compositor_helper.h"
 #include <algorithm>
+#include <linux/input.h>
 
 static constexpr int SCREEN_WIDTH_TEMP = 1920;
 static constexpr int SCREEN_HEIGHT_TEMP = 1080;

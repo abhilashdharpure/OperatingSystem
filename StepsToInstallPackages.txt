@@ -406,6 +406,111 @@ Detach like this, if wan to detach loo35:
 sudo losetup -d /dev/loop35
 
 
+## Steup Steps
+
+rm -rf ~/Project/OperatingSystem/toolchain
+rm -rf ~/Project/OperatingSystem/sysroot
+mkdir -p ~/Project/OperatingSystem/toolchain
+mkdir -p ~/Project/OperatingSystem/sysroot
+
+
+1. Add toolchain to PATH
+##Add that line to your ~/.bashrc too so it persists.
+export PATH=$HOME/Project/OperatingSystem/toolchain/bin:$PATH
+
+2. Build binutils (x86_64-linux-musl)2. Build binutils (x86_64-linux-musl)
+
+cd ~/Project/OperatingSystem/toolchain
+mkdir binutils-build
+cd binutils-build
+
+../binutils-2.37/configure \
+  --target=x86_64-linux-musl \
+  --prefix=$HOME/Project/OperatingSystem/toolchain \
+  --disable-nls \
+  --disable-werror
+
+make -j$(nproc)
+make install
+
+3. Install musl headers only into sysroot
+cd ~/Project/OperatingSystem/toolchain/musl-1.2.5
+make clean
+
+CC=/usr/bin/false \
+./configure \
+  --prefix=/ \
+  --target=x86_64-linux-musl
+
+make install-headers DESTDIR=$HOME/Project/OperatingSystem/sysroot
+
+
+3. Build GCC stage 1 (compiler only)
+
+cd ~/Project/OperatingSystem/toolchain
+mkdir gcc-build
+cd gcc-build
+
+../gcc-11.2.0/configure \
+  --target=x86_64-linux-musl \
+  --prefix=$HOME/Project/OperatingSystem/toolchain \
+  --with-sysroot=$HOME/Project/OperatingSystem/sysroot \
+  --with-native-system-header-dir=/usr/include \
+  --enable-languages=c,c++ \
+  --disable-multilib \
+  --disable-nls \
+  --disable-shared
+
+make all-gcc -j$(nproc)
+make install-gcc
+
+
+4. Install musl headers only into sysroot
+cd ~/Project/OperatingSystem/toolchain/musl-1.2.5
+make clean
+
+AR=$HOME/Project/OperatingSystem/toolchain/bin/x86_64-linux-musl-ar \
+RANLIB=$HOME/Project/OperatingSystem/toolchain/bin/x86_64-linux-musl-ranlib \
+CC=$HOME/Project/OperatingSystem/toolchain/bin/x86_64-linux-musl-gcc \
+./configure \
+  --prefix=/ \
+  --target=x86_64-linux-musl
+
+make install-headers DESTDIR=$HOME/Project/OperatingSystem/sysroot
+
+
+5. Build and install libgcc
+cd ~/Project/OperatingSystem/toolchain/gcc-build
+make all-target-libgcc -j$(nproc)
+make install-target-libgcc
+
+6. Build full musl (static + shared)
+cd ~/Project/OperatingSystem/toolchain/musl-1.2.5
+make clean
+
+AR=$HOME/Project/OperatingSystem/toolchain/bin/x86_64-linux-musl-ar \
+RANLIB=$HOME/Project/OperatingSystem/toolchain/bin/x86_64-linux-musl-ranlib \
+CC=$HOME/Project/OperatingSystem/toolchain/bin/x86_64-linux-musl-gcc \
+./configure \
+  --prefix=/ \
+  --target=x86_64-linux-musl
+
+make -j$(nproc)
+make DESTDIR=$HOME/Project/OperatingSystem/sysroot install
+
+
+7. Build and install libstdc++
+cd ~/Project/OperatingSystem/toolchain/gcc-build
+make all-target-libstdc++-v3 -j$(nproc)
+make install-target-libstdc++-v3
+
+
+
+
+
+
+
+
 cd toolchain/musl-1.2.5/
 
 
@@ -436,3 +541,393 @@ mount | grep root.mnt
   If you something  /dev/loop36p1 on /home/.../build/x86_64_debug/root.mnt type vfat ...
   Run below command to unmount
 sudo umount build/x86_64_debug/root.mnt
+
+
+
+# Compositor setup to use musl:
+cd Project/OperatingSystem/src/compositor
+mkdir -p sysroot/include
+mkdir -p sysroot/lib
+mkdir -p third_party
+cd third_party
+wget https://musl.libc.org/releases/musl-1.2.5.tar.gz
+tar xf musl-1.2.5.tar.gz
+cd musl-1.2.5
+Run command: CC='../../../../toolchain/x86_64-elf/bin/x86_64-elf-gcc' ./configure --prefix=/ --target=x86_64-linux-musl
+./configure     --prefix=/     --target=x86_64-linux-musl     CC='../../../../toolchain/x86_64-elf/bin/x86_64-elf-gcc'     AR='../../../../toolchain/x86_64-elf/bin/x86_64-elf-ar'     RANLIB='../../../../toolchain/x86_64-elf/bin/x86_64-elf-ranlib'
+make -j$(nproc)
+make DESTDIR=../../sysroot install
+
+cd ~/Project/OperatingSystem/src/sysroot
+mkdir -p usr
+ln -s ../include usr/include
+
+
+## Configure GCC against that existing musl sysroot
+cd ~/Project/OperatingSystem/toolchain
+rm -rf gcc-build
+mkdir gcc-build
+cd gcc-build
+
+../gcc-11.2.0/configure \
+    --target=x86_64-elf \
+    --prefix=$HOME/Project/OperatingSystem/toolchain \
+    --with-sysroot=/home/abhilash/myos-sysroot \
+    --with-native-system-header-dir=/usr/include \
+    --enable-languages=c,c++ \
+    --disable-multilib \
+    --disable-nls \
+    --disable-shared
+
+make all-gcc -j$(nproc)
+make install-gcc
+
+make all-target-libgcc -j$(nproc)
+make install-target-libgcc
+
+
+## Build binutils
+cd ~/Project/OperatingSystem/toolchain
+mkdir binutils-build
+mkdir gcc-build
+
+cd ~/Project/OperatingSystem/toolchain/binutils-build
+../binutils-2.37/configure \
+    --target=x86_64-linux-musl \
+    --prefix=$HOME/Project/OperatingSystem/toolchain \
+    --disable-nls \
+    --disable-werror
+
+make -j$(nproc)
+make install
+
+
+## Build GCC (stage 1)
+cd ~/Project/OperatingSystem/toolchain
+rm -rf gcc-build
+mkdir gcc-build
+cd gcc-build
+
+../gcc-11.2.0/configure \
+    --target=x86_64-elf \
+    --prefix=$HOME/Project/OperatingSystem/toolchain \
+    --with-sysroot=/home/abhilash/myos-sysroot \
+    --with-native-system-header-dir=/usr/include \
+    --enable-languages=c,c++ \
+    --disable-multilib \
+    --disable-nls \
+    --disable-shared
+
+make all-gcc -j$(nproc)
+make install-gcc
+
+make all-target-libgcc -j$(nproc)
+make install-target-libgcc
+
+
+## Build MUSL into your sysroot
+cd ~/Project/OperatingSystem/src/compositor/third_party/musl-1.2.5
+make clean
+
+AR='../../../../toolchain/bin/x86_64-linux-musl-ar' \
+RANLIB='../../../../toolchain/bin/x86_64-linux-musl-ranlib' \
+CC='../../../../toolchain/bin/x86_64-linux-musl-gcc' \
+./configure \
+    --prefix=/ \
+    --target=x86_64-linux-musl
+
+make -j$(nproc)
+make DESTDIR=../../../sysroot install
+
+
+
+
+
+## Build GCC (stage 2: libgcc + libstdc++)
+cd ~/Project/OperatingSystem/toolchain/gcc-build
+make all-target-libgcc -j$(nproc)
+make install-target-libgcc
+
+make all-target-libstdc++-v3 -j$(nproc)
+make install-target-libstdc++-v3
+
+##How to cross‑compile Wayland (server library)
+Download wayland and ibxkbcommon/:
+https://gitlab.freedesktop.org/wayland/wayland/-/releases
+https://github.com/xkbcommon/libxkbcommon/releases
+
+mv ~/Downloads/wayland-1.24.91.tar.xz ~/Project/OperatingSystem/src/libs/
+mv ~/Downloads/libxkbcommon-xkbcommon-1.13.1.tar.gz ~/Project/OperatingSystem/src/libs/
+
+cd ~/Project/OperatingSystem/src/libs
+tar -xvf wayland-1.24.91.tar.xz 
+tar -xvf libxkbcommon-xkbcommon-1.13.1.tar.gz 
+sudo apt install meson ninja-build pkg-config wayland-protocols
+
+create file: ~/Project/OperatingSystem/toolchain/musl-cross.txt
+Add below in file:
+///////////////////////////////////////////////////////////////////////////////////////////////////////////
+  [binaries]
+  c = '/home/abhilash/Project/OperatingSystem/toolchain/bin/x86_64-linux-musl-gcc'
+  cpp = '/home/abhilash/Project/OperatingSystem/toolchain/bin/x86_64-linux-musl-g++'
+  ar = '/home/abhilash/Project/OperatingSystem/toolchain/bin/x86_64-linux-musl-ar'
+  strip = '/home/abhilash/Project/OperatingSystem/toolchain/bin/x86_64-linux-musl-strip'
+
+  pkgconfig = '/home/abhilash/Project/OperatingSystem/toolchain/pkg-config-wayland'
+  wayland-scanner = '/home/abhilash/.local/wayland-host/usr/bin/wayland-scanner'
+
+  [host_machine]
+  system = 'linux'
+  cpu_family = 'x86_64'
+  cpu = 'x86_64'
+  endian = 'little'
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+python3 -m pip install --user --upgrade --force-reinstall meson
+gedit ~/.bashrc
+Add below at bottom
+    export PATH=$HOME/.local/bin:$PATH
+    export PKG_CONFIG_PATH=$HOME/Project/OperatingSystem/sysroot/usr/lib/pkgconfig
+
+
+## Libxml2
+Download https://gitlab.gnome.org/GNOME/libxml2/-/releases
+
+cd ~/Project/OperatingSystem/src/libs
+mv ~/Downloads/libxml2-v2.15.2.tar.gz .
+tar -xvf libxml2-v2.15.2.tar.gz 
+cd ~/Project/OperatingSystem/src/libs/libxml2-v2.15.2
+sudo apt install autoconf automake libtool
+./autogen.sh --disable-shared --enable-static --without-python
+
+./configure \
+  --host=x86_64-linux-musl \
+  --prefix=/usr \
+  --with-sysroot=$HOME/Project/OperatingSystem/sysroot \
+  CC=$HOME/Project/OperatingSystem/toolchain/bin/x86_64-linux-musl-gcc \
+  AR=$HOME/Project/OperatingSystem/toolchain/bin/x86_64-linux-musl-ar \
+  RANLIB=$HOME/Project/OperatingSystem/toolchain/bin/x86_64-linux-musl-ranlib \
+  --without-python \
+  --enable-static \
+  --disable-shared
+
+make -j$(nproc)
+
+make DESTDIR=$HOME/Project/OperatingSystem/sysroot install
+DESTDIR=$HOME/.local/wayland-host meson install -C build-host
+
+
+sudo apt install libxml2-dev
+DESTDIR=$HOME/.local/wayland-host meson install -C build-host
+export PKG_CONFIG_PATH=$HOME/.local/wayland-host/usr/lib/pkgconfig
+
+
+gedit ~/Project/OperatingSystem/toolchain/pkg-config-wayland
+////////////////////////////////////////////////////////////////////////////
+  #!/bin/sh
+  export PKG_CONFIG_PATH=$HOME/.local/wayland-host/usr/lib/pkgconfig
+  exec /usr/bin/pkg-config "$@"
+////////////////////////////////////////////////////////////////////////////
+
+chmod +x ~/Project/OperatingSystem/toolchain/pkg-config-wayland
+
+
+gedit ~/Project/OperatingSystem/toolchain/native-wayland.ini
+//////////////////////////////
+[binaries]
+pkgconfig = '/home/abhilash/Project/OperatingSystem/toolchain/pkg-config-wayland'
+wayland-scanner = '/home/abhilash/.local/wayland-host/usr/bin/wayland-scanner'
+wayland_scanner = '/home/abhilash/.local/wayland-host/usr/bin/wayland-scanner'
+
+[host_machine]
+system = 'linux'
+cpu_family = 'x86_64'
+cpu = 'x86_64'
+endian = 'little'
+///////////////////////////////
+
+
+
+## Download a kernel source tree
+cd ~/Project/OperatingSystem/src
+wget https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.6.tar.xz
+tar xf linux-6.6.tar.xz
+cd linux-6.6
+
+make mrproper
+make headers_install INSTALL_HDR_PATH=$HOME/Project/OperatingSystem/sysroot/usr
+
+
+
+
+cd $HOME/Project/OperatingSystem/sysroot/usr/include/
+wget https://github.com/libffi/libffi/releases/download/v3.4.6/libffi-3.4.6.tar.gz
+tar xf libffi-3.4.6.tar.gz
+cd libffi-3.4.6
+
+
+rm -rf $HOME/Project/OperatingSystem/sysroot/usr/include/libffi-3.4.6
+rm -rf $HOME/Project/OperatingSystem/sysroot/usr/lib/libffi*
+cd ~/Project/OperatingSystem/src/libs
+wget https://github.com/libffi/libffi/releases/download/v3.4.6/libffi-3.4.6.tar.gz
+tar xf libffi-3.4.6.tar.gz
+cd libffi-3.4.6
+
+./configure \
+  --host=x86_64-linux-musl \
+  --prefix=/usr \
+  --disable-shared \
+  CC=/home/abhilash/Project/OperatingSystem/toolchain/bin/x86_64-linux-musl-gcc
+
+make -j$(nproc)
+make DESTDIR=$HOME/Project/OperatingSystem/sysroot install
+
+
+pip3 uninstall meson
+pip3 install --user meson==1.4.0
+export PATH=$HOME/.local/bin:$PATH
+
+
+cd ~/Project/OperatingSystem/src/libs/wayland-1.24.91
+rm -rf build-host
+
+meson setup build-host \
+  --prefix=$HOME/.local/wayland-host/usr \
+  --libdir=lib \
+  -Dscanner=true \
+  -Dlibraries=false \
+  -Dtests=false \
+  -Ddocumentation=false
+
+ninja -C build-host
+ninja -C build-host install
+
+
+PKG_CONFIG_PATH=$HOME/.local/wayland-host/usr/lib/pkgconfig \
+  pkg-config --variable=wayland_scanner wayland-scanner
+
+
+##  Build and install libffi into your sysroot
+cd ~/Project/OperatingSystem/src/libs/libffi-3.4.6
+
+./configure --host=x86_64-linux-musl \
+    --prefix=/usr \
+    --disable-shared \
+    --enable-static \
+    --with-sysroot=/home/abhilash/Project/OperatingSystem/sysroot
+
+make
+make DESTDIR=/home/abhilash/Project/OperatingSystem/sysroot install
+
+
+sudo apt install python3-pip
+pip3 install --user meson==1.2.3
+export PATH=$HOME/.local/bin:$PATH
+
+
+
+gedit ~/Project/OperatingSystem/toolchain/musl-cross.txt
+Add below in file
+//////////////////////////////////////////////////////////////////////
+[binaries]
+c = '/home/abhilash/Project/OperatingSystem/toolchain/bin/x86_64-linux-musl-gcc'
+cpp = '/home/abhilash/Project/OperatingSystem/toolchain/bin/x86_64-linux-musl-g++'
+ar = '/home/abhilash/Project/OperatingSystem/toolchain/bin/x86_64-linux-musl-ar'
+strip = '/home/abhilash/Project/OperatingSystem/toolchain/bin/x86_64-linux-musl-strip'
+
+pkgconfig = '/home/abhilash/Project/OperatingSystem/toolchain/pkg-config-wayland'
+
+[host_machine]
+system = 'linux'
+cpu_family = 'x86_64'
+cpu = 'x86_64'
+endian = 'little'
+//////////////////////////////////////////////////////////////////////
+
+
+
+cd ~/Project/OperatingSystem/src/libs/wayland-1.24.91
+rm -rf build-host
+
+meson setup build-host \
+  --prefix=$HOME/.local/wayland-host/usr \
+  --libdir=lib \
+  -Dscanner=true \
+  -Dlibraries=false \
+  -Dtests=false \
+  -Ddocumentation=false
+
+ninja -C build-host
+ninja -C build-host install
+
+
+
+
+cd ~/Project/OperatingSystem/src/libs/wayland-1.24.91
+rm -rf build
+
+export WAYLAND_SCANNER=$HOME/.local/wayland-host/usr/bin/wayland-scanner
+
+meson setup build \
+  --cross-file $HOME/Project/OperatingSystem/toolchain/musl-cross.txt \
+  --native-file $HOME/Project/OperatingSystem/toolchain/native-wayland.ini \
+  --prefix=/usr \
+  --libdir=lib \
+  --buildtype=release \
+  --default-library=static \
+  -Ddocumentation=false \
+  -Dscanner=false \
+  -Dlibraries=true
+
+ninja -C build
+DESTDIR=$HOME/Project/OperatingSystem/sysroot ninja -C build install
+
+
+
+
+
+## Install Wayland into your musl sysroot
+
+cd ~/Project/OperatingSystem/src/libs/wayland-1.24.91/build
+DESTDIR=/home/abhilash/Project/OperatingSystem/sysroot ninja install
+
+
+## cross‑compile libxkbcommon for your OS
+
+cd ~/Project/OperatingSystem/src/libs
+wget https://xkbcommon.org/download/libxkbcommon-1.6.0.tar.xz
+tar xf libxkbcommon-1.6.0.tar.xz
+cd libxkbcommon-1.6.0
+
+
+meson setup build \
+  --cross-file ~/Project/OperatingSystem/toolchain/musl-cross.txt \
+  --prefix=/usr \
+  --libdir=lib \
+  -Ddefault_library=static \
+  -Denable-x11=false \
+  -Denable-docs=false \
+  -Denable-wayland=false \
+  -Denable-xkbregistry=false \
+  -Denable-tools=false
+
+
+ninja -C build
+
+DESTDIR=/home/abhilash/Project/OperatingSystem/sysroot ninja -C build install
+
+
+cd ~/Project/OperatingSystem/src/libs/wayland-1.24.91
+
+rm -rf build
+
+meson setup build \
+  --cross-file ~/Project/OperatingSystem/toolchain/musl-cross.txt \
+  --prefix=/usr \
+  --libdir=lib \
+  -Ddefault_library=static
+
+ninja -C build
+DESTDIR=/home/abhilash/Project/OperatingSystem/sysroot ninja -C build install

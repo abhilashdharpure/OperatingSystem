@@ -13,7 +13,7 @@
 #include <wayland-server-core.h>
 #include <cstring>
 
-#include <SDL2/SDL.h>
+// #include <SDL2/SDL.h>
 #include <thread>
 #include <mutex>
 #include <atomic>
@@ -27,17 +27,27 @@
 #include <chrono>
 #include <algorithm>
 #include <climits>
+#include <time.h>
 
 CompositorInput compositorInput;
-SDL_Window* window;
-SDL_Texture* texture;
-SDL_Renderer* renderer;
+// SDL_Window* window;
+// SDL_Texture* texture;
+// SDL_Renderer* renderer;
 static std::vector<uint32_t> comp_framebuffer; // stored as ARGB8888 (32-bit words)
 static std::mutex comp_fb_mutex;
 static std::atomic<bool> sdl_thread_running{false};
 static std::thread sdl_thread;
 
 using namespace std;
+
+
+
+uint32_t get_ticks(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint32_t)(ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
+}
+
 
 // --- Simple linked list utilities using std::list ---
 static void add_to_list(std::list<my_output*>& lst, my_output* item)
@@ -118,10 +128,10 @@ void fb_flush(LumaCompositor *comp)
 {
     // std::cout << "[LumaCompositor] fb_flush\n";
 
-    SDL_UpdateTexture(texture, nullptr, comp_framebuffer.data(), comp->output_width * 4);
-    SDL_RenderClear(renderer);
-    SDL_RenderCopy(renderer, texture, nullptr, nullptr);
-    SDL_RenderPresent(renderer);
+    // SDL_UpdateTexture(texture, nullptr, comp_framebuffer.data(), comp->output_width * 4);
+    // SDL_RenderClear(renderer);
+    // SDL_RenderCopy(renderer, texture, nullptr, nullptr);
+    // SDL_RenderPresent(renderer);
 }
 
 static inline void blend_pixel(uint8_t* dst, const uint8_t* src, const uint8_t* map_start, const uint8_t* map_end)
@@ -627,7 +637,7 @@ static void handle_mouse_move(LumaCompositor* comp, double sx, double sy)
         }
         else if (sx >= 0 && sy >= 0 && sx < comp->output_width && sy < comp->output_height)
         {
-            uint32_t time = SDL_GetTicks();
+            uint32_t time = get_ticks();
             compositorInput.SendMouseMoveEvent(comp, sx, sy, time);
 
             // for update cursor live
@@ -2292,210 +2302,210 @@ void setup_wayland_display(wl_display* display)
 
 static void sdl_renderer_thread(int win_w, int win_h, LumaCompositor* comp)
 {
-    if (SDL_Init(SDL_INIT_VIDEO) != 0)
-    {
-        std::cerr << "SDL_Init error: " << SDL_GetError() << std::endl;
-        return;
-    }
+    // if (SDL_Init(SDL_INIT_VIDEO) != 0)
+    // {
+    //     std::cerr << "SDL_Init error: " << SDL_GetError() << std::endl;
+    //     return;
+    // }
 
-    window = SDL_CreateWindow("LumaCompositor (Preview)",
-                                          SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-                                          win_w, win_h,
-                                          SDL_WINDOW_RESIZABLE);
-    if (!window)
-    {
-        std::cerr << "SDL_CreateWindow error: " << SDL_GetError() << std::endl;
-        SDL_Quit();
-        return;
-    }
+    // window = SDL_CreateWindow("LumaCompositor (Preview)",
+    //                                       SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+    //                                       win_w, win_h,
+    //                                       SDL_WINDOW_RESIZABLE);
+    // if (!window)
+    // {
+    //     std::cerr << "SDL_CreateWindow error: " << SDL_GetError() << std::endl;
+    //     SDL_Quit();
+    //     return;
+    // }
 
-    renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
-    if (!renderer)
-    {
-        std::cerr << "SDL_CreateRenderer error: " << SDL_GetError() << std::endl;
-        SDL_DestroyWindow(window);
-        SDL_Quit();
-        return;
-    }
+    // renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+    // if (!renderer)
+    // {
+    //     std::cerr << "SDL_CreateRenderer error: " << SDL_GetError() << std::endl;
+    //     SDL_DestroyWindow(window);
+    //     SDL_Quit();
+    //     return;
+    // }
 
-    texture = SDL_CreateTexture(renderer,
-                                SDL_PIXELFORMAT_ARGB8888,
-                                SDL_TEXTUREACCESS_STREAMING,
-                                win_w, win_h);
-    if (!texture)
-    {
-        std::cerr << "SDL_CreateTexture error: " << SDL_GetError() << std::endl;
-        SDL_DestroyRenderer(renderer);
-        SDL_DestroyWindow(window);
-        SDL_Quit();
-        return;
-    }
+    // texture = SDL_CreateTexture(renderer,
+    //                             SDL_PIXELFORMAT_ARGB8888,
+    //                             SDL_TEXTUREACCESS_STREAMING,
+    //                             win_w, win_h);
+    // if (!texture)
+    // {
+    //     std::cerr << "SDL_CreateTexture error: " << SDL_GetError() << std::endl;
+    //     SDL_DestroyRenderer(renderer);
+    //     SDL_DestroyWindow(window);
+    //     SDL_Quit();
+    //     return;
+    // }
 
-    sdl_thread_running.store(true);
+    // sdl_thread_running.store(true);
 
-    while (sdl_thread_running.load())
-    {
-        SDL_Event ev;
+    // while (sdl_thread_running.load())
+    // {
+    //     SDL_Event ev;
 
-        while (SDL_PollEvent(&ev))
-        {
-            if (ev.type == SDL_QUIT)
-            {
-                sdl_thread_running.store(false);
-            } 
-            else if (ev.type == SDL_WINDOWEVENT && ev.window.event == SDL_WINDOWEVENT_SIZE_CHANGED)
-            {
-                // Optionally respond to resize
-            }
-            else if (ev.type == SDL_MOUSEMOTION)
-            {
-                int win_x, win_y;
-                SDL_GetWindowPosition(window, &win_x, &win_y);   // top-left of window on screen
-                int mouse_x_global, mouse_y_global;
-                SDL_GetGlobalMouseState(&mouse_x_global, &mouse_y_global);
+    //     while (SDL_PollEvent(&ev))
+    //     {
+    //         if (ev.type == SDL_QUIT)
+    //         {
+    //             sdl_thread_running.store(false);
+    //         } 
+    //         else if (ev.type == SDL_WINDOWEVENT && ev.window.event == SDL_WINDOWEVENT_SIZE_CHANGED)
+    //         {
+    //             // Optionally respond to resize
+    //         }
+    //         else if (ev.type == SDL_MOUSEMOTION)
+    //         {
+    //             int win_x, win_y;
+    //             SDL_GetWindowPosition(window, &win_x, &win_y);   // top-left of window on screen
+    //             int mouse_x_global, mouse_y_global;
+    //             SDL_GetGlobalMouseState(&mouse_x_global, &mouse_y_global);
 
-                // Compute mouse position relative to the SDL window content area
-                double local_x = mouse_x_global - win_x;
-                double local_y = mouse_y_global - win_y;
+    //             // Compute mouse position relative to the SDL window content area
+    //             double local_x = mouse_x_global - win_x;
+    //             double local_y = mouse_y_global - win_y;
 
-                // Optional: scale correction if window != compositor framebuffer
-                int win_w, win_h;
-                SDL_GetWindowSize(window, &win_w, &win_h);
+    //             // Optional: scale correction if window != compositor framebuffer
+    //             int win_w, win_h;
+    //             SDL_GetWindowSize(window, &win_w, &win_h);
 
-                double sx = local_x * ((double)comp->output_width  / (double)win_w);
-                double sy = local_y * ((double)comp->output_height / (double)win_h);
-                comp->cursor_x = sx;
-                comp->cursor_y = sy;
+    //             double sx = local_x * ((double)comp->output_width  / (double)win_w);
+    //             double sy = local_y * ((double)comp->output_height / (double)win_h);
+    //             comp->cursor_x = sx;
+    //             comp->cursor_y = sy;
 
-                handle_mouse_move(comp, sx, sy);
-            }
-            else if (ev.type == SDL_MOUSEBUTTONDOWN || ev.type == SDL_MOUSEBUTTONUP)
-            {
-                uint32_t button = 0;
-                switch (ev.button.button)
-                {
-                    case SDL_BUTTON_LEFT: button = BTN_LEFT; break;
-                    case SDL_BUTTON_MIDDLE: button = BTN_MIDDLE; break;
-                    case SDL_BUTTON_RIGHT: button = BTN_RIGHT; break;
-                }
+    //             handle_mouse_move(comp, sx, sy);
+    //         }
+    //         else if (ev.type == SDL_MOUSEBUTTONDOWN || ev.type == SDL_MOUSEBUTTONUP)
+    //         {
+    //             uint32_t button = 0;
+    //             switch (ev.button.button)
+    //             {
+    //                 case SDL_BUTTON_LEFT: button = BTN_LEFT; break;
+    //                 case SDL_BUTTON_MIDDLE: button = BTN_MIDDLE; break;
+    //                 case SDL_BUTTON_RIGHT: button = BTN_RIGHT; break;
+    //             }
 
-                uint32_t state = (ev.type == SDL_MOUSEBUTTONDOWN)
-                                    ? WL_POINTER_BUTTON_STATE_PRESSED
-                                    : WL_POINTER_BUTTON_STATE_RELEASED;
+    //             uint32_t state = (ev.type == SDL_MOUSEBUTTONDOWN)
+    //                                 ? WL_POINTER_BUTTON_STATE_PRESSED
+    //                                 : WL_POINTER_BUTTON_STATE_RELEASED;
 
-                if (button == BTN_LEFT && state == WL_POINTER_BUTTON_STATE_PRESSED)
-                {
-                    comp->mouse_pressed = true;
-                }
-                else if (button == BTN_LEFT && state == WL_POINTER_BUTTON_STATE_RELEASED)
-                {
-                    comp->mouse_pressed = false;
-                    if (comp->move_grab_active && comp->moving_surface)
-                    {
-                        // finalize move
-                        comp->move_grab_active = false;
+    //             if (button == BTN_LEFT && state == WL_POINTER_BUTTON_STATE_PRESSED)
+    //             {
+    //                 comp->mouse_pressed = true;
+    //             }
+    //             else if (button == BTN_LEFT && state == WL_POINTER_BUTTON_STATE_RELEASED)
+    //             {
+    //                 comp->mouse_pressed = false;
+    //                 if (comp->move_grab_active && comp->moving_surface)
+    //                 {
+    //                     // finalize move
+    //                     comp->move_grab_active = false;
 
-                        auto itr = std::find(comp->surfaces.begin(), comp->surfaces.end(), comp->moving_surface);
+    //                     auto itr = std::find(comp->surfaces.begin(), comp->surfaces.end(), comp->moving_surface);
 
-                        if(itr != comp->surfaces.end())
-                        {
-                            (*itr)->x = comp->moving_surface->x;
-                            (*itr)->y = comp->moving_surface->y;
+    //                     if(itr != comp->surfaces.end())
+    //                     {
+    //                         (*itr)->x = comp->moving_surface->x;
+    //                         (*itr)->y = comp->moving_surface->y;
 
-                            comp->focus_x = comp->moving_surface->x;
-                            comp->focus_y = comp->moving_surface->y;
-                        }
+    //                         comp->focus_x = comp->moving_surface->x;
+    //                         comp->focus_y = comp->moving_surface->y;
+    //                     }
 
-                        comp->moving_surface = nullptr;
+    //                     comp->moving_surface = nullptr;
 
-                        // final repaint to ensure the surface appears at the final position
-                        std::cout<<"Move Stopped *****************************************"<<std::endl;
-                        // Send keyboard enter
-                        // if (comp->keyboard_resource) {
-                        //     safe_send_keyboard_enter(comp, comp->keyboard_focused_surface, comp->display);
-                        // }
-                        comp->needs_repaint = true;
-                        compositor_repaint(comp);
+    //                     // final repaint to ensure the surface appears at the final position
+    //                     std::cout<<"Move Stopped *****************************************"<<std::endl;
+    //                     // Send keyboard enter
+    //                     // if (comp->keyboard_resource) {
+    //                     //     safe_send_keyboard_enter(comp, comp->keyboard_focused_surface, comp->display);
+    //                     // }
+    //                     comp->needs_repaint = true;
+    //                     compositor_repaint(comp);
 
-                        // (optional) send any configure or focus updates as needed
-                    }
-                    else if(comp->resize_grab_active && comp->resizing_surface)
-                    {
-                        comp->resize_grab_active = false;
-                        comp->resizing_surface = nullptr;
-                        comp->resize_edges = toplevel_edges::NONE;
-                        std::cout<<"Resize Stopped *****************************************"<<std::endl;
+    //                     // (optional) send any configure or focus updates as needed
+    //                 }
+    //                 else if(comp->resize_grab_active && comp->resizing_surface)
+    //                 {
+    //                     comp->resize_grab_active = false;
+    //                     comp->resizing_surface = nullptr;
+    //                     comp->resize_edges = toplevel_edges::NONE;
+    //                     std::cout<<"Resize Stopped *****************************************"<<std::endl;
 
 
-                        // // Send keyboard enter
-                        // if (comp->keyboard_resource) {
-                        //     safe_send_keyboard_enter(comp, comp->keyboard_focused_surface, comp->display);
-                        // }
+    //                     // // Send keyboard enter
+    //                     // if (comp->keyboard_resource) {
+    //                     //     safe_send_keyboard_enter(comp, comp->keyboard_focused_surface, comp->display);
+    //                     // }
 
-                        comp->needs_repaint = true;
-                        compositor_repaint(comp);
-                    }
-                }
+    //                     comp->needs_repaint = true;
+    //                     compositor_repaint(comp);
+    //                 }
+    //             }
                 
-                // if(comp->is_pong_received)
-                // if (!comp->resize_grab_active && !comp->move_grab_active)
-                {
-                    compositorInput.SendButtonEvent(comp, SDL_GetTicks(), button, state);
-                    // SendPing(comp);
-                }
+    //             // if(comp->is_pong_received)
+    //             // if (!comp->resize_grab_active && !comp->move_grab_active)
+    //             {
+    //                 compositorInput.SendButtonEvent(comp, SDL_GetTicks(), button, state);
+    //                 // SendPing(comp);
+    //             }
 
-            }
+    //         }
 
-            if (comp->needs_repaint)
-            {
-                compositor_repaint(comp);
-            }
-        }
+    //         if (comp->needs_repaint)
+    //         {
+    //             compositor_repaint(comp);
+    //         }
+    //     }
 
-        // Copy compositor framebuffer into texture
-        {
-            std::lock_guard<std::mutex> lk(comp_fb_mutex);
-            // note: comp_framebuffer.size == comp_width*comp_height
-            void* pixels = nullptr;
-            int pitch = 0;
-            if (SDL_LockTexture(texture, nullptr, &pixels, &pitch) == 0)
-            {
-                // pitch is bytes per row; our comp_width*4 equals expected pitch if sizes match
-                uint8_t* dst = (uint8_t*)pixels;
-                uint8_t* src = (uint8_t*)comp_framebuffer.data();
-                // if comp_width equals texture width and pitch == comp_width*4, we can memcpy whole buffer
-                if (pitch == win_w * 4)
-                {
-                    memcpy(dst, src, win_w * win_h * 4);
-                }
-                else
-                {
-                    // copy row by row
-                    for (int y = 0; y < win_h; ++y)
-                    {
-                        memcpy(dst + y * pitch, src + y * win_w * 4, win_h * 4);
-                    }
-                }
-                SDL_UnlockTexture(texture);
-            }
-        }
+    //     // Copy compositor framebuffer into texture
+    //     {
+    //         std::lock_guard<std::mutex> lk(comp_fb_mutex);
+    //         // note: comp_framebuffer.size == comp_width*comp_height
+    //         void* pixels = nullptr;
+    //         int pitch = 0;
+    //         if (SDL_LockTexture(texture, nullptr, &pixels, &pitch) == 0)
+    //         {
+    //             // pitch is bytes per row; our comp_width*4 equals expected pitch if sizes match
+    //             uint8_t* dst = (uint8_t*)pixels;
+    //             uint8_t* src = (uint8_t*)comp_framebuffer.data();
+    //             // if comp_width equals texture width and pitch == comp_width*4, we can memcpy whole buffer
+    //             if (pitch == win_w * 4)
+    //             {
+    //                 memcpy(dst, src, win_w * win_h * 4);
+    //             }
+    //             else
+    //             {
+    //                 // copy row by row
+    //                 for (int y = 0; y < win_h; ++y)
+    //                 {
+    //                     memcpy(dst + y * pitch, src + y * win_w * 4, win_h * 4);
+    //                 }
+    //             }
+    //             SDL_UnlockTexture(texture);
+    //         }
+    //     }
 
-        SDL_RenderClear(renderer);
-        // Fit texture to window
-        SDL_Rect dest;
-        int ww, wh;
-        SDL_GetWindowSize(window, &ww, &wh);
-        dest.x = 0; dest.y = 0; dest.w = ww; dest.h = wh;
-        SDL_RenderCopy(renderer, texture, nullptr, &dest);
-        SDL_RenderPresent(renderer);
+    //     SDL_RenderClear(renderer);
+    //     // Fit texture to window
+    //     SDL_Rect dest;
+    //     int ww, wh;
+    //     SDL_GetWindowSize(window, &ww, &wh);
+    //     dest.x = 0; dest.y = 0; dest.w = ww; dest.h = wh;
+    //     SDL_RenderCopy(renderer, texture, nullptr, &dest);
+    //     SDL_RenderPresent(renderer);
 
-        SDL_Delay(16); // ~60 FPS
-    }
+    //     SDL_Delay(16); // ~60 FPS
+    // }
 
-    SDL_DestroyTexture(texture);
-    SDL_DestroyRenderer(renderer);
-    SDL_DestroyWindow(window);
-    SDL_Quit();
+    // SDL_DestroyTexture(texture);
+    // SDL_DestroyRenderer(renderer);
+    // SDL_DestroyWindow(window);
+    // SDL_Quit();
 }
 
 

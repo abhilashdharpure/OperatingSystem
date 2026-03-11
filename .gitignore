@@ -12,3 +12,5 @@ image/root/bin/init
 image/root/bin/init
 iso_root/boot/kernel.elf
 *.elf
+src/libs/
+src/linux-6.6/
