@@ -16,10 +16,7 @@ host_env = Environment(
 # Target environment (your OS)
 # ------------------------------------------------------------
 
-# New musl toolchain prefix
 cross_prefix = '../../toolchain/bin/x86_64-linux-musl-'
-
-# Your sysroot
 sysroot = os.path.expanduser('~/Project/OperatingSystem/sysroot')
 
 target_env = Environment(
@@ -39,12 +36,12 @@ target_env = Environment(
     LIBS=[
         'wayland-server',
         'xkbcommon',
-        'ffi'               # <-- REQUIRED for static Wayland
+        'ffi'
     ],
 
     CCFLAGS=[
         '--sysroot=' + sysroot,
-        '-O2', '-g',
+        '-Os',                 # optimize for size
         '-fno-pie', '-no-pie',
         '-static'
     ],
@@ -52,7 +49,7 @@ target_env = Environment(
     CXXFLAGS=[
         '--sysroot=' + sysroot,
         '-std=c++17',
-        '-O2', '-g',
+        '-Os',                 # optimize for size
         '-fno-pie', '-no-pie',
         '-static'
     ],
@@ -75,7 +72,7 @@ generated_dir_node = target_env.Dir(generated_dir)
 project_root       = target_env.Dir('#')
 
 # ------------------------------------------------------------
-# Wayland protocol generation (host tools)
+# Wayland protocol generation
 # ------------------------------------------------------------
 protocols = [
     project_root.File('protocols/xdg-shell.xml'),
@@ -117,6 +114,14 @@ sources = [
 program = target_env.Program(
     target=os.path.join(build_dir, project_name),
     source=sources
+)
+
+# ------------------------------------------------------------
+# Strip binary after linking (critical for size)
+# ------------------------------------------------------------
+target_env.AddPostAction(
+    program,
+    f"{cross_prefix}strip -s $TARGET"
 )
 
 Default(program)

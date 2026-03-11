@@ -917,6 +917,16 @@ void testClientSocketPool()
     testSCMRights();
 }
 
+void start_compositor() 
+{
+    char *argv[] = { "/bin/comp", NULL };
+    char *envp[] = { NULL };
+
+    execve(argv[0], argv, envp);
+
+    klog("execve failed for compositor\n");
+}
+
 int main()
 {
     klog("[Userspace] *** NEW INIT BUILD v3 ***\n");
@@ -931,11 +941,20 @@ int main()
 
     printf("Hello from /bin/init!\n");
 
-    char *argv[] = { "test", NULL };
-    execve("/bin/test", argv, NULL);
+    // char *argv[] = { "test", NULL };
+    // execve("/bin/test", argv, NULL);
 
-    // If execve fails:
-    printf("execve /bin/test failed\n");
+    // // If execve fails:
+    // printf("execve /bin/test failed\n");
+
+
+    start_compositor();
+
+    // If compositor exits, keep init alive
+    while (1)
+    {
+
+    }
 
     printf("[Userspace] About to call SYS_exit via SYSCALL\n");
     syscall6(SYS_exit, 0, 0, 0, 0, 0, 0);
