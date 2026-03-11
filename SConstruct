@@ -1,5 +1,3 @@
-# SConstruct
-
 from pathlib import Path
 from SCons.Variables import *
 from SCons.Environment import *
@@ -28,9 +26,7 @@ VARS.AddVariables(
                  allowed_values=("fat12", "fat16", "fat32", "ext2"))
 )
 VARS.Add("imageSize",
-         help="The size of the image, will be rounded up to the nearest multiple of 512. "
-              "You can use suffixes (k/m/g). "
-              "For floppies, the size is fixed to 1.44MB.",
+         help="The size of the image, rounded to nearest 512 bytes.",
          default="250m",
          converter=ParseSize)
 VARS.Add("toolchain",
@@ -43,7 +39,7 @@ DEPS = {
 }
 
 #
-# ***  Host environment ***
+# *** HOST ENVIRONMENT ***
 #
 HOST_ENVIRONMENT = Environment(
     variables=VARS,
@@ -71,85 +67,59 @@ HOST_ENVIRONMENT.Replace(
     ASCOMSTR="Assembling [$SOURCE]",
     CCCOMSTR="Compiling  [$SOURCE]",
     CXXCOMSTR="Compiling  [$SOURCE]",
-    FORTRANPPCOMSTR="Compiling  [$SOURCE]",
-    FORTRANCOMSTR="Compiling  [$SOURCE]",
-    SHCCCOMSTR="Compiling  [$SOURCE]",
-    SHCXXCOMSTR="Compiling  [$SOURCE]",
     LINKCOMSTR="Linking    [$TARGET]",
-    SHLINKCOMSTR="Linking    [$TARGET]",
     INSTALLSTR="Installing [$TARGET]",
     ARCOMSTR="Archiving  [$TARGET]",
     RANLIBCOMSTR="Ranlib     [$TARGET]",
 )
 
 #
-# ***  Target environment ***
+# *** TARGET ENVIRONMENT ***
 #
-platform_prefix = ''
-if HOST_ENVIRONMENT['arch'] == 'i686':
-    platform_prefix = 'i686-elf-'
-elif HOST_ENVIRONMENT['arch'] == 'x86_64':
-    platform_prefix = 'x86_64-elf-'
 
-# toolchainDir = Path(HOST_ENVIRONMENT['toolchain'], RemoveSuffix(platform_prefix, '-')).resolve()
-# toolchainBin = Path(toolchainDir, 'bin')
-# toolchainGccLibs = Path(
-#     toolchainDir,
-#     'lib', 'gcc',
-#     RemoveSuffix(platform_prefix, '-'),
-#     DEPS['gcc']
-# )
+# Correct triplet selection
+if HOST_ENVIRONMENT['arch'] == 'i686':
+    triplet = 'i686-elf'
+elif HOST_ENVIRONMENT['arch'] == 'x86_64':
+    triplet = 'x86_64-linux-musl'
+else:
+    triplet = 'x86_64-linux-musl'
+
+platform_prefix = triplet + '-'
+
 project_root = Path(HOST_ENVIRONMENT['PROJECTDIR'].abspath)
 
-toolchainDir = (project_root /
-                HOST_ENVIRONMENT['toolchain'] /
-                RemoveSuffix(platform_prefix, '-')).resolve()
-
-
+# Your actual toolchain layout:
+# toolchain/bin/x86_64-linux-musl-gcc
+# toolchain/lib/gcc/x86_64-linux-musl/11.2.0/
+toolchainDir = (project_root / HOST_ENVIRONMENT['toolchain']).resolve()
 toolchainBin = toolchainDir / 'bin'
-toolchainGccLibs = toolchainDir / 'lib' / 'gcc' / RemoveSuffix(platform_prefix, '-') / DEPS['gcc']
-
-
+toolchainGccLibs = toolchainDir / 'lib' / 'gcc' / triplet / DEPS['gcc']
 
 toolchainBinStr = str(toolchainBin)
 
-# Use absolute paths to toolchain binaries so PATH issues cannot break us
 TARGET_ENVIRONMENT = HOST_ENVIRONMENT.Clone(
     AR=str(toolchainBin / f'{platform_prefix}ar'),
     CC=str(toolchainBin / f'{platform_prefix}gcc'),
     CXX=str(toolchainBin / f'{platform_prefix}g++'),
-    # Let gcc choose the right ld/emulation; don't override LD
-    # LD=str(toolchainBin / f'{platform_prefix}ld'),
     RANLIB=str(toolchainBin / f'{platform_prefix}ranlib'),
     STRIP=str(toolchainBin / f'{platform_prefix}strip'),
 
-    # toolchain metadata
     TOOLCHAIN_PREFIX=str(toolchainDir),
     TOOLCHAIN_LIBGCC=str(toolchainGccLibs),
-    BINUTILS_URL=f'https://ftp.gnu.org/gnu/binutils/binutils-{DEPS["binutils"]}.tar.xz',
-    GCC_URL=f'https://ftp.gnu.org/gnu/gcc/gcc-{DEPS["gcc"]}/gcc-{DEPS["gcc"]}.tar.xz',
 )
 
-# Still add toolchain bin to PATH inside the build env (nice for scripts etc.)
 TARGET_ENVIRONMENT.PrependENVPath('PATH', toolchainBinStr)
 TARGET_ENVIRONMENT['ENV']['PATH'] += os.pathsep + toolchainBinStr
-
-# Disable default .asm builder on TARGET_ENVIRONMENT
-# TARGET_ENVIRONMENT['AS'] = 'nasm'
-# TARGET_ENVIRONMENT['ASFLAGS'] = []
-# TARGET_ENVIRONMENT['ASCOM'] = ''
-# # TARGET_ENVIRONMENT['BUILDERS']['Object'].add_action('.asm', None)
 
 TARGET_ENVIRONMENT['AS'] = 'nasm'
 TARGET_ENVIRONMENT['ASFLAGS'] = []
 TARGET_ENVIRONMENT['ASCOM'] = '$AS $ASFLAGS -o $TARGET $SOURCE'
 
-# IMPORTANT: re-enable .asm handling on the Object builder
 TARGET_ENVIRONMENT['BUILDERS']['Object'].add_action(
     '.asm',
     TARGET_ENVIRONMENT['ASCOM']
 )
-
 
 TARGET_ENVIRONMENT.Append(
     CCFLAGS=[
@@ -167,24 +137,17 @@ TARGET_ENVIRONMENT.Append(
 )
 
 if TARGET_ENVIRONMENT['arch'] == 'x86_64':
-    # Multiboot2 kernels MUST be 32-bit ELF files
     TARGET_ENVIRONMENT.Append(
-        # CCFLAGS=['-m32'],
-        LINKFLAGS=['-m32'],
+        LINKFLAGS=['-m32'],   # Multiboot2 requires 32-bit ELF
     )
-elif TARGET_ENVIRONMENT['arch'] == 'i686':
-    pass
 
 Help(VARS.GenerateHelpText(HOST_ENVIRONMENT))
 Export('HOST_ENVIRONMENT')
 Export('TARGET_ENVIRONMENT')
 
-variantDir = 'build/{0}_{1}'.format(TARGET_ENVIRONMENT['arch'], TARGET_ENVIRONMENT['config'])
-variantDirStage1 = variantDir + '/stage1_{0}'.format(TARGET_ENVIRONMENT['imageFS'])
+variantDir = f'build/{TARGET_ENVIRONMENT["arch"]}_{TARGET_ENVIRONMENT["config"]}'
+variantDirStage1 = variantDir + f'/stage1_{TARGET_ENVIRONMENT["imageFS"]}'
 
-# -------------------------------------------------------
-# Kernel / bootloader / user compilation
-# -------------------------------------------------------
 SConscript('src/libs/core/SConscript', variant_dir=variantDir + '/libs/core', duplicate=0)
 
 if TARGET_ENVIRONMENT['arch'] == 'i686':
@@ -197,16 +160,7 @@ SConscript('image/SConscript', variant_dir=variantDir, duplicate=1)
 
 Import('image')
 
-# -------------------------------------------------------
-# DO NOT import or use the old "image" target anymore!
-# -------------------------------------------------------
-
-# Use the new FAT32 image for default build target
 Default(image)
-
-# -------------------------------------------------------
-# Run / Debug / Bochs use new image
-# -------------------------------------------------------
 
 Import('image', 'root_img')
 
@@ -227,25 +181,16 @@ def run_qemu(target, source, env):
         "qemu-system-x86_64",
         "-M", "pc",
         "-m", "512M",
-
-        # First define a drive
         "-drive", f"id=disk,file={root_img},format=raw,if=none",
-
-        # Then attach it as an IDE hard disk on bus 0 (primary), unit 0 (master)
         "-device", "ide-hd,drive=disk,bus=ide.0,unit=0",
-
-        # CDROM on a different slot
         "-cdrom", iso,
         "-boot", "d",
-
         "-serial", "mon:stdio",
         "-monitor", "none",
         "-no-reboot",
     ])
 
-
     return None
-
 
 run = HOST_ENVIRONMENT.Alias(
     "run",

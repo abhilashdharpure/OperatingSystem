@@ -552,11 +552,19 @@ mkdir -p third_party
 cd third_party
 wget https://musl.libc.org/releases/musl-1.2.5.tar.gz
 tar xf musl-1.2.5.tar.gz
-cd musl-1.2.5
-Run command: CC='../../../../toolchain/x86_64-elf/bin/x86_64-elf-gcc' ./configure --prefix=/ --target=x86_64-linux-musl
-./configure     --prefix=/     --target=x86_64-linux-musl     CC='../../../../toolchain/x86_64-elf/bin/x86_64-elf-gcc'     AR='../../../../toolchain/x86_64-elf/bin/x86_64-elf-ar'     RANLIB='../../../../toolchain/x86_64-elf/bin/x86_64-elf-ranlib'
+cd ~/Project/OperatingSystem/src/compositor/third_party/musl-1.2.5
+make clean
+
+AR='../../../../toolchain/bin/x86_64-linux-musl-ar' \
+RANLIB='../../../../toolchain/bin/x86_64-linux-musl-ranlib' \
+CC='../../../../toolchain/bin/x86_64-linux-musl-gcc' \
+./configure \
+    --prefix=/usr \
+    --target=x86_64-linux-musl
+
 make -j$(nproc)
-make DESTDIR=../../sysroot install
+make DESTDIR=/home/abhilash/Project/OperatingSystem/sysroot install
+
 
 cd ~/Project/OperatingSystem/src/sysroot
 mkdir -p usr

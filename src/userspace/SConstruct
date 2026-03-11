@@ -2,15 +2,25 @@
 
 import os
 
-TOOLCHAIN = "../../toolchain/x86_64-elf/bin"
-CC = os.path.join(TOOLCHAIN, "x86_64-elf-gcc")
-AS = os.path.join(TOOLCHAIN, "x86_64-elf-as")
-LD = os.path.join(TOOLCHAIN, "x86_64-elf-ld")
+# --------------------------------------------------------------------
+# Toolchain paths (musl toolchain)
+# --------------------------------------------------------------------
+TOOLCHAIN = "../../toolchain/bin"
+
+CC = os.path.join(TOOLCHAIN, "x86_64-linux-musl-gcc")
+AS = os.path.join(TOOLCHAIN, "x86_64-linux-musl-as")
+LD = os.path.join(TOOLCHAIN, "x86_64-linux-musl-ld")
+
+# --------------------------------------------------------------------
+# Sysroot for userspace (musl)
+# --------------------------------------------------------------------
+SYSROOT = "/home/abhilash/Project/OperatingSystem/sysroot"
 
 env = Environment(
     CC=CC,
     AS=AS,
     LD=LD,
+
     CFLAGS=[
         "-m64",
         "-ffreestanding",
@@ -20,36 +30,47 @@ env = Environment(
         "-Wall",
         "-Wextra",
         "-Werror=implicit-function-declaration",
+        f"--sysroot={SYSROOT}",
     ],
-    LINKFLAGS = [
+
+    LINKFLAGS=[
         "-nostdlib",
         "-no-pie",
         "-static",
         "-Wl,-m,elf_x86_64",
         "-Wl,-z,max-page-size=0x1000",
-        "-Wl,-T,/home/abhilash/Project/OperatingSystem/src/userspace/src/link.ld",
-        # For MUSL
-        "/home/abhilash/myos-sysroot/usr/lib/crt1.o",
-        "/home/abhilash/myos-sysroot/usr/lib/crti.o",
-        "/home/abhilash/myos-sysroot/usr/lib/crtn.o",
-    ]
+        f"-Wl,-T,{os.getcwd()}/src/link.ld",
 
+        # musl startup files from sysroot
+        f"{SYSROOT}/usr/lib/crt1.o",
+        f"{SYSROOT}/usr/lib/crti.o",
+        f"{SYSROOT}/usr/lib/crtn.o",
+    ],
 )
 
-# Correct include order
+# --------------------------------------------------------------------
+# Include paths
+# --------------------------------------------------------------------
 env.Append(CPPPATH=[
-    "#libc/include",                         # note the leading '#'
+    "#libc/include",
+    f"{SYSROOT}/usr/include",
 ])
 
-# For MUSL
+# --------------------------------------------------------------------
+# Library search paths
+# --------------------------------------------------------------------
 env.Append(LIBPATH=[
-    "/home/abhilash/myos-sysroot/usr/lib"
+    f"{SYSROOT}/usr/lib",
 ])
 
+# --------------------------------------------------------------------
 # Build libc once
+# --------------------------------------------------------------------
 libc_objs = SConscript("libc/SConscript", exports="env")
 
+# --------------------------------------------------------------------
 # Build programs
+# --------------------------------------------------------------------
 SConscript("bin/init/SConscript", exports=["env", "libc_objs"])
 SConscript("bin/test/SConscript", exports=["env", "libc_objs"])
 SConscript("bin/wl-test/SConscript", exports=["env", "libc_objs"])
