@@ -5,9 +5,13 @@
 typedef int pid_t;
 
 typedef struct regs {
-    uint64_t rip;  // 64-bit instruction pointer
-    uint64_t rsp;  // 64-bit stack pointer
-    // later: rflags, rax, rbx, rcx, rdx, rsi, rdi, rbp, etc.
+    uint64_t rip;     // 0
+    uint64_t rsp;     // 8
+
+    uint64_t rflags;  // 16
+    uint64_t cs;      // 24
+    uint64_t ss;      // 32
+    // later: rax, rbx, rcx, ...
 } regs_t;
 
 typedef struct Process {

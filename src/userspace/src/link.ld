@@ -1,11 +1,9 @@
 ENTRY(_start)
 
-SECTIONS
-{
+SECTIONS {
     . = 0x40000000;
 
     .text : {
-        KEEP(*(.text.crt0))   /* ensure crt0 comes first and is kept */
         *(.text*)
     }
 

@@ -401,9 +401,8 @@ ls /mnt/
 toolchain/x86_64-elf/bin/x86_64-elf-addr2line -f -C  -e build/x86_64_debug/kernel/kernel.elf 0x4654
 
 # Check mount
-losetup -a
-Detach like this, if wan to detach loo35:
-sudo losetup -d /dev/loop35
+sudo umount build/x86_64_debug/root.mnt || true
+sudo losetup -d /dev/loop36 || true
 
 
 ## Steup Steps

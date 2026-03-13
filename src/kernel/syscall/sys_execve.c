@@ -12,7 +12,6 @@
 #include <boot/bootparams.h>
 #include "paging.h"
 
-
 extern BootParams g_bootParams;
 extern Process *current_process;
 
@@ -89,8 +88,6 @@ static void *read_entire_file(const char *path, size_t *out_size)
     return buf;
 }
 
-
-
 uint64_t sys_execve(uint64_t path_ptr,
                     uint64_t argv_ptr,
                     uint64_t envp_ptr)
@@ -109,7 +106,6 @@ uint64_t sys_execve(uint64_t path_ptr,
     for (; i < sizeof(kpath) - 1; i++) {
         uint8_t c;
         if (!copy_from_user_byte(&c, (const uint8_t *)path_ptr + i)) {
-            // failed to read from user, abort
             kpath[i] = '\0';
             log_error("EXEC", "sys_execve: bad path pointer");
             return (uint64_t)-1;
@@ -120,7 +116,6 @@ uint64_t sys_execve(uint64_t path_ptr,
     }
     kpath[sizeof(kpath) - 1] = '\0';
 
-
     log_info("EXEC", "sys_execve('%s')", kpath);
 
     // ---- 2. Copy argv[] from userspace ----
@@ -129,15 +124,12 @@ uint64_t sys_execve(uint64_t path_ptr,
 
     if (argv_ptr) {
         while (argc < MAX_EXEC_ARGS) {
-
-            // ---- 1. Copy pointer from user ----
             char *u_str = NULL;
             if (!copy_from_user_ptr(&u_str, (char **)argv_ptr + argc))
                 break;
             if (!u_str)
                 break;
 
-            // ---- 2. Copy string from user ----
             char *buf = kmalloc(MAX_EXEC_ARG_LEN);
             if (!buf)
                 break;
@@ -158,27 +150,29 @@ uint64_t sys_execve(uint64_t path_ptr,
         }
     }
 
-    // ---- 3. Load ELF from filesystem ----
-    size_t elf_size = 0;
-    void *elf_data = read_entire_file(kpath, &elf_size);
-    if (!elf_data) {
+    // ---- 3. Open the ELF file (no read_entire_file) ----
+    int fd = VFS_Open(kpath, O_RDONLY);
+    if (fd < 0) {
         log_error("EXEC", "sys_execve: cannot open '%s'", kpath);
-        // free argv buffers
         for (size_t j = 0; j < argc; j++) {
             if (k_argv[j]) kfree(k_argv[j]);
         }
         return (uint64_t)-1;
     }
 
-    // ---- 4. Execute ELF with argc/argv ----
-    pid_t rc = exec_elf_mem(elf_data, elf_size, &g_bootParams, argc, k_argv);
+    static char *init_envp[] = {
+        "PATH=/",
+        NULL
+    };
+    // ---- 4. Execute ELF directly from fd (streaming loader) ----
+    pid_t rc = exec_elf_from_fd(fd, &g_bootParams, argc, k_argv, init_envp);
 
-    // exec_elf_mem should not return on success
-    kfree(elf_data);
+    // If exec succeeds, it never returns.
+    VFS_Close(fd);
     for (size_t j = 0; j < argc; j++) {
         if (k_argv[j]) kfree(k_argv[j]);
     }
 
-    log_error("EXEC", "sys_execve: exec_elf_mem returned unexpectedly (rc=%d)", rc);
+    log_error("EXEC", "sys_execve: exec_elf_from_fd returned unexpectedly (rc=%d)", rc);
     return (uint64_t)-1;
 }

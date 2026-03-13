@@ -4,79 +4,77 @@ project_name   = 'luma-compositor'
 build_dir      = 'build'
 generated_dir  = os.path.join(build_dir, 'generated')
 
-# ------------------------------------------------------------
-# Host environment (for wayland-scanner only)
-# ------------------------------------------------------------
+# Host env for wayland-scanner
 host_env = Environment(
     CC='gcc',
     CXX='g++'
 )
 
-# ------------------------------------------------------------
-# Target environment (your OS)
-# ------------------------------------------------------------
-
 cross_prefix = '../../toolchain/bin/x86_64-linux-musl-'
 sysroot = os.path.expanduser('~/Project/OperatingSystem/sysroot')
 
 target_env = Environment(
-    CC=cross_prefix + 'gcc',
-    CXX=cross_prefix + 'g++',
-    LINK=cross_prefix + 'g++',
+    CC   = cross_prefix + 'gcc',
+    CXX  = cross_prefix + 'g++',
+    LINK = cross_prefix + 'g++',
 
-    CPPPATH=[
+    CPPPATH = [
         '.', 'src', generated_dir,
         os.path.join(sysroot, 'usr/include'),
     ],
 
-    LIBPATH=[
+    LIBPATH = [
         os.path.join(sysroot, 'usr/lib'),
     ],
 
-    LIBS=[
+    LIBS = [
         'wayland-server',
         'xkbcommon',
-        'ffi'
+        'ffi',
     ],
 
-    CCFLAGS=[
+    CCFLAGS = [
         '--sysroot=' + sysroot,
-        '-Os',                 # optimize for size
-        '-fno-pie', '-no-pie',
-        '-static'
+        '-Os',
+        '-static',
+        '-fno-pie',
+        '-no-pie',
+        '-fno-stack-protector',
+        '-fno-exceptions',
+        '-fno-rtti',
+        '-fno-threadsafe-statics',
     ],
 
-    CXXFLAGS=[
+    CXXFLAGS = [
         '--sysroot=' + sysroot,
         '-std=c++17',
-        '-Os',                 # optimize for size
-        '-fno-pie', '-no-pie',
-        '-static'
+        '-Os',
+        '-static',
+        '-fno-pie',
+        '-no-pie',
     ],
 
-    LINKFLAGS=[
+    LINKFLAGS = [
         '--sysroot=' + sysroot,
         '-static',
         '-fno-pie',
-        '-no-pie'
-    ]
+        '-no-pie',
+        # match kernel expectations for user-space base, but let linker place data/bss
+        '-Wl,-Ttext-segment=0x40000000',
+    ],
 )
 
-# ------------------------------------------------------------
-# Ensure build directories exist
-# ------------------------------------------------------------
+# dirs
 target_env.Execute(Mkdir(build_dir))
 target_env.Execute(Mkdir(generated_dir))
 
 generated_dir_node = target_env.Dir(generated_dir)
 project_root       = target_env.Dir('#')
 
-# ------------------------------------------------------------
 # Wayland protocol generation
-# ------------------------------------------------------------
 protocols = [
     project_root.File('protocols/xdg-shell.xml'),
-    project_root.File('protocols/wayland.xml')
+    project_root.File('protocols/wayland.xml'),
 ]
 
 generated_sources = []
@@ -98,9 +96,7 @@ for xml_file in protocols:
 
     generated_sources.append(c_out)
 
-# ------------------------------------------------------------
-# Source files
-# ------------------------------------------------------------
+# Sources
 sources = [
     'src/main.cpp',
     'src/compositor.cpp',
@@ -108,17 +104,13 @@ sources = [
     'src/compositor_helper.cpp',
 ] + generated_sources
 
-# ------------------------------------------------------------
-# Build final binary
-# ------------------------------------------------------------
+# Program
 program = target_env.Program(
     target=os.path.join(build_dir, project_name),
-    source=sources
+    source=sources,
 )
 
-# ------------------------------------------------------------
-# Strip binary after linking (critical for size)
-# ------------------------------------------------------------
+# Strip
 target_env.AddPostAction(
     program,
     f"{cross_prefix}strip -s $TARGET"

@@ -2,25 +2,20 @@
 #include <stdint.h>
 #include <hal/process.h>
 
-/* e_ident indexes */
-#define EI_MAG0   0
-#define EI_MAG1   1
-#define EI_MAG2   2
-#define EI_MAG3   3
-#define EI_CLASS  4
 
-/* Magic numbers */
-#define ELFMAG0   0x7F
-#define ELFMAG1   'E'
-#define ELFMAG2   'L'
-#define ELFMAG3   'F'
+/* ELF constants used in your code */
+#define ELFMAG0 0x7f
+#define ELFMAG1 'E'
+#define ELFMAG2 'L'
+#define ELFMAG3 'F'
+#define ELFCLASS64 2
+#define EM_X86_64 62
 
 /* Class */
 #define ELFCLASS32 1
-#define ELFCLASS64 2
+// #define ELFCLASS64 2
 
 /* Machine */
-#define EM_X86_64 62
 
 /* Program header types */
 #define PT_NULL   0
@@ -31,9 +26,20 @@
 #define USER_HEAP_END   0x70000000ULL   // 256MB heap space
 
 
-/* Minimal 64-bit ELF header */
+/* e_ident indexes */
+enum {
+    EI_MAG0 = 0, EI_MAG1, EI_MAG2, EI_MAG3,
+    EI_CLASS, EI_DATA, EI_VERSION, EI_OSABI,
+    EI_ABIVERSION, EI_PAD
+};
+
+
+/* Minimal ELF64 definitions (match System V AMD64 ABI) */
+
+#define EI_NIDENT 16
+
 typedef struct {
-    unsigned char e_ident[16];
+    unsigned char e_ident[EI_NIDENT];
     uint16_t      e_type;
     uint16_t      e_machine;
     uint32_t      e_version;
@@ -49,7 +55,6 @@ typedef struct {
     uint16_t      e_shstrndx;
 } Elf64_Ehdr;
 
-/* Minimal 64-bit program header */
 typedef struct {
     uint32_t p_type;
     uint32_t p_flags;

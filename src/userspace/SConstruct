@@ -41,7 +41,7 @@ env = Environment(
         "-Wl,-z,max-page-size=0x1000",
         f"-Wl,-T,{os.getcwd()}/src/link.ld",
 
-        # musl startup files from sysroot
+        # musl startup files (must come BEFORE libc)
         f"{SYSROOT}/usr/lib/crt1.o",
         f"{SYSROOT}/usr/lib/crti.o",
         f"{SYSROOT}/usr/lib/crtn.o",
@@ -64,7 +64,7 @@ env.Append(LIBPATH=[
 ])
 
 # --------------------------------------------------------------------
-# Build libc once
+# Build libc once (your minimal libc)
 # --------------------------------------------------------------------
 libc_objs = SConscript("libc/SConscript", exports="env")
 

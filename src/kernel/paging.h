@@ -15,6 +15,12 @@ typedef struct {
 #define PAGE_USER      (1ULL << 2)
 #define PAGE_SIZE            4096ULL
 
+#define USER_START      0x0000000040000000ULL
+#define USER_END        0x0000000044000000ULL
+#define USER_STACK_TOP  USER_END
+#define USER_STACK_SIZE 0x00200000ULL
+
+
 // For now, kernel low memory is identity-mapped: VA == PA for all paging
 // structures and low RAM. This matches your current boot paging setup.
 static inline void *phys_to_virt(uint64_t pa)
@@ -40,6 +46,7 @@ int set_page_flags(uint64_t *pml4, uint64_t va, uint64_t flags);
 // User page table creation
 page_dir_t create_user_pd(void);
 void       clone_kernel_mappings(uint64_t *user_pml4);
+void       clone_kernel_mappings_for_user(uint64_t *user_pml4);
 
 // Enter user mode
 void enter_user_mode_from_process(struct Process *p);

@@ -9,9 +9,12 @@
 #include <hal/process.h>
 
 
-#define USER_START 0x40000000ULL
-#define USER_END   0x40200000ULL   // adjust to cover your program + stack
 
+// #define USER_START 0x40000000ULL
+// #define USER_END   0x40200000ULL   // adjust to cover your program + stack
+
+#define USER_START 0x40000000ULL
+#define USER_END   0x44000000ULL    // 64 MiB user space
 
 
 #define PML4_INDEX(va)       (((uint64_t)(va) >> 39) & 0x1FF)
@@ -29,6 +32,8 @@
 #define USER_PML4_END        KERNEL_PML4_INDEX
 
 #define PAGE_PS (1ULL << 7)
+// mask physical address bits in a PTE (bits 12..51)
+#define PTE_ADDR_MASK 0x000ffffffffff000ULL
 
 extern uint64_t kernel_pml4_phys;
 extern uint64_t *kernel_pml4_virt;
@@ -38,6 +43,36 @@ extern void enter_user_mode(Process *p);
 // ----------------------------------------------------------------------
 // Simple phys<->virt helpers for current IDENTITY mapping
 // ----------------------------------------------------------------------
+
+void dump_pte_for_va(uint64_t pml4_phys, uint64_t va)
+{
+    uint64_t *pml4 = (uint64_t *)phys_to_virt(pml4_phys);
+    uint64_t idx_pml4 = (va >> 39) & 0x1FF;
+    uint64_t idx_pdpt = (va >> 30) & 0x1FF;
+    uint64_t idx_pd   = (va >> 21) & 0x1FF;
+    uint64_t idx_pt   = (va >> 12) & 0x1FF;
+
+    uint64_t pml4e = pml4[idx_pml4];
+    log_info("PGDBG", "PML4[%llu]=0x%llx", idx_pml4, (unsigned long long)pml4e);
+    if (!(pml4e & 1)) return;
+
+    uint64_t pdpt_pa = pml4e & PTE_ADDR_MASK;
+    uint64_t *pdpt = (uint64_t *)phys_to_virt(pdpt_pa);
+    uint64_t pdpte = pdpt[idx_pdpt];
+    log_info("PGDBG", " PDPT[%llu]=0x%llx", idx_pdpt, (unsigned long long)pdpte);
+    if (!(pdpte & 1)) return;
+
+    uint64_t pd_pa = pdpte & PTE_ADDR_MASK;
+    uint64_t *pd = (uint64_t *)phys_to_virt(pd_pa);
+    uint64_t pde = pd[idx_pd];
+    log_info("PGDBG", "  PD[%llu]=0x%llx", idx_pd, (unsigned long long)pde);
+    if (!(pde & 1)) return;
+
+    uint64_t pt_pa = pde & PTE_ADDR_MASK;
+    uint64_t *pt = (uint64_t *)phys_to_virt(pt_pa);
+    uint64_t pte = pt[idx_pt];
+    log_info("PGDBG", "   PT[%llu]=0x%llx", idx_pt, (unsigned long long)pte);
+}
 
 
 
@@ -79,6 +114,24 @@ void debug_dump_va_mapping(uint64_t *pml4, uint64_t va)
 // PML4 walking helpers
 // ----------------------------------------------------------------------
 
+// static uint64_t *get_or_alloc_pdp(uint64_t *pml4, uint64_t va, uint64_t flags)
+// {
+//     uint64_t idx = PML4_INDEX(va);
+//     uint64_t e = pml4[idx];
+
+//     if (!(e & PAGE_PRESENT)) {
+//         uint64_t pa = pmm_alloc_page();
+//         if (!pa) return NULL;
+
+//         memset(phys_to_virt(pa), 0, PAGE_SIZE);
+//         pml4[idx] = pa | flags | PAGE_PRESENT;
+//         return (uint64_t *)phys_to_virt(pa);
+//     } else {
+//         uint64_t pa = e & ~0xFFFULL;
+//         return (uint64_t *)phys_to_virt(pa);
+//     }
+// }
+
 static uint64_t *get_or_alloc_pdp(uint64_t *pml4, uint64_t va, uint64_t flags)
 {
     uint64_t idx = PML4_INDEX(va);
@@ -92,7 +145,10 @@ static uint64_t *get_or_alloc_pdp(uint64_t *pml4, uint64_t va, uint64_t flags)
         pml4[idx] = pa | flags | PAGE_PRESENT;
         return (uint64_t *)phys_to_virt(pa);
     } else {
-        uint64_t pa = e & ~0xFFFULL;
+        uint64_t pa = e & PTE_ADDR_MASK;
+        // Upgrade flags on existing entry (drop any high bits such as NX)
+        uint64_t old_flags = e & 0xFFFULL;
+        pml4[idx] = pa | old_flags | (flags & (PAGE_USER | PAGE_RW));
         return (uint64_t *)phys_to_virt(pa);
     }
 }
@@ -110,30 +166,28 @@ static uint64_t *get_or_alloc_pd(uint64_t *pdp, uint64_t va, uint64_t flags)
         panic("get_or_alloc_pd: 1GiB huge page in the way");
     }
 
-    uint64_t pa = e & ~0xFFFULL;
+    uint64_t pa = e & PTE_ADDR_MASK;
 
     if (!(e & PAGE_PRESENT) || pa == 0) {
         uint64_t new_pa = pmm_alloc_page();
-        // log_info("Paging",
-        //         "get_or_alloc_pd (alloc): idx=%llu va=0x%llx new_pa=0x%llx e=0x%llx",
-        //         (unsigned long long)idx,
-        //         (unsigned long long)va,
-        //         (unsigned long long)new_pa,
-        //         (unsigned long long)e);
-
         if (!new_pa)
         {
             return NULL;
         }
 
         void *v = phys_to_virt(new_pa);
-        // log_info("Paging", "get_or_alloc_pd: phys_to_virt(new_pa)=%p", v);
         memset(v, 0, PAGE_SIZE);
         pdp[idx] = new_pa | flags | PAGE_PRESENT;
         return (uint64_t *)phys_to_virt(new_pa);
     }
     else
     {
+        /* Upgrade existing PD entry flags to include requested user/RW bits.
+         * If the PD was copied from the kernel it may be supervisor-only,
+         * which would block user access even if the PT entry is user-accessible.
+         */
+        uint64_t old_flags = e & 0xFFFULL;
+        pdp[idx] = pa | old_flags | (flags & (PAGE_USER | PAGE_RW));
         return (uint64_t *)phys_to_virt(pa);
     }
 }
@@ -141,35 +195,30 @@ static uint64_t *get_or_alloc_pd(uint64_t *pdp, uint64_t va, uint64_t flags)
 static uint64_t *get_or_alloc_pt(uint64_t *pd, uint64_t va, uint64_t flags)
 {
     uint64_t cr3 = read_cr3();
-    // log_info("Paging", "get_or_alloc_pt: CR3=0x%llx", (unsigned long long)cr3);
-
     uint64_t idx = PD_INDEX(va);
     uint64_t e   = pd[idx];
-    uint64_t pa  = e & ~0xFFFULL;
+    uint64_t pa  = e & PTE_ADDR_MASK;
 
     if (!(e & PAGE_PRESENT) || pa == 0)
     {
         uint64_t new_pa = pmm_alloc_page();
-        // log_info("Paging",
-        //          "get_or_alloc_pt (alloc): idx=%llu va=0x%llx new_pa=0x%llx e=0x%llx",
-        //          (unsigned long long)idx,
-        //          (unsigned long long)va,
-        //          (unsigned long long)new_pa,
-        //          (unsigned long long)e);
-
         if (!new_pa)
         {
             return NULL;
         }
 
         void *v = phys_to_virt(new_pa);
-        // log_info("Paging", "get_or_alloc_pt: phys_to_virt(new_pa)=%p", v);
         memset(v, 0, PAGE_SIZE);
         pd[idx] = new_pa | flags | PAGE_PRESENT;
         return (uint64_t *)v;
     }
     else
     {
+        /* Upgrade existing PD entry flags to include user/RW as requested so
+         * lower-level PT entries can be honored for user access.
+         */
+        uint64_t old_flags = e & 0xFFFULL;
+        pd[idx] = pa | old_flags | (flags & (PAGE_USER | PAGE_RW));
         return (uint64_t *)phys_to_virt(pa);
     }
 }
@@ -179,21 +228,21 @@ static uint64_t *get_pdp(uint64_t *pml4, uint64_t va)
 {
     uint64_t e = pml4[PML4_INDEX(va)];
     if (!(e & PAGE_PRESENT)) return NULL;
-    return (uint64_t *)phys_to_virt(e & ~0xFFFULL);
+    return (uint64_t *)phys_to_virt(e & PTE_ADDR_MASK);
 }
 
 static uint64_t *get_pd(uint64_t *pdp, uint64_t va)
 {
     uint64_t e = pdp[PDP_INDEX(va)];
     if (!(e & PAGE_PRESENT)) return NULL;
-    return (uint64_t *)phys_to_virt(e & ~0xFFFULL);
+    return (uint64_t *)phys_to_virt(e & PTE_ADDR_MASK);
 }
 
 static uint64_t *get_pt(uint64_t *pd, uint64_t va)
 {
     uint64_t e = pd[PD_INDEX(va)];
     if (!(e & PAGE_PRESENT)) return NULL;
-    return (uint64_t *)phys_to_virt(e & ~0xFFFULL);
+    return (uint64_t *)phys_to_virt(e & PTE_ADDR_MASK);
 }
 
 // ----------------------------------------------------------------------
@@ -224,7 +273,8 @@ int map_page(uint64_t *pml4, uint64_t va, uint64_t pa, uint64_t flags)
     }
 
     uint64_t idx = PT_INDEX(va);
-    pt[idx] = (pa & ~0xFFFULL) | (flags & (PAGE_PRESENT | PAGE_RW | PAGE_USER));
+    // pt[idx] = (pa & ~0xFFFULL) | (flags & (PAGE_PRESENT | PAGE_RW | PAGE_USER));
+    pt[idx] = (pa & PTE_ADDR_MASK) | (flags & (PAGE_PRESENT | PAGE_RW | PAGE_USER));
 
     __asm__ volatile("invlpg (%0)" :: "r"(va) : "memory");
     return 0;
@@ -237,13 +287,13 @@ void unmap_page(uint64_t *pml4, uint64_t va)
     uint64_t pd_i   = PD_INDEX(va);
     uint64_t pt_i   = PT_INDEX(va);
 
-    uint64_t *pdp = (uint64_t *)(pml4[pml4_i] & ~0xFFFULL);
+    uint64_t *pdp = (uint64_t *)(pml4[pml4_i] & PTE_ADDR_MASK);
     if (!pdp) return;
 
-    uint64_t *pd = (uint64_t *)(pdp[pdp_i] & ~0xFFFULL);
+    uint64_t *pd = (uint64_t *)(pdp[pdp_i] & PTE_ADDR_MASK);
     if (!pd) return;
 
-    uint64_t *pt = (uint64_t *)(pd[pd_i] & ~0xFFFULL);
+    uint64_t *pt = (uint64_t *)(pd[pd_i] & PTE_ADDR_MASK);
     if (!pt) return;
 
     pt[pt_i] = 0;  // clear PTE
@@ -255,6 +305,7 @@ void unmap_page(uint64_t *pml4, uint64_t va)
 
 uint64_t get_mapped_phys(uint64_t *pml4, uint64_t va)
 {
+    // log_info("PGDBG", "get_mapped_phys: pml4=%p va=0x%llx", pml4, va);
     uint64_t *pdp = get_pdp(pml4, va);
     if (!pdp) return 0;
 
@@ -267,7 +318,7 @@ uint64_t get_mapped_phys(uint64_t *pml4, uint64_t va)
     uint64_t e = pt[PT_INDEX(va)];
     if (!(e & PAGE_PRESENT)) return 0;
 
-    return (e & ~0xFFFULL) | (va & 0xFFFULL);
+    return (e & PTE_ADDR_MASK) | (va & 0xFFFULL);
 }
 
 int set_page_flags(uint64_t *pml4, uint64_t va, uint64_t flags)
@@ -277,19 +328,19 @@ int set_page_flags(uint64_t *pml4, uint64_t va, uint64_t flags)
     uint64_t pd_i   = PD_INDEX(va);
     uint64_t pt_i   = PT_INDEX(va);
 
-    uint64_t *pdp = (uint64_t *)(pml4[pml4_i] & ~0xFFFULL);
+    uint64_t *pdp = (uint64_t *)(pml4[pml4_i] & PTE_ADDR_MASK);
     if (!pdp || !(pml4[pml4_i] & PAGE_PRESENT)) return -1;
 
-    uint64_t *pd = (uint64_t *)(pdp[pdp_i] & ~0xFFFULL);
+    uint64_t *pd = (uint64_t *)(pdp[pdp_i] & PTE_ADDR_MASK);
     if (!pd || !(pdp[pdp_i] & PAGE_PRESENT)) return -1;
 
-    uint64_t *pt = (uint64_t *)(pd[pd_i] & ~0xFFFULL);
+    uint64_t *pt = (uint64_t *)(pd[pd_i] & PTE_ADDR_MASK);
     if (!pt || !(pd[pd_i] & PAGE_PRESENT)) return -1;
 
     if (!(pt[pt_i] & PAGE_PRESENT)) return -1;
 
     // Preserve physical address, change only flags:
-    uint64_t pa = pt[pt_i] & ~0xFFFULL;
+    uint64_t pa = pt[pt_i] & PTE_ADDR_MASK;
     pt[pt_i] = pa | flags;
 
     __asm__ volatile("invlpg (%0)" :: "r"(va) : "memory");
@@ -299,6 +350,33 @@ int set_page_flags(uint64_t *pml4, uint64_t va, uint64_t flags)
 // ----------------------------------------------------------------------
 // User page table creation
 // ----------------------------------------------------------------------
+
+// page_dir_t create_user_pd(void)
+// {
+//     log_info("Paging", "create_user_pd (64-bit) start");
+
+//     uint64_t new_pml4_pa = pmm_alloc_page();
+//     if (!new_pml4_pa) {
+//         log_critical("Paging", "create_user_pd: no memory for PML4");
+//         return (page_dir_t){ .pd_phys = 0, .pd_virt = NULL };
+//     }
+
+//     uint64_t *new_pml4 = (uint64_t *)phys_to_virt(new_pml4_pa);
+
+//     uint64_t cur_pml4_pa = read_cr3() & ~0xFFFULL;
+//     uint64_t *cur_pml4   = (uint64_t *)phys_to_virt(cur_pml4_pa);
+
+//     // Clone the whole kernel address space (identity + whatever else)
+//     memcpy(new_pml4, cur_pml4, PAGE_SIZE);
+
+//     log_info("Paging", "create_user_pd done: new_pml4_pa=0x%llx new_pml4=%p",
+//              (unsigned long long)new_pml4_pa, new_pml4);
+
+//     return (page_dir_t){
+//         .pd_phys = new_pml4_pa,
+//         .pd_virt = new_pml4
+//     };
+// }
 
 page_dir_t create_user_pd(void)
 {
@@ -315,7 +393,6 @@ page_dir_t create_user_pd(void)
     uint64_t cur_pml4_pa = read_cr3() & ~0xFFFULL;
     uint64_t *cur_pml4   = (uint64_t *)phys_to_virt(cur_pml4_pa);
 
-    // Clone the whole kernel address space (including identity mapping)
     memcpy(new_pml4, cur_pml4, PAGE_SIZE);
 
     log_info("Paging", "create_user_pd done: new_pml4_pa=0x%llx new_pml4=%p",
@@ -328,66 +405,94 @@ page_dir_t create_user_pd(void)
 }
 
 
+
 // recursively set PAGE_USER on all PT entries in a range
 static void make_user_mapping(uint64_t *pml4, uint64_t start, uint64_t end)
 {
     for (uint64_t va = start; va < end; va += PAGE_SIZE)
     {
-        uint64_t *pdp = get_or_alloc_pdp(pml4, va, PAGE_PRESENT | PAGE_RW | PAGE_USER);
-        if (!pdp) panic("make_user_mapping: get_or_alloc_pdp failed");
+        uint64_t *pdp = get_pdp(pml4, va);
+        if (!pdp) continue;
 
-        uint64_t *pd = get_or_alloc_pd(pdp, va, PAGE_PRESENT | PAGE_RW | PAGE_USER);
-        if (!pd) panic("make_user_mapping: get_or_alloc_pd failed");
+        uint64_t *pd = get_pd(pdp, va);
+        if (!pd) continue;
 
-        uint64_t *pt = get_or_alloc_pt(pd, va, PAGE_PRESENT | PAGE_RW | PAGE_USER);
-        if (!pt) panic("make_user_mapping: get_or_alloc_pt failed");
+        uint64_t *pt = get_pt(pd, va);
+        if (!pt) continue;
 
         uint64_t idx = PT_INDEX(va);
-        pt[idx] = (pt[idx] & ~0xFFFULL) | PAGE_PRESENT | PAGE_RW | PAGE_USER;
+        uint64_t e = pt[idx];
+        if (!(e & PAGE_PRESENT))
+            continue;
 
-        // Optional: invalidate TLB
+        uint64_t pa = e & PTE_ADDR_MASK;
+        pt[idx] = pa | PAGE_PRESENT | PAGE_RW | PAGE_USER;
+
         __asm__ volatile("invlpg (%0)" :: "r"(va) : "memory");
     }
 }
 
+
 // clone kernel PML4 + make user pages accessible
+// void clone_kernel_mappings_for_user(uint64_t *user_pml4)
+// {
+
+//     // PML4 was already set up in create_user_pd:
+//     //  - low entries (0..510) are zero
+//     //  - high kernel slot (511) copied from kernel
+//     // Nothing else to do here for now.
+//     log_info("Paging", "clone_kernel_mappings_for_user: nothing to clone (high-half already mapped)");
+    
+//     // Step 1: clone kernel PML4 entirely
+//     memcpy(user_pml4, kernel_pml4_virt, PAGE_SIZE);
+
+//     // Step 2: make PML4[0] point to a new PDPT (for user code) if needed
+//     uint64_t e0 = kernel_pml4_virt[0];
+//     if (e0 & PAGE_PRESENT)
+//     {
+//         uint64_t new_pdpt_pa = pmm_alloc_page();
+//         if (!new_pdpt_pa) panic("clone_kernel_mappings_for_user: failed to alloc PDPT");
+
+//         memset(phys_to_virt(new_pdpt_pa), 0, PAGE_SIZE);
+
+//         uint64_t *pdpt_src = (uint64_t *)phys_to_virt(e0 & ~0xFFFULL);
+//         uint64_t *pdpt_dst = (uint64_t *)phys_to_virt(new_pdpt_pa);
+
+//         for (int i = 0; i < 512; ++i)
+//             pdpt_dst[i] = pdpt_src[i];
+
+//         if (pdpt_dst[0] & PAGE_PS)
+//         {
+//             // Keep the 1GiB kernel huge page mapping,
+//             // but make it supervisor-only (U/S=0).
+//             pdpt_dst[0] &= ~PAGE_USER;
+//         }
+
+//         // Copy original flags but add PAGE_USER for PML4[0]
+//         user_pml4[0] = new_pdpt_pa | (e0 & 0xFFFULL) | PAGE_USER;
+//     }
+
+//     // Step 3: mark user code + stack region as USER
+//     make_user_mapping(user_pml4, USER_START, USER_END);
+
+//     log_info("Paging", "clone_kernel_mappings_for_user done: user VA 0x%llx-0x%llx now USER-accessible",
+//              USER_START, USER_END);
+// }
+
+
 void clone_kernel_mappings_for_user(uint64_t *user_pml4)
 {
-    // Step 1: clone kernel PML4 entirely
-    memcpy(user_pml4, kernel_pml4_virt, PAGE_SIZE);
+    // PML4 already cloned from kernel CR3 in create_user_pd().
+    // DO NOT clear PML4[0] — user mappings live there.
 
-    // Step 2: make PML4[0] point to a new PDPT (for user code) if needed
-    uint64_t e0 = kernel_pml4_virt[0];
-    if (e0 & PAGE_PRESENT)
-    {
-        uint64_t new_pdpt_pa = pmm_alloc_page();
-        if (!new_pdpt_pa) panic("clone_kernel_mappings_for_user: failed to alloc PDPT");
-
-        memset(phys_to_virt(new_pdpt_pa), 0, PAGE_SIZE);
-
-        uint64_t *pdpt_src = (uint64_t *)phys_to_virt(e0 & ~0xFFFULL);
-        uint64_t *pdpt_dst = (uint64_t *)phys_to_virt(new_pdpt_pa);
-
-        for (int i = 0; i < 512; ++i)
-            pdpt_dst[i] = pdpt_src[i];
-
-        if (pdpt_dst[0] & PAGE_PS)
-        {
-            // Keep the 1GiB kernel huge page mapping,
-            // but make it supervisor-only (U/S=0).
-            pdpt_dst[0] &= ~PAGE_USER;
-        }
-
-        // Copy original flags but add PAGE_USER for PML4[0]
-        user_pml4[0] = new_pdpt_pa | (e0 & 0xFFFULL) | PAGE_USER;
-    }
-
-    // Step 3: mark user code + stack region as USER
+    // Just ensure user region is marked PAGE_USER.
     make_user_mapping(user_pml4, USER_START, USER_END);
 
-    log_info("Paging", "clone_kernel_mappings_for_user done: user VA 0x%llx-0x%llx now USER-accessible",
-             USER_START, USER_END);
+    log_info("Paging",
+             "clone_kernel_mappings_for_user: no extra changes");
 }
+
+
 
 // ----------------------------------------------------------------------
 // Enter user mode (unchanged semantics – uses p->cr3 and enter_user_mode(p))
@@ -412,8 +517,8 @@ void enter_user_mode_from_process(Process *p)
              (unsigned long long)k_rsp,
              (unsigned long long)p->regs.rip,
              (unsigned long long)pml4_pa);
-    debug_dump_va_mapping(p->page_directory, p->regs.rip);
-    debug_dump_va_mapping(p->page_directory, p->regs.rsp - 8);
+    // debug_dump_va_mapping(p->page_directory, p->regs.rip);
+    // debug_dump_va_mapping(p->page_directory, p->regs.rsp - 8);
 
     //  debug_dump_user_bytes(p, p->regs.rsp, 0x80);
 
@@ -422,12 +527,17 @@ void enter_user_mode_from_process(Process *p)
              (unsigned long long)p->regs.rip,
              (unsigned long long)pml4_pa);
 
+    // Dump PTE chain for entry RIP and stack pointer to help debug faults
+    dump_pte_for_va(pml4_pa, p->regs.rip);
+    dump_pte_for_va(pml4_pa, p->regs.rsp - 8);
+
+
     write_cr3(pml4_pa);
 
     log_info("EXEC", "enter_user_mode_from_process: after write_cr3, jumping to user");
 
-    // enter_user_mode(p);
-    enter_user_mode(&p->regs);
+    enter_user_mode(p);
+    // enter_user_mode(&p->regs);
 
 
     log_critical("EXEC", "enter_user_mode: returned unexpectedly from user mode");

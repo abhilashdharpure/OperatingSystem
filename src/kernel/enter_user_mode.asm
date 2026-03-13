@@ -8,26 +8,19 @@ global enter_user_mode
 %define USER_CS 0x1B
 %define USER_SS 0x23
 
-section .text
 enter_user_mode:
     cli
 
-    ; Load user RIP and RSP from Process struct
     mov     rax, [rdi + OFFSET_REGS_RIP]   ; user RIP
     mov     rbx, [rdi + OFFSET_REGS_RSP]   ; user RSP
 
-    ; Make sure DF is clear before entering user mode
     cld
 
-    ; Build a clean RFLAGS for user:
-    ; start from current RFLAGS, clear DF, ensure IF=1
     pushfq
     pop     rcx
     and     rcx, ~(1 << 10)        ; clear DF
     or      rcx,  (1 << 9)         ; set IF
-    ; you can also mask out other bits if you want to be stricter
 
-    ; Push iret frame: SS, RSP, RFLAGS, CS, RIP
     push    qword USER_SS
     push    rbx                    ; user RSP
     push    rcx                    ; user RFLAGS

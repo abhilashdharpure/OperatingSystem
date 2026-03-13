@@ -939,7 +939,7 @@ int main()
     //testClientSocketPool();
 
 
-    printf("Hello from /bin/init!\n");
+    // printf("Hello from /bin/init!\n");
 
     // char *argv[] = { "test", NULL };
     // execve("/bin/test", argv, NULL);

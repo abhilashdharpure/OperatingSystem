@@ -134,10 +134,13 @@ void start_userspace(BootParams* bootParams)
         "init",
         NULL
     };
-
+    static char *init_envp[] = {
+        "PATH=/",
+        NULL
+    };
     // Hand off to ELF loader with argc=1, argv[0]="init"
     pid_t pid = exec_elf_mem(mf->data, mf->size, bootParams,
-                             1, init_argv);
+                             1, init_argv, init_envp);
     if (pid < 0)
     {
         panic("Failed to exec init");
