@@ -937,16 +937,16 @@ int main()
     printf("[Userspace] Issue after first printf, this will not print\n");
     klog("[Userspace] KLog is still fine..!\n");
 
-    //testClientSocketPool();
+    // testClientSocketPool();
 
 
     // printf("Hello from /bin/init!\n");
 
-    // char *argv[] = { "test", NULL };
-    // execve("/bin/test", argv, NULL);
+    // // char *argv[] = { "test", NULL };
+    // // execve("/bin/test", argv, NULL);
 
-    // // If execve fails:
-    // printf("execve /bin/test failed\n");
+    // // // If execve fails:
+    // // printf("execve /bin/test failed\n");
 
 
     start_compositor();

@@ -40,10 +40,15 @@ int sys_madvise(void *addr, size_t len, int advice) {
     return 0;   // musl is fine with this
 }
 
-int sys_set_tid_address(int *tidptr) {
-    return 1;
-}
+// int sys_set_tid_address(int *tidptr) {
+//     return 1;
+// }
 
+long sys_set_tid_address(int *tidptr)
+{
+    (void)tidptr;  // unused for now
+    return current_process->pid;
+}
 // int sys_prlimit64(pid_t pid, int resource,
 //                   const struct rlimit *new_limit,
 //                   struct rlimit *old_limit) {

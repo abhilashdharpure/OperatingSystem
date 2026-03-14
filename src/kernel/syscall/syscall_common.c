@@ -731,12 +731,18 @@ uint64_t sys_socketpair(uint64_t domain,
 long sys_arch_prctl(long code, unsigned long addr)
 {
     log_info("SYSCALL", "sys_arch_prctl: code=%ld addr=%lx", code, addr);
+    
     switch (code) {
+
     case ARCH_SET_FS:
-        wrmsr(MSR_FS_BASE, addr);   // now correct
+        current_process->fs_base = addr;
+        wrmsr(MSR_FS_BASE, addr);
         return 0;
+
+    case ARCH_GET_FS:
+        return current_process->fs_base;
+
     default:
         return -EINVAL;
     }
 }
-

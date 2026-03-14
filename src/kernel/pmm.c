@@ -115,6 +115,8 @@ uint64_t pmm_alloc_page(void)
     }
 
     uintptr_t pa = freelist[free_count - 1];
+    // log_info("PMM", "alloc page: pa=0x%llx", pa);
+
     // log_info("PMM", "alloc_page -> 0x%llx", (unsigned long long)pa);
     if ((pa & (PAGE_SIZE - 1)) != 0 ||
         pa < PMM_FREE_START ||

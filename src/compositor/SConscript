@@ -6,12 +6,12 @@ generated_dir  = os.path.join(build_dir, 'generated')
 
 # Host env for wayland-scanner
 host_env = Environment(
-    CC='gcc',
-    CXX='g++'
+    CC  = 'gcc',
+    CXX = 'g++',
 )
 
 cross_prefix = '../../toolchain/bin/x86_64-linux-musl-'
-sysroot = os.path.expanduser('~/Project/OperatingSystem/sysroot')
+sysroot      = os.path.expanduser('~/Project/OperatingSystem/sysroot')
 
 target_env = Environment(
     CC   = cross_prefix + 'gcc',
@@ -59,8 +59,8 @@ target_env = Environment(
         '-static',
         '-fno-pie',
         '-no-pie',
-        # match kernel expectations for user-space base, but let linker place data/bss
-        '-Wl,-Ttext-segment=0x40000000',
+        # Use our linker script to place code/data in the user region
+        '-Wl,-Tlinker.ld',
     ],
 )
 

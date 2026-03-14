@@ -938,3 +938,8 @@ meson setup build \
 
 ninja -C build
 DESTDIR=/home/abhilash/Project/OperatingSystem/sysroot ninja -C build install
+
+
+## Mount issue Device or resource busy
+sudo umount build/x86_64_debug/root.mnt
+sudo losetup -D

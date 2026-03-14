@@ -44,8 +44,8 @@ uint64_t syscall_dispatch(uint64_t nr,
                           uint64_t a4,
                           uint64_t a5)
 {
-    log_info("SYSCALL", "nr=%llu a0=%llx a1=%llx a2=%llx a3=%llx a4=%llx a5=%llx",
-             nr, a0, a1, a2, a3, a4, a5);
+    // log_info("SYSCALL", "nr=%llu a0=%llx a1=%llx a2=%llx a3=%llx a4=%llx a5=%llx",
+    //          nr, a0, a1, a2, a3, a4, a5);
 
     switch (nr) {
     case SYS_write:
@@ -169,7 +169,9 @@ uint64_t syscall_dispatch(uint64_t nr,
         int ret = sys_arch_prctl(a0, a1);
         log_info("SYSCALL", "sys_arch_prctl returned %d", ret);
         uint64_t efer = rdmsr(MSR_FS_BASE);
-        log_info("SYSCALL", "sys_arch_prctl: EFER=0x%llx", efer);       
+        log_info("SYSCALL", "sys_arch_prctl: EFER=0x%llx", efer);
+        log_info("SYSCALL", "FS_BASE now = 0x%lx", rdmsr(MSR_FS_BASE));
+
         return ret;
 
      case SYS_ioctl: 
