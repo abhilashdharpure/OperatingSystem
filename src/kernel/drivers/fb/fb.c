@@ -2,39 +2,7 @@
 #include "stdio.h"
 #include "hal/vfs.h"
 #include "debug.h"
-
-// static int cursor_x = 0;
-// static int cursor_y = 0;
-// static const int CHAR_WIDTH = 8;
-// static const int CHAR_HEIGHT = 16;
-
-// extern uint8_t font8x16[256][16]; // include a simple bitmap font
-
-// void fb_putc(char c)
-// {
-//     if (c == '\n') {
-//         cursor_x = 0;
-//         cursor_y += CHAR_HEIGHT;
-//         return;
-//     }
-
-//     for (int y = 0; y < CHAR_HEIGHT; y++) {
-//         uint8_t row = font8x16[(uint8_t)c][y];
-//         for (int x = 0; x < CHAR_WIDTH; x++) {
-//             if (row & (1 << (7 - x))) {
-//                 fb_put_pixel(cursor_x + x, cursor_y + y, 0xFFFFFFFF); // white
-//             }
-//         }
-//     }
-
-//     cursor_x += CHAR_WIDTH;
-//     if (cursor_x + CHAR_WIDTH >= fb_dev.width) {
-//         cursor_x = 0;
-//         cursor_y += CHAR_HEIGHT;
-//     }
-// }
-
-
+#include "paging.h"
 
 VbeModeInfo fb;
 fb_device_t fb_dev;
@@ -72,11 +40,59 @@ static int fb_ioctl(struct file *f, int cmd, void *arg)
     }
 }
 
+static int fb_mmap(struct file *f,
+                   uint64_t length,
+                   uint64_t prot,
+                   uint64_t flags,
+                   uint64_t offset,
+                   uint64_t *out_user_va)
+{
+    fb_device_t *dev = f->private_data;
+
+    uint64_t fb_pa   = dev->framebuffer + offset;
+    uint64_t fb_size = (uint64_t)dev->pitch * dev->height;
+
+    if (offset >= fb_size || offset + length > fb_size)
+        return -1;
+
+    if (!current_process)
+        return -1;
+
+    if (current_process->mmap_base == 0)
+        current_process->mmap_base = USER_MMAP_BASE;
+
+    uint64_t page_size = PAGE_SIZE;
+    uint64_t len   = (length + page_size - 1) & ~(page_size - 1);
+    uint64_t start = (current_process->mmap_base + page_size - 1) & ~(page_size - 1);
+
+    uint64_t flags_pte = PAGE_PRESENT | PAGE_USER;
+    if (prot & PROT_WRITE)
+        flags_pte |= PAGE_RW;
+
+    uint64_t pa = fb_pa & ~(page_size - 1);
+    uint64_t va = start;
+
+    for (uint64_t off = 0; off < len; off += page_size) {
+        if (map_page(current_process->page_directory,
+                     va + off,
+                     pa + off,
+                     flags_pte) != 0)
+        {
+            return -1;
+        }
+    }
+
+    current_process->mmap_base = start + len;
+    *out_user_va = start;
+    return 0;
+}
+
 struct file_operations fb_fops = {
-    .open = fb_open,
-    .read = fb_read,
+    .open  = fb_open,
+    .read  = fb_read,
     .write = fb_write,
     .ioctl = fb_ioctl,
+    .mmap  = fb_mmap,
 };
 
 

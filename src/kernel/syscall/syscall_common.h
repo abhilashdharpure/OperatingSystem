@@ -1,24 +1,7 @@
 #pragma once
 #include <stdint.h>
 #include <types.h>
-
-#define PAGE_SIZE 0x1000
-#define TICKS_PER_SEC 1000             // e.g. 1ms tick
-
-// Prot flags (mirror Linux for future compatibility)
-#define PROT_READ   0x1
-#define PROT_WRITE  0x2
-
-// Map flags
-#define MAP_SHARED    0x01
-#define MAP_PRIVATE   0x02
-#define MAP_ANONYMOUS 0x20
-
-#define MSR_FS_BASE 0xC0000100
-
-// linux values
-#define ARCH_SET_FS 0x1002
-#define ARCH_GET_FS 0x1003
+#include <paging.h>
 
 ssize_t sys_write(uint64_t fd, const char *buf, uint64_t len);
 

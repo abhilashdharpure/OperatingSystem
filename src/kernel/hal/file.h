@@ -35,4 +35,10 @@ struct file_operations {
     int  (*stat)(struct file *f, struct kstat *st);
     int  (*can_read)(struct file *f);
     int  (*can_write)(struct file *f);
+    int  (*mmap)(struct file *f,
+                uint64_t length,
+                uint64_t prot,
+                uint64_t flags,
+                uint64_t offset,
+                uint64_t *out_user_va);
 };

@@ -40,27 +40,12 @@ int sys_madvise(void *addr, size_t len, int advice) {
     return 0;   // musl is fine with this
 }
 
-// int sys_set_tid_address(int *tidptr) {
-//     return 1;
-// }
-
 long sys_set_tid_address(int *tidptr)
 {
     (void)tidptr;  // unused for now
     return current_process->pid;
 }
-// int sys_prlimit64(pid_t pid, int resource,
-//                   const struct rlimit *new_limit,
-//                   struct rlimit *old_limit) {
-//     return 0;
-// }
 
-// int sys_getrandom(void *buf, size_t len, unsigned flags) {
-//     // simple PRNG for now
-//     for (size_t i = 0; i < len; i++)
-//         ((unsigned char*)buf)[i] = (i * 37 + 13) & 0xFF;
-//     return len;
-// }
 
 int sys_exit_group(int code) {
     // same as sys_exit for now
@@ -68,8 +53,13 @@ int sys_exit_group(int code) {
     return 0;
 }
 
-long sys_ioctl(int fd, unsigned long req, unsigned long arg) {
-    return -ENOTTY; // or 0 if you want to lie
+long sys_ioctl(int fd, unsigned long req, unsigned long arg)
+{
+    struct file *f = VFS_GetFile(fd);
+    if (!f || !f->fops || !f->fops->ioctl)
+        return -ENOTTY;
+
+    return f->fops->ioctl(f, (int)req, (void *)arg);
 }
 
 long sys_prlimit64(pid_t pid, int resource,
@@ -83,7 +73,8 @@ long sys_prlimit64(pid_t pid, int resource,
     return 0;
 }
 
-long sys_getrandom(void *buf, size_t len, unsigned int flags) {
+long sys_getrandom(void *buf, size_t len, unsigned int flags)
+{
     // temporary: deterministic junk
     uint8_t *p = buf;
     for (size_t i = 0; i < len; i++) p[i] = 0x42;

@@ -16,6 +16,7 @@
 #include "fs/memfd.h"
 #include <arch/x86_64/msr.h> 
 #include <stdint.h>
+#include <drivers/fb/fb.h>
 // #include <kernel/time.h>   // whatever you use for time / nanosleep
 // #include <kernel/syscall.h>
 // #include <kernel/poll.h>   // struct pollfd, POLLIN, POLLOUT, POLLNVAL
@@ -106,6 +107,71 @@ int64_t sys_close(uint64_t fd)
     return VFS_Close((int)fd);
 }
 
+// static uint64_t mmap_file(uint64_t length, uint64_t prot, uint64_t flags,
+//                           int fd, uint64_t offset)
+// {
+//     struct file *f = VFS_GetFile(fd);
+//     if (!f || f->fops != &memfd_fops)
+//         return (uint64_t)-1;
+
+//     memfd_t *m = (memfd_t *)f->private_data;
+//     if (!m)
+//         return (uint64_t)-1;
+
+//     size_t page_size   = PAGE_SIZE;
+//     size_t aligned_len = (length + page_size - 1) & ~(page_size - 1);
+
+//     // Ensure backing store is big enough for [offset, offset+aligned_len)
+//     size_t needed = offset + aligned_len;
+//     if (memfd_ensure_capacity(m, needed) != 0)
+//         return (uint64_t)-1;
+
+//     // Optionally bump logical size
+//     if (needed > m->size)
+//         m->size = needed;
+
+//     uint64_t va_start = current_process->mmap_base;
+//     uint64_t va       = va_start;
+//     current_process->mmap_base += aligned_len;
+
+//     size_t start_page = offset / page_size;
+//     size_t start_off  = offset % page_size;
+
+//     uint64_t pte_flags = PAGE_PRESENT | PAGE_USER;
+//     if (prot & PROT_WRITE)
+//         pte_flags |= PAGE_RW;
+
+//     for (size_t off = 0; off < aligned_len; off += page_size) {
+//         size_t page_idx = start_page + (start_off + off) / page_size;
+//         size_t page_off = (start_off + off) % page_size;
+
+//         uint64_t pa = m->pages[page_idx];
+//         if (!pa) {
+//             pa = pmm_alloc_page();
+//             if (!pa)
+//                 return (uint64_t)-1;
+
+//             memset((void*)(uintptr_t)pa, 0, PAGE_SIZE);
+//             m->pages[page_idx] = pa;
+//         }
+
+//         map_page(current_process->page_directory,
+//                  va,
+//                  pa + page_off,
+//                  pte_flags);
+
+//         va += page_size;
+//     }
+
+//     log_info("SYSCALL",
+//              "mmap_file: memfd mapped %llu bytes at 0x%llx (offset=%llu)",
+//              (unsigned long long)aligned_len,
+//              (unsigned long long)va_start,
+//              (unsigned long long)offset);
+
+//     return va_start;
+// }
+
 static uint64_t mmap_file(uint64_t length, uint64_t prot, uint64_t flags,
                           int fd, uint64_t offset)
 {
@@ -120,12 +186,10 @@ static uint64_t mmap_file(uint64_t length, uint64_t prot, uint64_t flags,
     size_t page_size   = PAGE_SIZE;
     size_t aligned_len = (length + page_size - 1) & ~(page_size - 1);
 
-    // Ensure backing store is big enough for [offset, offset+aligned_len)
     size_t needed = offset + aligned_len;
     if (memfd_ensure_capacity(m, needed) != 0)
         return (uint64_t)-1;
 
-    // Optionally bump logical size
     if (needed > m->size)
         m->size = needed;
 
@@ -150,7 +214,7 @@ static uint64_t mmap_file(uint64_t length, uint64_t prot, uint64_t flags,
             if (!pa)
                 return (uint64_t)-1;
 
-            memset((void*)(uintptr_t)pa, 0, PAGE_SIZE);
+            memset(phys_to_virt(pa), 0, PAGE_SIZE);
             m->pages[page_idx] = pa;
         }
 
@@ -170,6 +234,8 @@ static uint64_t mmap_file(uint64_t length, uint64_t prot, uint64_t flags,
 
     return va_start;
 }
+
+
 
 static uint64_t mmap_anon(uint64_t length, uint64_t prot)
 {
@@ -230,6 +296,13 @@ static uint64_t mmap_anon(uint64_t length, uint64_t prot)
     return start;
 }
 
+uint64_t mmap_memfd(uint64_t length, uint64_t prot, uint64_t flags,
+                    int fd, uint64_t offset)
+{
+    log_error("SYSCALL", "mmap_memfd is not implemented yet, but you can keep your existing memfd mmap code.");
+    return mmap_file(length, prot, flags, fd, offset);
+}
+
 
 uint64_t sys_mmap(uint64_t addr,
                   uint64_t length,
@@ -276,17 +349,36 @@ uint64_t sys_mmap(uint64_t addr,
         return mmap_anon(length, prot);
     }
 
-    if (!(flags & MAP_SHARED)) {
-        log_error("SYSCALL", "sys_mmap: file-backed must be MAP_SHARED for now");
+    // File-backed path
+    struct file *f = VFS_GetFile((int)fd);
+    if (!f) {
+        log_error("SYSCALL", "sys_mmap: invalid fd %lld", (long long)fd);
         return (uint64_t)-1;
     }
 
-    if (offset != 0) {
-        log_error("SYSCALL", "sys_mmap: non-zero offset not supported yet");
+    if (f->fops && f->fops->mmap) {
+        uint64_t va = 0;
+        int r = f->fops->mmap(f, length, prot, flags, offset, &va);
+        if (r == 0)
+            return va;
         return (uint64_t)-1;
     }
 
-    return mmap_file(length, prot, flags, (int)fd, offset);
+    // Optional: memfd special-case
+    if (f->fops == &memfd_fops) {
+        if (!(flags & MAP_SHARED)) {
+            log_error("SYSCALL", "sys_mmap: memfd must be MAP_SHARED for now");
+            return (uint64_t)-1;
+        }
+        if (offset != 0) {
+            log_error("SYSCALL", "sys_mmap: non-zero offset not supported yet");
+            return (uint64_t)-1;
+        }
+        return mmap_file(length, prot, flags, (int)fd, offset);
+    }
+
+    log_error("SYSCALL", "sys_mmap: file type does not support mmap");
+    return (uint64_t)-1;
 }
 
 uint64_t sys_munmap(uint64_t addr, uint64_t length)
