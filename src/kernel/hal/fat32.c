@@ -548,8 +548,8 @@ static int fat_stat(struct file *f, struct kstat *st)
     st->st_nlink = 1;
     st->st_size  = node->size;
 
-    log_info("FAT32", "fat_stat: size=%u first_cluster=%u",
-         node->size, node->first_cluster);
+    //log_info("FAT32", "fat_stat: size=%u first_cluster=%u",
+    //     node->size, node->first_cluster);
 
     return 0;
 }

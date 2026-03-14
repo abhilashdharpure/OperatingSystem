@@ -241,9 +241,9 @@ static void build_initial_stack(Process *p,
     uint64_t env_addrs[MAX_EXEC_ARGS];
 
     log_info("EXEC", "build_initial_stack: sp=0x%llx argc=%llu argv=%p envp=%p",
-         (unsigned long long)sp,
-         (unsigned long long)argc,
-         (void*)argv, (void*)envp);
+             (unsigned long long)sp,
+             (unsigned long long)argc,
+             (void*)argv, (void*)envp);
 
     if (argc > MAX_EXEC_ARGS)
         argc = MAX_EXEC_ARGS;
@@ -254,6 +254,8 @@ static void build_initial_stack(Process *p,
         while (envp[envc] && envc < MAX_EXEC_ARGS)
             envc++;
     }
+    log_info("EXEC", "build_initial_stack: envc=%llu",
+             (unsigned long long)envc);
 
     // 1) Copy env strings (top‑down)
     for (int64_t i = (int64_t)envc - 1; i >= 0; i--) {
@@ -265,6 +267,12 @@ static void build_initial_stack(Process *p,
         sp -= padded;
         uint64_t str_va = sp;
         env_addrs[i] = str_va;
+
+        log_info("EXEC", "ENV[%lld]=\"%s\" va=0x%llx total=%llu padded=%llu",
+                 (long long)i, s,
+                 (unsigned long long)str_va,
+                 (unsigned long long)total,
+                 (unsigned long long)padded);
 
         size_t off = 0;
         while (off < total) {
@@ -288,6 +296,12 @@ static void build_initial_stack(Process *p,
         uint64_t str_va = sp;
         arg_addrs[i] = str_va;
 
+        log_info("EXEC", "ARG[%lld]=\"%s\" va=0x%llx total=%llu padded=%llu",
+                 (long long)i, s,
+                 (unsigned long long)str_va,
+                 (unsigned long long)total,
+                 (unsigned long long)padded);
+
         size_t off = 0;
         while (off < total) {
             uint64_t word = 0;
@@ -301,6 +315,8 @@ static void build_initial_stack(Process *p,
 
     // Align stack to 16 bytes before pushing pointers
     sp &= ~0xFULL;
+    log_info("EXEC", "build_initial_stack: after strings, aligned sp=0x%llx",
+             (unsigned long long)sp);
 
     // 3) Build auxv array in memory (we’ll push it last)
     uint64_t auxv[32];
@@ -325,6 +341,8 @@ static void build_initial_stack(Process *p,
 
     auxv[ax++] = 0;              // AT_NULL
     auxv[ax++] = 0;
+
+    log_info("EXEC", "build_initial_stack: auxv entries=%d", ax / 2);
 
     // 4) Push auxv (last element first)
     for (int i = ax - 1; i >= 0; i--) {
@@ -364,6 +382,9 @@ static void build_initial_stack(Process *p,
     }
 
     p->regs.rsp = sp;
+    log_info("EXEC", "build_initial_stack: final RSP=0x%llx (entry=%llx)",
+             (unsigned long long)p->regs.rsp,
+             (unsigned long long)eh->e_entry);
 }
 
 /* ---------- exec from memory ---------- */
@@ -445,9 +466,6 @@ pid_t exec_elf_mem(void *data,
     uint64_t phdr_addr = compute_phdr_addr_from_mem(eh, data);
     if (!phdr_addr)
         phdr_addr = USER_START + eh->e_phoff;   // fallback
-
-
-
 
     log_info("EXEC", "exec_elf_mem: argc=%llu argv=%p envp=%p",
         (unsigned long long)argc, (void*)argv, (void*)envp);

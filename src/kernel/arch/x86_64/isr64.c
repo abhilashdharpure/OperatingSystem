@@ -104,18 +104,8 @@ void x64_ISR_Handler(ISRFrame64* r)
 
             return;
         }
-
-
-
-        // else if (vec == 7)
-        // { // #NM
-        //     uint64_t cr0;
-        //     __asm__ volatile ("mov %%cr0, %0" : "=r"(cr0));
-        //     cr0 &= ~(1ULL << 3); // clear TS
-        //     __asm__ volatile ("mov %0, %%cr0" :: "r"(cr0) : "memory");
-        //     panic();
-        // }
-        else if (vec == 13) {
+        else if (vec == 13)
+        {
             log_critical("GP",
                 "#GP: error=%llx rip=%p cs=%llx ss=%llx rflags=%llx",
                 r->error,
@@ -135,7 +125,7 @@ void x64_ISR_Handler(ISRFrame64* r)
             log_critical("PF", "Page fault: cr2=%p error=%llx", (void*)cr2, r->error);
             debug_dump_va_mapping(current_process->page_directory, r->cpu.rip);
             debug_dump_user_bytes(current_process, r->cpu.rip, 0x40);
-
+            debug_dump_user_stack(current_process, r->cpu.rsp);
         }
 
         log_critical("EXC",

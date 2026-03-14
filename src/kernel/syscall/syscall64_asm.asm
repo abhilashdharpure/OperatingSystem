@@ -8,34 +8,13 @@ extern g_syscall_rsp0
 
 section .text
 
-; On entry from SYSCALL:
-;   rax = nr
-;   rdi = a0
-;   rsi = a1
-;   rdx = a2
-;   r10 = a3
-;   r8  = a4
-;   r9  = a5
-;   rcx = user RIP
-;   r11 = user RFLAGS
-;   rsp = user RSP
-;
-; We want to call:
-;   uint64_t syscall_dispatch(uint64_t nr,
-;                             uint64_t a0,
-;                             uint64_t a1,
-;                             uint64_t a2,
-;                             uint64_t a3,
-;                             uint64_t a4,
-;                             uint64_t a5);
-
 x64_syscall_entry:
     swapgs
 
-    ; Save user RSP in a callee-saved register
+    ; Save user RSP before switching to kernel stack
     mov     r12, rsp              ; r12 = user RSP
 
-    ; Switch to kernel stack
+    ; Switch to kernel syscall stack
     mov     rsp, [rel g_syscall_rsp0]
 
     ; Save callee-saved regs
@@ -51,9 +30,11 @@ x64_syscall_entry:
     push    r9
     push    r10
 
-    ; Save user RIP and RFLAGS in callee-saved regs
-    mov     r13, rcx              ; r13 = user RIP
-    mov     r14, r11              ; r14 = user RFLAGS
+    ; Save user RIP/RFLAGS exactly as given by SYSCALL
+    ;   rcx = user RIP
+    ;   r11 = user RFLAGS
+    push    rcx                   ; save user RIP
+    push    r11                   ; save user RFLAGS
 
     ; Preserve a3, a4, a5 in temps
     mov     r15, r10              ; r15 = a3
@@ -76,9 +57,9 @@ x64_syscall_entry:
     call    syscall_dispatch
     add     rsp, 8                ; pop a5
 
-    ; Restore user RIP/RFLAGS
-    mov     rcx, r13              ; user RIP
-    mov     r11, r14              ; user RFLAGS
+    ; Restore user RFLAGS and RIP from stack
+    pop     r11                   ; user RFLAGS
+    pop     rcx                   ; user RIP
 
     ; Restore saved volatile regs
     pop     r10
@@ -89,7 +70,7 @@ x64_syscall_entry:
     pop     r15
     pop     r14
     pop     r13
-    pop     r12
+    pop     r12                   ; r12 = user RSP
     pop     rbp
     pop     rbx
 

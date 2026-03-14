@@ -536,8 +536,9 @@ void enter_user_mode_from_process(Process *p)
 
     log_info("EXEC", "enter_user_mode_from_process: after write_cr3, jumping to user");
 
-    enter_user_mode(p);
-    // enter_user_mode(&p->regs);
+    // enter_user_mode(p);
+    enter_user_mode(&p->regs);
+    // enter_user_mode(&p->regs.rip);
 
 
     log_critical("EXEC", "enter_user_mode: returned unexpectedly from user mode");
