@@ -68,9 +68,9 @@ void debug_dump_user_bytes(Process *p, uint64_t va, size_t n)
 
 static inline void u64_store(Process *p, uint64_t va, uint64_t val)
 {
-    log_info("EXEC", "u64_store: va=0x%llx val=0x%llx", va, val);
+    // log_info("EXEC", "u64_store: va=0x%llx val=0x%llx", va, val);
     uint64_t pa = get_mapped_phys(p->page_directory, va);
-    log_info("EXEC", "u64_store: va=0x%llx -> pa=0x%llx", va, pa);
+    // log_info("EXEC", "u64_store: va=0x%llx -> pa=0x%llx", va, pa);
     if (!pa) {
         log_critical("EXEC", "u64_store: unmapped user VA=0x%llx", va);
         return;
