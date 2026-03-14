@@ -937,6 +937,9 @@ int main()
     printf("[Userspace] Issue after first printf, this will not print\n");
     klog("[Userspace] KLog is still fine..!\n");
 
+
+    syscall6(SYS_test, 11, 22, 33, 44, 55, 66);
+
     // testClientSocketPool();
 
 

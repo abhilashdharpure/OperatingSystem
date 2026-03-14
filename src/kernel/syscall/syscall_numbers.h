@@ -39,6 +39,7 @@ enum {
     SYS_getrandom       = 318,
     SYS_exit_group      = 231,
     SYS_arch_prctl      = 158,
+    SYS_getpriority     = 96,
 
     SYS_test            = 999,
 

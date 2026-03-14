@@ -40,3 +40,6 @@ uint64_t sys_brk(uint64_t new_brk);
 uint64_t sys_poll(uint64_t ufds_ptr,
                   uint64_t nfds,
                   uint64_t timeout_ms);
+
+long sys_getpriority(int which, int who);
+

@@ -171,33 +171,64 @@ static uint64_t mmap_file(uint64_t length, uint64_t prot, uint64_t flags,
     return va_start;
 }
 
-
 static uint64_t mmap_anon(uint64_t length, uint64_t prot)
 {
     if (!current_process)
         return (uint64_t)-1;
 
-    uint64_t start = current_process->mmap_base;
-    uint64_t len   = (length + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+    if (length == 0)
+        return (uint64_t)-1;
 
+    // Initialize mmap_base once
+    if (current_process->mmap_base == 0) {
+        current_process->mmap_base = USER_MMAP_BASE;   // e.g. 0x50000000
+    }
+
+    // Page-align length
+    uint64_t len   = (length + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+    // Page-align start
+    uint64_t start = (current_process->mmap_base + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+
+    // Build PTE flags from prot
     uint64_t flags = PAGE_PRESENT | PAGE_USER;
     if (prot & PROT_WRITE)
         flags |= PAGE_RW;
+    // You can later add PROT_EXEC / NX handling here.
+    // NOTE: PROT_NONE is a userspace concept; with this simple scheme
+    //       PROT_NONE still results in a readable page (no PAGE_RW).
 
     for (uint64_t va = start; va < start + len; va += PAGE_SIZE) {
         uint64_t pa = pmm_alloc_page();
-        if (!pa)
+        if (!pa) {
+            log_error("SYSCALL", "mmap_anon: out of physical memory");
+            // Optional: roll back already-mapped pages here.
             return (uint64_t)-1;
+        }
 
-        memset((void*)(uintptr_t)pa, 0, PAGE_SIZE);
-        if (map_page(current_process->page_directory, va, pa, flags) != 0)
+        // Zero the new page via kernel virtual address
+        memset(phys_to_virt(pa), 0, PAGE_SIZE);
+
+        if (map_page(current_process->page_directory,
+                     va,
+                     pa,
+                     flags) != 0)
+        {
+            log_error("SYSCALL", "mmap_anon: map_page failed for VA 0x%llx",
+                      (unsigned long long)va);
+            // Optional: roll back here too.
             return (uint64_t)-1;
+        }
     }
 
     current_process->mmap_base = start + len;
+
+    log_info("SYSCALL", "mmap_anon: mapped %llu bytes at 0x%llx (prot=%llx)",
+             (unsigned long long)len,
+             (unsigned long long)start,
+             (unsigned long long)prot);
+
     return start;
 }
-
 
 
 uint64_t sys_mmap(uint64_t addr,
@@ -223,18 +254,19 @@ uint64_t sys_mmap(uint64_t addr,
     if (length == 0)
         return (uint64_t)-1;
 
-    // if (!(prot & PROT_READ) || !(prot & PROT_WRITE)) {
-    //     log_error("SYSCALL", "sys_mmap: only RW mappings supported for now");
-    //     return (uint64_t)-1;
-    // }
-
-    bool can_read  = prot & PROT_READ;
+    bool can_read  = prot & PROT_READ;  
     bool can_write = prot & PROT_WRITE;
 
+    // Do NOT reject !can_read anymore; glibc/wayland uses PROT_NONE.
+    #if 0
     if (!can_read) {
         log_error("SYSCALL", "sys_mmap: pages must be readable");
         return (uint64_t)-1;
     }
+    #endif
+
+
+    // no more "must be readable" restriction
 
     if (fd == (uint64_t)-1 && (flags & MAP_ANONYMOUS)) {
         if ((flags & MAP_PRIVATE) != MAP_PRIVATE) {
@@ -244,7 +276,6 @@ uint64_t sys_mmap(uint64_t addr,
         return mmap_anon(length, prot);
     }
 
-    // CASE 2: file-backed mapping (memfd)
     if (!(flags & MAP_SHARED)) {
         log_error("SYSCALL", "sys_mmap: file-backed must be MAP_SHARED for now");
         return (uint64_t)-1;
@@ -302,37 +333,29 @@ uint64_t sys_mprotect(uint64_t addr, uint64_t length, uint64_t prot)
              (unsigned long long)length,
              (unsigned long long)prot);
 
-    if (!current_process) {
-        log_error("SYSCALL", "sys_mprotect: current_process is NULL");
+    if (!current_process)
         return (uint64_t)-1;
-    }
 
-    if (addr == 0 || length == 0) {
-        log_error("SYSCALL", "sys_mprotect: invalid addr/len");
+    if (addr == 0 || length == 0)
         return (uint64_t)-1;
-    }
 
-    // For now, support only readable, and optionally writable
-    if (!(prot & PROT_READ)) {
-        log_error("SYSCALL", "sys_mprotect: pages must be readable");
-        return (uint64_t)-1;
-    }
 
-    // Build PTE flags from prot
     uint64_t flags = PAGE_PRESENT | PAGE_USER;
     if (prot & PROT_WRITE)
         flags |= PAGE_RW;
-    // You can later add PROT_EXEC handling and NX bit here.
+    // ignore PROT_EXEC for now
 
     uint64_t start = addr & ~(PAGE_SIZE - 1);
     uint64_t end   = (addr + length + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
 
     for (uint64_t va = start; va < end; va += PAGE_SIZE) {
         uint64_t pa = get_mapped_phys(current_process->page_directory, va);
+        log_info("SYSCALL", "sys_mprotect ps = %llx -> pa=0x%llx", (unsigned long long)va, (unsigned long long)pa  );
+
         if (!pa) {
             log_error("SYSCALL", "sys_mprotect: VA 0x%llx not mapped",
                       (unsigned long long)va);
-            continue; // or return -1 if you want strict behavior
+            continue;
         }
 
         if (set_page_flags(current_process->page_directory, va, flags) != 0) {
@@ -344,6 +367,7 @@ uint64_t sys_mprotect(uint64_t addr, uint64_t length, uint64_t prot)
 
     return 0;
 }
+
 
 uint64_t sys_brk(uint64_t new_brk)
 {
@@ -745,4 +769,15 @@ long sys_arch_prctl(long code, unsigned long addr)
     default:
         return -EINVAL;
     }
+}
+
+long sys_getpriority(int which, int who)
+{
+    log_info("SYSCALL", "sys_getpriority: which=%d who=%d, retunring hard-coded value 0", which, who);
+
+    // For now, just pretend everyone has nice 0.
+    // Linux returns a value in [-20, 19], default 0.
+    (void)which;
+    (void)who;
+    return 0;
 }

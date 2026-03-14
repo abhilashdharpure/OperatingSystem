@@ -321,31 +321,42 @@ uint64_t get_mapped_phys(uint64_t *pml4, uint64_t va)
     return (e & PTE_ADDR_MASK) | (va & 0xFFFULL);
 }
 
-int set_page_flags(uint64_t *pml4, uint64_t va, uint64_t flags)
+int set_page_flags(uint64_t *pml4_phys, uint64_t va, uint64_t flags)
 {
+    uint64_t *pml4 = phys_to_virt((uint64_t)pml4_phys);
+
     uint64_t pml4_i = PML4_INDEX(va);
     uint64_t pdp_i  = PDP_INDEX(va);
     uint64_t pd_i   = PD_INDEX(va);
     uint64_t pt_i   = PT_INDEX(va);
 
-    uint64_t *pdp = (uint64_t *)(pml4[pml4_i] & PTE_ADDR_MASK);
-    if (!pdp || !(pml4[pml4_i] & PAGE_PRESENT)) return -1;
+    if (!(pml4[pml4_i] & PAGE_PRESENT)) return -1;
+    uint64_t pml4e_pa = pml4[pml4_i] & PTE_ADDR_MASK;
+    uint64_t pml4e_flags = pml4[pml4_i] & ~PTE_ADDR_MASK;
+    pml4[pml4_i] = pml4e_pa | (pml4e_flags | (flags & (PAGE_USER | PAGE_RW)));
 
-    uint64_t *pd = (uint64_t *)(pdp[pdp_i] & PTE_ADDR_MASK);
-    if (!pd || !(pdp[pdp_i] & PAGE_PRESENT)) return -1;
+    uint64_t *pdp = phys_to_virt(pml4e_pa);
+    if (!(pdp[pdp_i] & PAGE_PRESENT)) return -1;
+    uint64_t pdpe_pa = pdp[pdp_i] & PTE_ADDR_MASK;
+    uint64_t pdpe_flags = pdp[pdp_i] & ~PTE_ADDR_MASK;
+    pdp[pdp_i] = pdpe_pa | (pdpe_flags | (flags & (PAGE_USER | PAGE_RW)));
 
-    uint64_t *pt = (uint64_t *)(pd[pd_i] & PTE_ADDR_MASK);
-    if (!pt || !(pd[pd_i] & PAGE_PRESENT)) return -1;
+    uint64_t *pd = phys_to_virt(pdpe_pa);
+    if (!(pd[pd_i] & PAGE_PRESENT)) return -1;
+    uint64_t pde_pa = pd[pd_i] & PTE_ADDR_MASK;
+    uint64_t pde_flags = pd[pd_i] & ~PTE_ADDR_MASK;
+    pd[pd_i] = pde_pa | (pde_flags | (flags & (PAGE_USER | PAGE_RW)));
 
+    uint64_t *pt = phys_to_virt(pde_pa);
     if (!(pt[pt_i] & PAGE_PRESENT)) return -1;
 
-    // Preserve physical address, change only flags:
-    uint64_t pa = pt[pt_i] & PTE_ADDR_MASK;
-    pt[pt_i] = pa | flags;
+    uint64_t pte_pa = pt[pt_i] & PTE_ADDR_MASK;
+    pt[pt_i] = pte_pa | flags;
 
     __asm__ volatile("invlpg (%0)" :: "r"(va) : "memory");
     return 0;
 }
+
 
 // ----------------------------------------------------------------------
 // User page table creation
