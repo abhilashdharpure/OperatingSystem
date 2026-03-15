@@ -561,7 +561,7 @@ int VFS_CreatePipe(fd_t fds[2])
     fr->fops         = pipe_get_fops();  // from pipe.c
     fr->private_data = p;
     fr->position     = 0;
-    fr->refcount     = 1;
+    fr->refcount     = 1;~
     fr->flags        = O_RDONLY;
 
     // Initialize write end

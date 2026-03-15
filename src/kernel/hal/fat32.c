@@ -474,7 +474,7 @@ static int fat32_readdir(struct file *f, dirent_t *e)
 
             if (d->name[0] == 0x00) return -1;
             if (d->name[0] == 0xE5) continue;
-            if ((d->attr & 0x0F) == 0x0F) continue;
+            //if ((d->attr & 0x0F) == 0x0F) continue;
 
             make_short_name(d, e->name);
             e->inode = 0;

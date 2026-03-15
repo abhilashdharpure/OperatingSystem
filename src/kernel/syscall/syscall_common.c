@@ -17,13 +17,9 @@
 #include <arch/x86_64/msr.h> 
 #include <stdint.h>
 #include <drivers/fb/fb.h>
-// #include <kernel/time.h>   // whatever you use for time / nanosleep
-// #include <kernel/syscall.h>
-// #include <kernel/poll.h>   // struct pollfd, POLLIN, POLLOUT, POLLNVAL
+#include "syscall/sys_linux_dirent.h"
 
 uint64_t syscall_next_rip = 0;
-
-
 
 static uint64_t current_fs_base; // per-thread in the future
 
@@ -33,6 +29,19 @@ Process *current_process;
 extern int VFS_IsValidFd(int fd);
 extern int VFS_CanRead(int fd);   // for now: return 1 for regular files
 extern int VFS_CanWrite(int fd);  // for now: maybe also 1
+
+#ifndef SEEK_SET
+#define SEEK_SET 0
+#endif
+
+#ifndef SEEK_CUR
+#define SEEK_CUR 1
+#endif
+
+#ifndef SEEK_END
+#define SEEK_END 2
+#endif
+
 
 ssize_t sys_write(uint64_t fd, const char *buf, uint64_t len)
 {
@@ -170,8 +179,6 @@ static uint64_t mmap_file(uint64_t length, uint64_t prot, uint64_t flags,
     return va_start;
 }
 
-
-
 static uint64_t mmap_anon(uint64_t length, uint64_t prot)
 {
     if (!current_process)
@@ -238,7 +245,6 @@ uint64_t mmap_memfd(uint64_t length, uint64_t prot, uint64_t flags,
     return mmap_file(length, prot, flags, fd, offset);
 }
 
-
 uint64_t sys_mmap(uint64_t addr,
                   uint64_t length,
                   uint64_t prot,
@@ -254,75 +260,51 @@ uint64_t sys_mmap(uint64_t addr,
              (long long)fd,
              (unsigned long long)offset);
 
-    if (addr != 0) {
-        log_error("SYSCALL", "sys_mmap: non-zero addr not supported");
+    if (addr != 0)
         return (uint64_t)-1;
-    }
 
     if (length == 0)
         return (uint64_t)-1;
 
-    bool can_read  = prot & PROT_READ;  
-    bool can_write = prot & PROT_WRITE;
-
-    // Do NOT reject !can_read anymore; glibc/wayland uses PROT_NONE.
-    #if 0
-    if (!can_read) {
-        log_error("SYSCALL", "sys_mmap: pages must be readable");
-        return (uint64_t)-1;
-    }
-    #endif
-
-
-    // no more "must be readable" restriction
-
+    /* Anonymous mapping */
     if (fd == (uint64_t)-1 && (flags & MAP_ANONYMOUS)) {
-        if ((flags & MAP_PRIVATE) != MAP_PRIVATE) {
-            log_error("SYSCALL", "sys_mmap: anonymous must be MAP_PRIVATE");
-            return (uint64_t)-1;
-        }
+        // For now we don’t care if it’s MAP_PRIVATE or MAP_SHARED
         return mmap_anon(length, prot);
     }
 
-    // File-backed path
+    /* File-backed mapping */
     struct file *f = VFS_GetFile((int)fd);
     if (!f) {
         log_error("SYSCALL", "sys_mmap: invalid fd %lld", (long long)fd);
         return (uint64_t)-1;
     }
 
+    /* If the file has a real mmap op, use it */
     if (f->fops && f->fops->mmap) {
         uint64_t va = 0;
         int r = f->fops->mmap(f, length, prot, flags, offset, &va);
-        if (r == 0)
-            return va;
-        return (uint64_t)-1;
+        return (r == 0) ? va : (uint64_t)-1;
     }
 
-    // Optional: memfd special-case
+    /* memfd special case (keep your existing behavior) */
     if (f->fops == &memfd_fops) {
-        if (!(flags & MAP_SHARED)) {
-            log_error("SYSCALL", "sys_mmap: memfd must be MAP_SHARED for now");
-            return (uint64_t)-1;
-        }
         if (offset != 0) {
-            log_error("SYSCALL", "sys_mmap: non-zero offset not supported yet");
+            log_error("SYSCALL", "sys_mmap: memfd non-zero offset not supported yet");
             return (uint64_t)-1;
         }
-        return mmap_file(length, prot, flags, (int)fd, offset);
+        // For now, ignore MAP_SHARED vs MAP_PRIVATE and just map pages
+        return mmap_memfd(length, prot, flags, (int)fd, offset);
     }
 
-    if ((flags & MAP_ANONYMOUS) == 0) {
-        // Remove the "only MAP_PRIVATE" check for now, or make it advisory.
-        // if ((flags & MAP_PRIVATE) != MAP_PRIVATE) {
-        //     log_error("SYSCALL", "sys_mmap: only MAP_PRIVATE supported for regular files");
-        //     return (uint64_t)-1;
-        // }
-
+    /* Generic emulation for regular files: allocate anon + read file */
+    {
+        // If length == 0, map whole file
         if (length == 0) {
             struct kstat kst;
-            if (!f->fops || !f->fops->stat || f->fops->stat(f, &kst) < 0)
+            if (!f->fops || !f->fops->stat || f->fops->stat(f, &kst) < 0) {
+                log_error("SYSCALL", "sys_mmap: stat failed for fd %lld", (long long)fd);
                 return (uint64_t)-1;
+            }
             length = kst.st_size;
             if (length == 0)
                 return (uint64_t)-1;
@@ -333,7 +315,7 @@ uint64_t sys_mmap(uint64_t addr,
             return (uint64_t)-1;
 
         off_t old = VFS_Lseek((fd_t)fd, 0, SEEK_CUR);
-        VFS_Lseek((fd_t)fd, offset, SEEK_SET);
+        VFS_Lseek((fd_t)fd, (off_t)offset, SEEK_SET);
 
         size_t to_read = (size_t)length;
         size_t done = 0;
@@ -347,13 +329,13 @@ uint64_t sys_mmap(uint64_t addr,
         if (old >= 0)
             VFS_Lseek((fd_t)fd, old, SEEK_SET);
 
+        log_info("SYSCALL", "sys_mmap: emulated file-backed mmap fd=%lld -> 0x%llx len=%llu",
+                 (long long)fd,
+                 (unsigned long long)va,
+                 (unsigned long long)length);
+
         return va;
     }
-
-
-
-    log_error("SYSCALL", "sys_mmap: file type does not support mmap");
-    return (uint64_t)-1;
 }
 
 uint64_t sys_munmap(uint64_t addr, uint64_t length)
@@ -559,20 +541,6 @@ uint64_t sys_stat(uint64_t user_path_ptr, uint64_t user_buf_ptr)
     return 0;
 }
 
-// int myfs_stat(struct file *f, struct kstat *st)
-// {
-//     memset(st, 0, sizeof(*st));
-
-//     st->st_dev   = 0;
-//     st->st_ino   = inode_number;
-//     st->st_mode  = S_IFREG | 0644;
-//     st->st_nlink = 1;
-//     st->st_size  = file_size_in_bytes;   // <-- this must be real
-
-//     return 0;
-// }
-
-
 uint64_t sys_fstat(uint64_t fd, uint64_t user_buf_ptr)
 {
     struct file *f = VFS_GetFile(fd);
@@ -615,58 +583,59 @@ uint64_t sys_lseek(uint64_t fd, uint64_t offset, uint64_t whence)
     return (uint64_t)ret; // return -1 on error as usual
 }
 
-uint64_t sys_getdents(uint64_t user_path_ptr,
+uint64_t sys_getdents(uint64_t fd_arg,
                       uint64_t user_buf_ptr,
-                      uint64_t max_entries)
+                      uint64_t buf_size)
 {
-    log_info("SYSCALL", "sys_getdents path=%s, buf=%p, max_entries=%u", user_path_ptr, user_buf_ptr, (unsigned int)max_entries);
-    const char *path = (const char *)user_path_ptr;
-    struct dirent *user_buf = (struct dirent *)user_buf_ptr;
+    int fd = (int)fd_arg;
+    char *ubuf = (char *)user_buf_ptr;
+    size_t max = (size_t)buf_size;
 
-    if (!path || !user_buf || max_entries == 0)
-        return (uint64_t)-1;
+    log_info("SYSCALL", "sys_getdents fd=%d buf=%p size=%u",
+             fd, ubuf, (unsigned)max);
 
-    int fd = VFS_Open(path, 0);
-    if (fd < 0)
+    if (!VFS_IsValidFd(fd) || !ubuf || max == 0)
         return (uint64_t)-1;
 
     struct file *dir = VFS_GetFile(fd);
-    if (!dir || !dir->fops || !dir->fops->readdir) {
-        VFS_Close(fd);
+    if (!dir || !dir->fops || !dir->fops->readdir)
         return (uint64_t)-1;
-    }
 
-    // Small fixed upper bound for now
-    if (max_entries > 64)
-        max_entries = 64;
-
+    size_t written = 0;
     dirent_t kentry;
-    struct dirent temp[64];
-    uint64_t count = 0;
 
-    while (count < max_entries &&
-           dir->fops->readdir(dir, &kentry) == 0)
-    {
-        temp[count].d_ino  = kentry.inode;
-        temp[count].d_type = kentry.type;
+    while (1) {
+        if (dir->fops->readdir(dir, &kentry) != 0)
+            break;  // no more entries
 
-        // Copy name safely
-        size_t i = 0;
-        for (; i < NAME_MAX - 1 && kentry.name[i]; ++i)
-            temp[count].d_name[i] = kentry.name[i];
-        temp[count].d_name[i] = '\0';
+        size_t namelen = strnlen(kentry.name, NAME_MAX);
+        size_t reclen  = sizeof(struct linux_dirent64) + namelen + 1;
 
-        count++;
+        // align to 8 bytes as Linux does
+        reclen = (reclen + 7) & ~7ULL;
+
+        if (written + reclen > max)
+            break;  // no space for this entry
+
+        struct linux_dirent64 *lde =
+            (struct linux_dirent64 *)(ubuf + written);
+
+        lde->d_ino    = kentry.inode;
+        lde->d_off    = 0;              // you can fill a real offset later
+        lde->d_reclen = (uint16_t)reclen;
+        lde->d_type   = kentry.type;    // 0=file, 1=dir in your VFS
+
+        memcpy(lde->d_name, kentry.name, namelen);
+        lde->d_name[namelen] = '\0';
+
+        log_info("SYSCALL", "sys_getdents READDIR: %s", lde->d_name);
+
+        written += reclen;
     }
 
-    // Copy all collected entries to userspace
-    for (uint64_t i = 0; i < count; ++i) {
-        user_buf[i] = temp[i];
-    }
-
-    VFS_Close(fd);
-    return count;
+    return (uint64_t)written;
 }
+
 
 uint64_t sys_dup(uint64_t oldfd)
 {
@@ -859,21 +828,6 @@ uint64_t sys_socketpair(uint64_t domain,
 
     return 0;
 }
-
-// long sys_arch_prctl(int code, unsigned long addr)
-// {
-//     switch (code) {
-//     case ARCH_SET_FS:
-//         // addr is a full 64-bit canonical user VA
-//         // write it into FS base MSR
-//         wrmsr(0xC0000100, (uint32_t)(addr & 0xFFFFFFFF),
-//                           (uint32_t)(addr >> 32));
-//         return 0;
-
-//     default:
-//         return -EINVAL;
-//     }
-// }
 
 long sys_arch_prctl(long code, unsigned long addr)
 {

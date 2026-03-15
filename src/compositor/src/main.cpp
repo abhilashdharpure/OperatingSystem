@@ -7,6 +7,7 @@
 #include "compositor.h"
 #include <sys/ioctl.h>
 #include <sys/stat.h>
+#include <dirent.h>
 
 // Optional: include your compositor header
 #include "compositor.h"
@@ -22,6 +23,9 @@
 
 int main() {
     printf("Hello from Compositor!\n");
+
+    setenv("XKB_CONFIG_ROOT", "/usr/share/X11/xkb", 1);
+    setenv("XKB_LOG_LEVEL", "debug", 1);
 
     struct stat st;
 
@@ -41,6 +45,14 @@ int main() {
         printf("Opened evdev successfully\n");
         close(fd);
     }
+
+
+    DIR *d = opendir("/usr/share/X11/xkb/types");
+    struct dirent *e;
+    while ((e = readdir(d))) {
+        printf("entry: %s\n", e->d_name);
+    }
+
 
 
     int fb_fd = open("/dev/fb0", O_RDWR);
@@ -76,10 +88,13 @@ int main() {
 
     printf("User-space test complete. Ready to launch compositor!\n");
 
-    // Here you can call your compositor main function
-    // compositor_run();
     LumaCompositor comp{};
-    luma_init(&comp);
+    if (!luma_init(&comp))
+    {
+        fprintf(stderr, "LumaCompositor init failed, not running event loop\n");
+        return 1;
+    }
+    
     luma_run(&comp);
 
     // xyz

@@ -34,7 +34,7 @@ enum {
     SYS_uname           = 63,
     SYS_fcntl           = 72,  // or fcntl64 = 72 on x86_64
     SYS_ftruncate       = 77,
-    SYS_getdents        = 78,  // or getdents64 = 217
+    SYS_getdents        = 217,  // or getdents64 = 217 or 78?
     SYS_getcwd          = 79,
     SYS_getpriority     = 96,
     SYS_getuid          = 102,
