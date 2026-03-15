@@ -40,3 +40,10 @@ static int fat32_read(struct file *f, void *buf, size_t size);
 static int fat_stat(struct file *f, struct kstat *st);
 
 struct file_operations *get_fat32_fops(void);
+static void utf16le_to_ascii(char *dst, size_t dst_sz,
+                             const uint16_t *src, size_t src_len);
+static void lfn_clear(char *lfn_buf);
+static void lfn_prepend_chunk(char *lfn_buf, size_t buf_sz,
+                              const uint16_t *name1, size_t n1,
+                              const uint16_t *name2, size_t n2,
+                              const uint16_t *name3, size_t n3);

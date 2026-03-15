@@ -20,3 +20,4 @@ char* codepoint_to_utf8(int codepoint, char* stringOutput);
 char* kstrdup(const char* src);
 int toupper(int c);
 char* strcat(char* dst, const char* src);
+int strcasecmp(const char *s1, const char *s2);
