@@ -197,6 +197,32 @@ uint64_t syscall_dispatch(uint64_t nr,
     case  SYS_getpriority:
         return sys_getpriority((int)a0, (int)a1);
 
+    case SYS_getuid:  
+        log_info("SYSCALL", "SYS_getuid, returnign hardcoded 0 for now");
+        return sys_getuid();
+
+    case SYS_getgid:  
+        log_info("SYSCALL", "SYS_getgid, returnign hardcoded 0 for now");
+        return sys_getgid();
+
+    case SYS_geteuid: 
+        log_info("SYSCALL", "SYS_geteuid, returnign hardcoded 0 for now");
+        return sys_geteuid();
+
+    case SYS_getegid: 
+        log_info("SYSCALL", "SYS_getegid, returnign hardcoded 0 for now");
+        return sys_getegid();
+
+
+    case SYS_faccessat:
+        return sys_faccessat((int)a0, (const char *)a1, (int)a2, (int)a3);
+
+    case SYS_faccessat2:
+        log_error("SYSCALL", "Tell libc this syscall is not implemented, please fall back");
+        // Tell libc "this syscall is not implemented, please fall back"
+        return -ENOSYS;
+
+
 
     case SYS_test:
         log_info("SYSCALL", "TEST: a0=%llx a1=%llx a2=%llx a3=%llx a4=%llx a5=%llx",

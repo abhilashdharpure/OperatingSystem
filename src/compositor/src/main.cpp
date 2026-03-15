@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include "compositor.h"
 #include <sys/ioctl.h>
+#include <sys/stat.h>
 
 // Optional: include your compositor header
 #include "compositor.h"
@@ -22,26 +23,24 @@
 int main() {
     printf("Hello from Compositor!\n");
 
-    // // Example: open /dev/fb0 (just to test kernel FB access)
-    // int fb_fd = open("/dev/fb0", O_RDWR);
-    // if (fb_fd < 0) {
-    //     perror("Failed to open /dev/fb0\n");
-    //     return 1;
-    // }
-    // printf("/dev/fb0 opened successfully.\n");
+    struct stat st;
 
-    // // Map the framebuffer (example: first 8 MB)
-    // void *fb_ptr = mmap(NULL, 8*1024*1024, PROT_READ | PROT_WRITE, MAP_SHARED, fb_fd, 0);
-    // if (fb_ptr == MAP_FAILED) {
-    //     perror("Failed to mmap framebuffer\n");
-    //     close(fb_fd);
-    //     return 1;
-    // }
+    int ret = stat("/usr/share/X11/xkb", &st);
+    printf("ret=%d errno=%d st_mode=%#o S_ISDIR=%d\n",
+        ret, errno, st.st_mode, S_ISDIR(st.st_mode));
 
-    // printf("Framebuffer mapped at %p\n", fb_ptr);
-    // // Optional: unmap & close
-    // munmap(fb_ptr, 8*1024*1024);
+    ret = stat("/usr/share/X11/xkb/rules/evdev", &st);
+    printf("ret=%d errno=%d st_mode=%#o S_ISREG=%d\n",
+        ret, errno, st.st_mode, S_ISREG(st.st_mode));
 
+    int fd = open("/usr/share/X11/xkb/rules/evdev", O_RDONLY);
+    printf("open evdev fd=%d errno=%d\n", fd, errno);
+    if (fd < 0) {
+        printf("Failed to open: /usr/share/X11/xkb/rules/evdev\n");
+    } else {
+        printf("Opened evdev successfully\n");
+        close(fd);
+    }
 
 
     int fb_fd = open("/dev/fb0", O_RDWR);
@@ -56,6 +55,8 @@ int main() {
     }
 
     size_t fb_size = (size_t)info.pitch * info.height;
+    printf("fb_size is %zu (pitch=%u, height=%u)\n", fb_size, info.pitch, info.height);
+
     if (fb_size == 0) {
         fprintf(stderr, "fb_size is 0 (pitch=%u, height=%u)\n", info.pitch, info.height);
         exit(1);

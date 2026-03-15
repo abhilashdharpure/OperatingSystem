@@ -441,13 +441,13 @@ off_t VFS_Lseek(fd_t fd, off_t offset, int whence)
     off_t new_pos = 0;
 
     switch (whence) {
-    case 0: // SEEK_SET
+    case SEEK_SET: // SEEK_SET
         new_pos = offset;
         break;
-    case 1: // SEEK_CUR
+    case SEEK_CUR: // SEEK_CUR
         new_pos = cur + offset;
         break;
-    case 2: // SEEK_END
+    case SEEK_END: // SEEK_END
         new_pos = size + offset;
         break;
     default:

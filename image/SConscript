@@ -196,25 +196,17 @@ def build_grub_iso(target, source, env):
     # create required directories
     os.makedirs(grubdir, exist_ok=True)
     os.makedirs(efidir, exist_ok=True)
-    os.makedirs(bootdir, exist_ok=True)  # make sure /boot exists
-    os.makedirs(workdir / 'bin', exist_ok=True)  # make sure /bin exists
+    os.makedirs(bootdir, exist_ok=True)
+    os.makedirs(workdir / 'bin', exist_ok=True)
 
     # copy kernel
     shutil.copy2(kernel, bootdir / 'kernel.elf')
 
     fontdir = grubdir / 'fonts'
-    os.makedirs(fontdir, exist_ok=True) 
-    
-    # Copy GRUB's default font
+    os.makedirs(fontdir, exist_ok=True)
     shutil.copy2('/usr/share/grub/unicode.pf2', fontdir / 'unicode.pf2')
 
-    # copy /bin/init from your image/root/bin/init
-    # init_path = Path('image/root/bin/init')
-    # if init_path.exists():
-    #     shutil.copy2(init_path, workdir / 'bin/init')
-    # else:
-    #     raise FileNotFoundError("init binary not found at " + str(init_path))
-
+    # copy /bin from image/root/bin
     bin_src = Path('image/root/bin')
     bin_dst = workdir / 'bin'
     bin_dst.mkdir(parents=True, exist_ok=True)
@@ -226,7 +218,26 @@ def build_grub_iso(target, source, env):
         if f.is_file():
             shutil.copy2(f, bin_dst / f.name)
 
+    # --- NEW: copy host /usr/share/X11/xkb into image/root/usr, then into iso_root ---
 
+    # 1) ensure image/root/usr/share/X11/xkb is populated from host
+    host_xkb = Path('/usr/share/X11/xkb')
+    image_usr = Path('image/root/usr')
+    image_xkb = image_usr / 'share' / 'X11' / 'xkb'
+    image_xkb.parent.mkdir(parents=True, exist_ok=True)
+
+    if host_xkb.exists():
+        shutil.copytree(host_xkb, image_xkb, dirs_exist_ok=True)
+    else:
+        print("WARNING: host /usr/share/X11/xkb not found")
+
+    # 2) now copy image/root/usr into iso_root/usr
+    usr_src = image_usr
+    usr_dst = workdir / 'usr'
+    usr_dst.mkdir(parents=True, exist_ok=True)
+
+    if usr_src.exists():
+        shutil.copytree(usr_src, usr_dst, dirs_exist_ok=True)
     # grub.cfg
     grub_cfg = grubdir / 'grub.cfg'
     grub_cfg.write_text(
@@ -307,6 +318,31 @@ def build_fat32_root_image(target, source, env):
             raise FileNotFoundError(f"/bin/init not found at {init_src}")
         shutil.copy2(init_src, bin_dir / 'init')
         (bin_dir / 'init').chmod(0o755)
+
+        # --- Copy /usr (for xkbcommon, etc.) ---
+        usr_src = root_dir / 'usr'
+        usr_dst = tmp / 'usr'
+        if usr_src.exists():
+            shutil.copytree(usr_src, usr_dst, dirs_exist_ok=True)
+
+        # --- 7. Copy other root files ---
+        for f in root_dir.glob('**/*'):
+            if f.is_dir():
+                continue
+            if f.is_file() and f != init_src:
+                dst = tmp / f.relative_to(root_dir)
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(f, dst)
+
+        # # copy /usr (for xkbcommon, etc.)
+        # usr_src = Path('image/root/usr')
+        # usr_dst = workdir / 'usr'
+        # usr_dst.mkdir(parents=True, exist_ok=True)
+
+        # if usr_src.exists():
+        #     # Python 3.8+: dirs_exist_ok avoids errors if dirs already exist
+        #     shutil.copytree(usr_src, usr_dst, dirs_exist_ok=True)
+
 
         # --- 7. Copy other root files ---
         for f in root_dir.glob('**/*'):

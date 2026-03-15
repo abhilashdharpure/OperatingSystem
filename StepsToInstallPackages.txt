@@ -204,6 +204,10 @@ LOOP=$(sudo losetup --find --show build/i686_debug/image.img)
 sudo kpartx -av $LOOP
 sudo fdisk -l $LOOP 
 
+## Check root file sysytem of Image, mount to /mnt
+sudo losetup --find --show -P build/x86_64_debug/root.img
+sudo mount /dev/loop35p1 /mnt
+ls /mnt
 
 sudo losetup --find --show build/i686_debug/image.img
 sudo kpartx -av /dev/loopNN

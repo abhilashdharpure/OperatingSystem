@@ -22,6 +22,11 @@ typedef long off_t;
 #define MAX_VFS_ENTRIES 64
 #define MAX_OPEN_FILES  32
 
+#define SEEK_SET 0
+#define SEEK_CUR 1
+#define SEEK_END 2
+
+
 /* Prototypes */
 void VFS_Init(void);
 int VFS_RegisterDevice(const char *path, struct file_operations *fops, void *private_data);

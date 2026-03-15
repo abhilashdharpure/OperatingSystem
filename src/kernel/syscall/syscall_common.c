@@ -107,71 +107,6 @@ int64_t sys_close(uint64_t fd)
     return VFS_Close((int)fd);
 }
 
-// static uint64_t mmap_file(uint64_t length, uint64_t prot, uint64_t flags,
-//                           int fd, uint64_t offset)
-// {
-//     struct file *f = VFS_GetFile(fd);
-//     if (!f || f->fops != &memfd_fops)
-//         return (uint64_t)-1;
-
-//     memfd_t *m = (memfd_t *)f->private_data;
-//     if (!m)
-//         return (uint64_t)-1;
-
-//     size_t page_size   = PAGE_SIZE;
-//     size_t aligned_len = (length + page_size - 1) & ~(page_size - 1);
-
-//     // Ensure backing store is big enough for [offset, offset+aligned_len)
-//     size_t needed = offset + aligned_len;
-//     if (memfd_ensure_capacity(m, needed) != 0)
-//         return (uint64_t)-1;
-
-//     // Optionally bump logical size
-//     if (needed > m->size)
-//         m->size = needed;
-
-//     uint64_t va_start = current_process->mmap_base;
-//     uint64_t va       = va_start;
-//     current_process->mmap_base += aligned_len;
-
-//     size_t start_page = offset / page_size;
-//     size_t start_off  = offset % page_size;
-
-//     uint64_t pte_flags = PAGE_PRESENT | PAGE_USER;
-//     if (prot & PROT_WRITE)
-//         pte_flags |= PAGE_RW;
-
-//     for (size_t off = 0; off < aligned_len; off += page_size) {
-//         size_t page_idx = start_page + (start_off + off) / page_size;
-//         size_t page_off = (start_off + off) % page_size;
-
-//         uint64_t pa = m->pages[page_idx];
-//         if (!pa) {
-//             pa = pmm_alloc_page();
-//             if (!pa)
-//                 return (uint64_t)-1;
-
-//             memset((void*)(uintptr_t)pa, 0, PAGE_SIZE);
-//             m->pages[page_idx] = pa;
-//         }
-
-//         map_page(current_process->page_directory,
-//                  va,
-//                  pa + page_off,
-//                  pte_flags);
-
-//         va += page_size;
-//     }
-
-//     log_info("SYSCALL",
-//              "mmap_file: memfd mapped %llu bytes at 0x%llx (offset=%llu)",
-//              (unsigned long long)aligned_len,
-//              (unsigned long long)va_start,
-//              (unsigned long long)offset);
-
-//     return va_start;
-// }
-
 static uint64_t mmap_file(uint64_t length, uint64_t prot, uint64_t flags,
                           int fd, uint64_t offset)
 {
@@ -377,6 +312,46 @@ uint64_t sys_mmap(uint64_t addr,
         return mmap_file(length, prot, flags, (int)fd, offset);
     }
 
+    if ((flags & MAP_ANONYMOUS) == 0) {
+        // Remove the "only MAP_PRIVATE" check for now, or make it advisory.
+        // if ((flags & MAP_PRIVATE) != MAP_PRIVATE) {
+        //     log_error("SYSCALL", "sys_mmap: only MAP_PRIVATE supported for regular files");
+        //     return (uint64_t)-1;
+        // }
+
+        if (length == 0) {
+            struct kstat kst;
+            if (!f->fops || !f->fops->stat || f->fops->stat(f, &kst) < 0)
+                return (uint64_t)-1;
+            length = kst.st_size;
+            if (length == 0)
+                return (uint64_t)-1;
+        }
+
+        uint64_t va = mmap_anon(length, prot);
+        if (va == (uint64_t)-1)
+            return (uint64_t)-1;
+
+        off_t old = VFS_Lseek((fd_t)fd, 0, SEEK_CUR);
+        VFS_Lseek((fd_t)fd, offset, SEEK_SET);
+
+        size_t to_read = (size_t)length;
+        size_t done = 0;
+        while (done < to_read) {
+            ssize_t r = VFS_Read((fd_t)fd, (void *)(va + done), to_read - done);
+            if (r <= 0)
+                break;
+            done += (size_t)r;
+        }
+
+        if (old >= 0)
+            VFS_Lseek((fd_t)fd, old, SEEK_SET);
+
+        return va;
+    }
+
+
+
     log_error("SYSCALL", "sys_mmap: file type does not support mmap");
     return (uint64_t)-1;
 }
@@ -537,8 +512,9 @@ uint64_t sys_brk(uint64_t new_brk)
 uint64_t sys_stat(uint64_t user_path_ptr, uint64_t user_buf_ptr)
 {
     const char *path = (const char *)user_path_ptr;
-    struct kstat *user_buf = (struct kstat *)user_buf_ptr;
+    struct stat *ust = (struct stat *)user_buf_ptr;
 
+    // 1. Open the file or directory
     int fd = VFS_Open(path, 0);
     if (fd < 0)
         return (uint64_t)-1;
@@ -549,16 +525,53 @@ uint64_t sys_stat(uint64_t user_path_ptr, uint64_t user_buf_ptr)
         return (uint64_t)-1;
     }
 
-    struct kstat st;
-    int r = f->fops->stat(f, &st);
+    // 2. Kernel-side stat
+    struct kstat kst;
+    int r = f->fops->stat(f, &kst);
     VFS_Close(fd);
 
     if (r < 0)
         return (uint64_t)-1;
 
-    *user_buf = st;
+    // 3. Translate kstat → userspace struct stat
+    memset(ust, 0, sizeof(struct stat));
+
+    ust->st_dev   = kst.st_dev;
+    ust->st_ino   = kst.st_ino;
+    ust->st_nlink = kst.st_nlink;
+    ust->st_size  = kst.st_size;
+
+    // IMPORTANT: set correct mode bits
+    ust->st_mode  = kst.st_mode;
+
+    // You may also set:
+    ust->st_uid = 0;
+    ust->st_gid = 0;
+    ust->st_rdev = 0;
+    ust->st_blksize = 4096;
+    ust->st_blocks  = (kst.st_size + 511) / 512;
+
+    // timestamps (optional)
+    ust->st_atime = 0;
+    ust->st_mtime = 0;
+    ust->st_ctime = 0;
+
     return 0;
 }
+
+// int myfs_stat(struct file *f, struct kstat *st)
+// {
+//     memset(st, 0, sizeof(*st));
+
+//     st->st_dev   = 0;
+//     st->st_ino   = inode_number;
+//     st->st_mode  = S_IFREG | 0644;
+//     st->st_nlink = 1;
+//     st->st_size  = file_size_in_bytes;   // <-- this must be real
+
+//     return 0;
+// }
+
 
 uint64_t sys_fstat(uint64_t fd, uint64_t user_buf_ptr)
 {
@@ -566,16 +579,33 @@ uint64_t sys_fstat(uint64_t fd, uint64_t user_buf_ptr)
     if (!f || !f->fops || !f->fops->stat)
         return (uint64_t)-1;
 
-    struct kstat *user_buf = (struct kstat *)user_buf_ptr;
-
-    struct kstat st;
-    int r = f->fops->stat(f, &st);
+    struct kstat kst;
+    int r = f->fops->stat(f, &kst);
     if (r < 0)
         return (uint64_t)-1;
 
-    *user_buf = st;
+    struct stat *ust = (struct stat *)user_buf_ptr;
+    memset(ust, 0, sizeof(struct stat));
+
+    ust->st_dev   = kst.st_dev;
+    ust->st_ino   = kst.st_ino;
+    ust->st_nlink = kst.st_nlink;
+    ust->st_size  = (int64_t)kst.st_size;
+    ust->st_mode  = kst.st_mode;
+
+    ust->st_uid = 0;
+    ust->st_gid = 0;
+    ust->st_rdev = 0;
+    ust->st_blksize = 4096;
+    ust->st_blocks  = (kst.st_size + 511) / 512;
+
+    ust->st_atime = 0;
+    ust->st_mtime = 0;
+    ust->st_ctime = 0;
+
     return 0;
 }
+
 
 uint64_t sys_lseek(uint64_t fd, uint64_t offset, uint64_t whence)
 {
@@ -589,6 +619,7 @@ uint64_t sys_getdents(uint64_t user_path_ptr,
                       uint64_t user_buf_ptr,
                       uint64_t max_entries)
 {
+    log_info("SYSCALL", "sys_getdents path=%s, buf=%p, max_entries=%u", user_path_ptr, user_buf_ptr, (unsigned int)max_entries);
     const char *path = (const char *)user_path_ptr;
     struct dirent *user_buf = (struct dirent *)user_buf_ptr;
 
@@ -871,5 +902,39 @@ long sys_getpriority(int which, int who)
     // Linux returns a value in [-20, 19], default 0.
     (void)which;
     (void)who;
+    return 0;
+}
+
+long sys_faccessat(int dirfd, const char *path, int mode, int flags)
+{
+    (void)dirfd;
+    (void)mode;
+    (void)flags;
+
+    int fd = VFS_Open(path, 0);
+    if (fd < 0)
+        return -ENOENT;   // or -EACCES, but ENOENT is fine
+
+    VFS_Close(fd);
+    return 0;
+}
+
+long sys_getuid(void)
+{
+    return 0;
+}
+
+long sys_getgid(void)
+{
+    return 0;
+}
+
+long sys_geteuid(void)
+{
+    return 0;
+}
+
+long sys_getegid(void)
+{
     return 0;
 }

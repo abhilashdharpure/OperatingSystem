@@ -25,4 +25,9 @@ uint64_t sys_poll(uint64_t ufds_ptr,
                   uint64_t timeout_ms);
 
 long sys_getpriority(int which, int who);
+long sys_faccessat(int dirfd, const char *path, int mode, int flags);
 
+long sys_getuid(void);
+long sys_getgid(void);
+long sys_geteuid(void);
+long sys_getegid(void);
