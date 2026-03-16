@@ -27,31 +27,31 @@ int main() {
     setenv("XKB_CONFIG_ROOT", "/usr/share/X11/xkb", 1);
     setenv("XKB_LOG_LEVEL", "debug", 1);
 
-    struct stat st;
+    // struct stat st;
 
-    int ret = stat("/usr/share/X11/xkb", &st);
-    printf("ret=%d errno=%d st_mode=%#o S_ISDIR=%d\n",
-        ret, errno, st.st_mode, S_ISDIR(st.st_mode));
+    // int ret = stat("/usr/share/X11/xkb", &st);
+    // printf("ret=%d errno=%d st_mode=%#o S_ISDIR=%d\n",
+    //     ret, errno, st.st_mode, S_ISDIR(st.st_mode));
 
-    ret = stat("/usr/share/X11/xkb/rules/evdev", &st);
-    printf("ret=%d errno=%d st_mode=%#o S_ISREG=%d\n",
-        ret, errno, st.st_mode, S_ISREG(st.st_mode));
+    // ret = stat("/usr/share/X11/xkb/rules/evdev", &st);
+    // printf("ret=%d errno=%d st_mode=%#o S_ISREG=%d\n",
+    //     ret, errno, st.st_mode, S_ISREG(st.st_mode));
 
-    int fd = open("/usr/share/X11/xkb/rules/evdev", O_RDONLY);
-    printf("open evdev fd=%d errno=%d\n", fd, errno);
-    if (fd < 0) {
-        printf("Failed to open: /usr/share/X11/xkb/rules/evdev\n");
-    } else {
-        printf("Opened evdev successfully\n");
-        close(fd);
-    }
+    // int fd = open("/usr/share/X11/xkb/rules/evdev", O_RDONLY);
+    // printf("open evdev fd=%d errno=%d\n", fd, errno);
+    // if (fd < 0) {
+    //     printf("Failed to open: /usr/share/X11/xkb/rules/evdev\n");
+    // } else {
+    //     printf("Opened evdev successfully\n");
+    //     close(fd);
+    // }
 
-
-    DIR *d = opendir("/usr/share/X11/xkb/types");
-    struct dirent *e;
-    while ((e = readdir(d))) {
-        printf("entry: %s\n", e->d_name);
-    }
+    // // Print xkb/types directory entries to verify we can read them
+    // DIR *d = opendir("/usr/share/X11/xkb/types");
+    // struct dirent *e;
+    // while ((e = readdir(d))) {
+    //     printf("entry: %s\n", e->d_name);
+    // }
 
 
 

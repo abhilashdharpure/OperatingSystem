@@ -2,6 +2,18 @@
 #include <stdint.h>
 #include <types.h>
 #include <paging.h>
+#include <string.h>
+#include <errno.h>
+
+struct sigaction {
+    void (*sa_handler)(int);
+    unsigned long sa_flags;
+    void (*sa_restorer)(void);
+    unsigned long sa_mask[1]; // enough for now
+};
+
+typedef unsigned long sigset_t;
+
 
 ssize_t sys_write(uint64_t fd, const char *buf, uint64_t len);
 
@@ -31,3 +43,30 @@ long sys_getuid(void);
 long sys_getgid(void);
 long sys_geteuid(void);
 long sys_getegid(void);
+long sys_rt_sigaction(int signum,
+                      const struct sigaction *act,
+                      struct sigaction *oldact,
+                      size_t sigsetsize);
+long sys_rt_sigprocmask(int how,
+                        const sigset_t *set,
+                        sigset_t *oldset,
+                        size_t sigsetsize);
+long sys_tkill(int tid, int sig);
+long sys_clone(unsigned long flags,
+               void *child_stack,
+               void *ptid,
+               void *ctid,
+               void *regs);
+long sys_membarrier(int cmd, int flags);
+
+long sys_pwrite(uint64_t fd,
+                       const char *buf,
+                       uint64_t len,
+                       uint64_t pos_l,
+                       uint64_t pos_h);
+long sys_pwritev_compat(uint64_t fd,
+                        uint64_t iov_user,
+                        uint64_t vlen,
+                        uint64_t pos_l,
+                        uint64_t pos_h,
+                        uint64_t unused);

@@ -13,6 +13,8 @@ enum {
     SYS_mprotect        = 10,
     SYS_munmap          = 11,
     SYS_brk             = 12,
+    SYS_rt_sigaction    = 13,
+    SYS_rt_sigprocmask  = 14,
     SYS_ioctl           = 16,
     SYS_writev          = 20,
     SYS_pipe            = 22,
@@ -29,6 +31,7 @@ enum {
     SYS_bind            = 49,
     SYS_listen          = 50,
     SYS_socketpair      = 53,
+    SYS_clone           = 56,
     SYS_execve          = 59,
     SYS_exit            = 60,
     SYS_uname           = 63,
@@ -43,16 +46,17 @@ enum {
     SYS_getegid         = 108,
     SYS_getppid         = 110,
     SYS_arch_prctl      = 158,
+    SYS_tkill           = 200,
     SYS_set_tid_address = 218,
     SYS_clock_gettime   = 228,
     SYS_exit_group      = 231,
     SYS_faccessat       = 269,
+    SYS_pwritev         = 290,
+    SYS_membarrier      = 291,
     SYS_prlimit64       = 302,
     SYS_getrandom       = 318,
     SYS_memfd_create    = 319,
     SYS_faccessat2      = 439,
-
-    
     SYS_test            = 999,
     SYS_klog            = 0x1000, // your private one, keep out of Linux range
 };

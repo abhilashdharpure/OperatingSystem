@@ -44,8 +44,8 @@ uint64_t syscall_dispatch(uint64_t nr,
                           uint64_t a4,
                           uint64_t a5)
 {
-    // log_info("SYSCALL", "nr=%llu a0=%llx a1=%llx a2=%llx a3=%llx a4=%llx a5=%llx",
-    //          nr, a0, a1, a2, a3, a4, a5);
+    log_info("SYSCALL", "syscall_dispatch: nr=%llu a0=%llx a1=%llx a2=%llx a3=%llx a4=%llx a5=%llx",
+             nr, a0, a1, a2, a3, a4, a5);
 
     switch (nr) {
     case SYS_write:
@@ -65,14 +65,14 @@ uint64_t syscall_dispatch(uint64_t nr,
         return sys_close(a0);
 
     case SYS_mmap:
-        log_info("SYSCALL", "syscall_dispatch: nr=%llu a0=%llx a1=%llx a2=%llx a3=%llx a4=%llx a5=%llx",
-             (unsigned long long)nr,
-             (unsigned long long)a0,
-             (unsigned long long)a1,
-             (unsigned long long)a2,
-             (unsigned long long)a3,
-             (unsigned long long)a4,
-             (unsigned long long)a5);
+        // log_info("SYSCALL", "SYS_mmap: nr=%llu a0=%llx a1=%llx a2=%llx a3=%llx a4=%llx a5=%llx",
+        //      (unsigned long long)nr,
+        //      (unsigned long long)a0,
+        //      (unsigned long long)a1,
+        //      (unsigned long long)a2,
+        //      (unsigned long long)a3,
+        //      (unsigned long long)a4,
+        //      (unsigned long long)a5);
         return sys_mmap(a0, a1, a2, a3, a4, a5);
 
     case SYS_munmap:
@@ -121,7 +121,7 @@ uint64_t syscall_dispatch(uint64_t nr,
         return sys_nanosleep(a0, a1);
 
     case SYS_socketpair:
-        log_info("SYSCALL", "syscall_dispatch: nr=%llu a0=%llx a1=%llx a2=%llx a3=%llx",
+        log_info("SYSCALL", "SYS_socketpair: nr=%llu a0=%llx a1=%llx a2=%llx a3=%llx",
             (unsigned long long)nr,
             (unsigned long long)a0,
             (unsigned long long)a1,
@@ -164,13 +164,11 @@ uint64_t syscall_dispatch(uint64_t nr,
     case SYS_exit_group: return sys_exit_group(a0);
 
     case SYS_arch_prctl:
-        log_info("SYSCALL", "sys_arch_prctl called");
-
         int ret = sys_arch_prctl(a0, a1);
         log_info("SYSCALL", "sys_arch_prctl returned %d", ret);
-        uint64_t efer = rdmsr(MSR_FS_BASE);
-        log_info("SYSCALL", "sys_arch_prctl: EFER=0x%llx", efer);
-        log_info("SYSCALL", "FS_BASE now = 0x%lx", rdmsr(MSR_FS_BASE));
+        // uint64_t efer = rdmsr(MSR_FS_BASE);
+        // log_info("SYSCALL", "sys_arch_prctl: EFER=0x%llx", efer);
+        // log_info("SYSCALL", "FS_BASE now = 0x%lx", rdmsr(MSR_FS_BASE));
 
         return ret;
 
@@ -222,7 +220,30 @@ uint64_t syscall_dispatch(uint64_t nr,
         // Tell libc "this syscall is not implemented, please fall back"
         return -ENOSYS;
 
+    case SYS_rt_sigaction:  
+        return sys_rt_sigaction((int)a0,
+                                      (const struct sigaction*)a1,
+                                      (struct sigaction*)a2,
+                                      (size_t)a3);
+    case SYS_rt_sigprocmask: 
+        return sys_rt_sigprocmask((int)a0,
+                                        (const sigset_t*)a1,
+                                        (sigset_t*)a2,
+                                        (size_t)a3);
+    case SYS_clone: 
+        return sys_clone((unsigned long)a0,
+                               (void*)a1,
+                               (void*)a2,
+                               (void*)a3,
+                               (void*)a4);
+    case SYS_tkill:
+        return sys_tkill((int)a0, (int)a1);
 
+    case SYS_membarrier:
+        return sys_membarrier(a0, a1);
+
+    case SYS_pwritev:
+        return sys_pwritev_compat(a0, a1, a2, a3, a4, a5);
 
     case SYS_test:
         log_info("SYSCALL", "TEST: a0=%llx a1=%llx a2=%llx a3=%llx a4=%llx a5=%llx",

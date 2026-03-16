@@ -17,7 +17,7 @@ static std::atomic<bool> g_running{true};
 void CompositorInput::Initialize(LumaCompositor* compositor)
 {
     std::cout << "[Input] Start Initialize " << std::endl;
-    std::thread(evdev_input_loop, this, compositor).detach();
+    //std::thread(evdev_input_loop, this, compositor).detach();
 }
 
 static my_surface* hit_test_surface(LumaCompositor* comp, int32_t x, int32_t y)

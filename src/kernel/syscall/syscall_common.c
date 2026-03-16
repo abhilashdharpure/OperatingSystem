@@ -19,6 +19,22 @@
 #include <drivers/fb/fb.h>
 #include "syscall/sys_linux_dirent.h"
 
+
+#define MEMBARRIER_CMD_QUERY                     0
+#define MEMBARRIER_CMD_GLOBAL                    (1 << 0)
+#define MEMBARRIER_CMD_GLOBAL_EXPEDITED          (1 << 1)
+#define MEMBARRIER_CMD_REGISTER_GLOBAL_EXPEDITED (1 << 2)
+#define MEMBARRIER_CMD_PRIVATE_EXPEDITED         (1 << 3)
+#define MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED (1 << 4)
+
+
+/* Simple kernel-side iovec (userspace one is in libc) */
+struct iovec {
+    void  *iov_base;
+    size_t iov_len;
+};
+
+
 uint64_t syscall_next_rip = 0;
 
 static uint64_t current_fs_base; // per-thread in the future
@@ -230,10 +246,10 @@ static uint64_t mmap_anon(uint64_t length, uint64_t prot)
 
     current_process->mmap_base = start + len;
 
-    log_info("SYSCALL", "mmap_anon: mapped %llu bytes at 0x%llx (prot=%llx)",
-             (unsigned long long)len,
-             (unsigned long long)start,
-             (unsigned long long)prot);
+    // log_info("SYSCALL", "mmap_anon: mapped %llu bytes at 0x%llx (prot=%llx)",
+    //          (unsigned long long)len,
+    //          (unsigned long long)start,
+    //          (unsigned long long)prot);
 
     return start;
 }
@@ -252,13 +268,13 @@ uint64_t sys_mmap(uint64_t addr,
                   uint64_t fd,
                   uint64_t offset)
 {
-    log_info("SYSCALL", "sys_mmap addr=%llx len=%llx prot=%llx flags=%llx fd=%lld off=%llx",
-             (unsigned long long)addr,
-             (unsigned long long)length,
-             (unsigned long long)prot,
-             (unsigned long long)flags,
-             (long long)fd,
-             (unsigned long long)offset);
+    // log_info("SYSCALL", "sys_mmap addr=%llx len=%llx prot=%llx flags=%llx fd=%lld off=%llx",
+    //          (unsigned long long)addr,
+    //          (unsigned long long)length,
+    //          (unsigned long long)prot,
+    //          (unsigned long long)flags,
+    //          (long long)fd,
+    //          (unsigned long long)offset);
 
     if (addr != 0)
         return (uint64_t)-1;
@@ -329,10 +345,10 @@ uint64_t sys_mmap(uint64_t addr,
         if (old >= 0)
             VFS_Lseek((fd_t)fd, old, SEEK_SET);
 
-        log_info("SYSCALL", "sys_mmap: emulated file-backed mmap fd=%lld -> 0x%llx len=%llu",
-                 (long long)fd,
-                 (unsigned long long)va,
-                 (unsigned long long)length);
+        // log_info("SYSCALL", "sys_mmap: emulated file-backed mmap fd=%lld -> 0x%llx len=%llu",
+        //          (long long)fd,
+        //          (unsigned long long)va,
+        //          (unsigned long long)length);
 
         return va;
     }
@@ -340,9 +356,9 @@ uint64_t sys_mmap(uint64_t addr,
 
 uint64_t sys_munmap(uint64_t addr, uint64_t length)
 {
-    log_info("SYSCALL", "sys_munmap addr=%llx len=%llx",
-             (unsigned long long)addr,
-             (unsigned long long)length);
+    // log_info("SYSCALL", "sys_munmap addr=%llx len=%llx",
+    //          (unsigned long long)addr,
+    //          (unsigned long long)length);
 
     if (!current_process) {
         log_error("SYSCALL", "sys_munmap: current_process is NULL");
@@ -377,10 +393,10 @@ uint64_t sys_munmap(uint64_t addr, uint64_t length)
 
 uint64_t sys_mprotect(uint64_t addr, uint64_t length, uint64_t prot)
 {
-    log_info("SYSCALL", "sys_mprotect addr=%llx len=%llx prot=%llx",
-             (unsigned long long)addr,
-             (unsigned long long)length,
-             (unsigned long long)prot);
+    // log_info("SYSCALL", "sys_mprotect addr=%llx len=%llx prot=%llx",
+    //          (unsigned long long)addr,
+    //          (unsigned long long)length,
+    //          (unsigned long long)prot);
 
     if (!current_process)
         return (uint64_t)-1;
@@ -431,6 +447,9 @@ uint64_t sys_brk(uint64_t new_brk)
     }
 
     uint64_t old_brk = current_process->brk_cur;
+
+    log_info("SYSCALL", "sys_brk: new=%llx old=%llx start=%llx end=%llx",
+         new_brk, old_brk, current_process->brk_start, current_process->brk_end);
 
     // Enforce heap bounds
     if (new_brk < current_process->brk_start) {
@@ -591,8 +610,8 @@ uint64_t sys_getdents(uint64_t fd_arg,
     char *ubuf = (char *)user_buf_ptr;
     size_t max = (size_t)buf_size;
 
-    log_info("SYSCALL", "sys_getdents fd=%d buf=%p size=%u",
-             fd, ubuf, (unsigned)max);
+    // log_info("SYSCALL", "sys_getdents fd=%d buf=%p size=%u",
+    //          fd, ubuf, (unsigned)max);
 
     if (!VFS_IsValidFd(fd) || !ubuf || max == 0)
         return (uint64_t)-1;
@@ -651,8 +670,36 @@ uint64_t sys_dup2(uint64_t oldfd, uint64_t newfd)
 
 uint64_t sys_fcntl(uint64_t fd, uint64_t cmd, uint64_t arg)
 {
-    if (!VFS_IsValidFd(fd))
-        return (uint64_t)-1;   // later: -EBADF
+    log_info("SYSCALL", "sys_fcntl fd=%llu cmd=%llu arg=%llu",
+             (unsigned long long)fd,
+             (unsigned long long)cmd,
+             (unsigned long long)arg);
+
+    // Treat stdio as always-existing, like sys_write does
+    if (!VFS_IsValidFd(fd)) {
+        if (fd == VFS_FD_STDIN ||
+            fd == VFS_FD_STDOUT ||
+            fd == VFS_FD_STDERR ||
+            fd == VFS_FD_DEBUG)
+        {
+            switch (cmd) {
+            case F_GETFL:
+                // Just say "readable" for stdin, "writable" for stdout/err, or even 0
+                return O_RDONLY; // or 0, or something simple
+
+            case F_SETFL:
+                // Ignore for now, pretend success
+                return 0;
+
+            default:
+                // Unsupported fcntl on stdio: return -EINVAL (Linux style)
+                return (uint64_t)-EINVAL;
+            }
+        }
+
+        // Truly invalid fd
+        return (uint64_t)-EBADF;
+    }
 
     struct file *f = VFS_GetFile(fd);
 
@@ -662,7 +709,6 @@ uint64_t sys_fcntl(uint64_t fd, uint64_t cmd, uint64_t arg)
 
     case F_SETFL: {
         int new_flags = (int)arg;
-        // Only allow changing some flags (e.g., O_NONBLOCK) if you want:
         int preserved = f->flags & ~O_NONBLOCK;
         int updated   = new_flags & O_NONBLOCK;
         f->flags = preserved | updated;
@@ -670,9 +716,7 @@ uint64_t sys_fcntl(uint64_t fd, uint64_t cmd, uint64_t arg)
     }
 
     default:
-        // For now, not supported:
-        // return -EINVAL later
-        return (uint64_t)-1;
+        return (uint64_t)-EINVAL;
     }
 }
 
@@ -891,4 +935,234 @@ long sys_geteuid(void)
 long sys_getegid(void)
 {
     return 0;
+}
+
+long sys_rt_sigaction(int signum,
+                      const struct sigaction *act,
+                      struct sigaction *oldact,
+                      size_t sigsetsize)
+{
+    log_info("SYSCALL", "sys_rt_sigaction: Dummy implementation signum=%d", signum);
+
+    // You can store per-process actions later if you want.
+    (void)signum;
+    (void)act;
+    (void)sigsetsize;
+
+    if (oldact) {
+        memset(oldact, 0, sizeof(*oldact));
+    }
+    return 0;
+}
+
+
+long sys_rt_sigprocmask(int how,
+                        const sigset_t *set,
+                        sigset_t *oldset,
+                        size_t sigsetsize)
+{
+    log_info("SYSCALL", "sys_rt_sigprocmask: Dummy implementation how=%d", how);
+
+    (void)how;
+    (void)set;
+    (void)sigsetsize;
+
+    if (oldset) {
+        *oldset = 0;
+    }
+    return 0;
+}
+
+
+long sys_tkill(int tid, int sig)
+{
+    log_info("SYSCALL", "sys_tkill: Dummy implementation tid=%d sig=%d", tid, sig);
+
+    (void)tid;
+    (void)sig;
+    // No real signal delivery yet.
+    return 0;
+}
+
+
+long sys_clone(unsigned long flags,
+               void *child_stack,
+               void *ptid,
+               void *ctid,
+               void *regs)
+{
+    log_info("SYSCALL", "sys_clone: Dummy implementation flags=%lx", flags);
+
+    (void)flags; (void)child_stack; (void)ptid; (void)ctid; (void)regs;
+    return -ENOSYS;
+}
+
+// long sys_membarrier(int cmd, int flags)
+// {
+//     log_info("SYSCALL", "sys_membarrier: Dummy implementation cmd=%d flags=%d", cmd, flags);
+
+//     // Most programs only use MEMBARRIER_CMD_QUERY.
+//     // Return supported commands bitmask.
+
+//     // Pretend we support only QUERY.
+//     if (cmd == 0) { // MEMBARRIER_CMD_QUERY
+//         return 0;   // no supported barriers
+//     }
+
+//     // For all other commands, return ENOSYS
+//     return -ENOSYS;
+// }
+
+
+long sys_membarrier(int cmd, int flags)
+{
+    log_info("SYSCALL", "sys_membarrier cmd=%d flags=%d", cmd, flags);
+
+    // Always allow QUERY
+    if (cmd == MEMBARRIER_CMD_QUERY)
+    {
+        // Pretend we support all commands
+        return  MEMBARRIER_CMD_GLOBAL
+              | MEMBARRIER_CMD_GLOBAL_EXPEDITED
+              | MEMBARRIER_CMD_REGISTER_GLOBAL_EXPEDITED
+              | MEMBARRIER_CMD_PRIVATE_EXPEDITED
+              | MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED
+              | (1 << 19); // SYNC_CORE
+    }
+
+    // Pretend all registrations succeed
+    if (cmd & MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED)
+        return 0;
+
+    if (cmd & MEMBARRIER_CMD_REGISTER_GLOBAL_EXPEDITED)
+        return 0;
+
+    // Pretend expedited barriers succeed
+    if (cmd & MEMBARRIER_CMD_PRIVATE_EXPEDITED)
+        return 0;
+
+    if (cmd & MEMBARRIER_CMD_GLOBAL_EXPEDITED)
+        return 0;
+
+    // Pretend SYNC_CORE works
+    if (cmd == (1 << 19))
+        return 0;
+
+    return -ENOSYS;
+}
+
+
+/*
+ * Simple pwrite on top of VFS.
+ * pos_l/pos_h form a 64-bit offset; we mostly care about pos_l for now.
+ */
+long sys_pwrite(uint64_t fd,
+                const char *buf,
+                uint64_t len,
+                uint64_t pos_l,
+                uint64_t pos_h)
+{
+    (void)pos_h; // ignore high bits for now
+
+    if (!VFS_IsValidFd((fd_t)fd))
+        return -1;
+
+    struct file *f = VFS_GetFile((fd_t)fd);
+    if (!f)
+        return -1;
+
+    /* Save current offset */
+    off_t old = VFS_Lseek((fd_t)fd, 0, SEEK_CUR);
+    if (old < 0)
+        return -1;
+
+    /* Seek to requested position */
+    off_t new_off = (off_t)pos_l;
+    if (VFS_Lseek((fd_t)fd, new_off, SEEK_SET) < 0)
+        return -1;
+
+    /* Write */
+    ssize_t written = VFS_Write((fd_t)fd, (const uint8_t *)buf, (size_t)len);
+
+    /* Restore old offset (best effort) */
+    if (old >= 0)
+        VFS_Lseek((fd_t)fd, old, SEEK_SET);
+
+    if (written < 0)
+        return -1;
+
+    return (long)written;
+}
+
+/*
+ * x86_64 syscall 290: compat pwritev
+ *   fd      = a0
+ *   iov     = a1 (user pointer to array of struct iovec)
+ *   vlen    = a2
+ *   pos_l   = a3
+ *   pos_h   = a4
+ *   unused  = a5
+ *
+ * Very simple version:
+ *   - assumes user pointers are valid (no copy_from_user yet)
+ *   - writes each iovec sequentially, advancing the offset
+ */
+long sys_pwritev_compat(uint64_t fd,
+                        uint64_t iov_user,
+                        uint64_t vlen,
+                        uint64_t pos_l,
+                        uint64_t pos_h,
+                        uint64_t unused)
+{
+    (void)unused;
+
+    log_info("SYSCALL",
+             "sys_pwritev_compat (290) fd=%llu iov=%llx vlen=%llu pos_l=%llx pos_h=%llx",
+             (unsigned long long)fd,
+             (unsigned long long)iov_user,
+             (unsigned long long)vlen,
+             (unsigned long long)pos_l,
+             (unsigned long long)pos_h);
+
+    if (vlen == 0) {
+        log_info("SYSCALL", "sys_pwritev_compat (290) vlen=0, nothing to write");
+        return 0;
+    }
+
+    /* VERY SIMPLE / UNSAFE: directly use user pointer */
+    struct iovec *iov = (struct iovec *)iov_user;
+
+    ssize_t total = 0;
+    for (size_t i = 0; i < vlen; ++i) {
+        if (!iov[i].iov_base || iov[i].iov_len == 0)
+            continue;
+
+        long ret = sys_pwrite(fd,
+                              (const char *)iov[i].iov_base,
+                              (uint64_t)iov[i].iov_len,
+                              pos_l,
+                              pos_h);
+        if (ret < 0) {
+            if (total > 0) {
+                log_info("SYSCALL",
+                         "sys_pwritev_compat (290) partial write of %lld bytes before error",
+                         (long long)total);
+                return total;
+            }
+            log_info("SYSCALL",
+                     "sys_pwritev_compat (290) error ret=%lld",
+                     (long long)ret);
+            return ret;
+        }
+
+        total += ret;
+        /* advance low 64-bit offset; ignore carry into pos_h for now */
+        pos_l += (uint64_t)ret;
+    }
+
+    log_info("SYSCALL",
+             "sys_pwritev_compat (290) total=%lld",
+             (long long)total);
+
+    return total;
 }

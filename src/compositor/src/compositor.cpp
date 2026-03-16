@@ -2516,15 +2516,12 @@ bool luma_init(LumaCompositor* comp)
     std::cout << "[LumaCompositor] init: output_width=" << comp->output_width
           << " output_height=" << comp->output_height << std::endl;
 
-    std::cout << "[LumaCompositor] init: 2"<< std::endl;
-
     comp->xkb_ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
     if (!comp->xkb_ctx) {
         std::cerr << "[LumaCompositor] xkb_context_new failed\n";
         exit(1);
         return false;
     }
-    std::cout << "[LumaCompositor] init: 3"<< std::endl;
 
     comp->keymap = xkb_keymap_new_from_names(
         comp->xkb_ctx, nullptr, XKB_KEYMAP_COMPILE_NO_FLAGS);
@@ -2533,7 +2530,6 @@ bool luma_init(LumaCompositor* comp)
         // For now: disable keyboard instead of crashing
         return false;
     }
-    std::cout << "[LumaCompositor] init: 4"<< std::endl;
 
     comp->xkb_state = xkb_state_new(comp->keymap);
     if (!comp->xkb_state) {
@@ -2542,7 +2538,6 @@ bool luma_init(LumaCompositor* comp)
     }
 
     comp_framebuffer.assign(comp->output_width * comp->output_height, 0xff000000); // opaque black
-    std::cout << "[LumaCompositor] init: 5"<< std::endl;
 
     comp->fb_stride = comp->output_width * 4;  // ARGB8888 = 4 bytes/pixel
     // Start SDL preview window at e.g. 1280x720
@@ -2550,26 +2545,34 @@ bool luma_init(LumaCompositor* comp)
     std::cout << "[LumaCompositor] framebuffer size: " << comp_framebuffer.size()
           << " (expected " << (comp->output_width * comp->output_height) << ")\n";
     std::cout << "[LumaCompositor] fb_stride = " << comp->fb_stride << std::endl;
-    sdl_thread = std::thread(sdl_renderer_thread, comp->output_width, comp->output_height, comp);
-    std::cout << "[LumaCompositor] sdl_thread_running = " << sdl_thread_running.load() << std::endl;
+    // sdl_thread = std::thread(sdl_renderer_thread, comp->output_width, comp->output_height, comp);
+    // std::cout << "[LumaCompositor] sdl_thread_running = " << sdl_thread_running.load() << std::endl;
     comp->display = wl_display_create();
+    std::cout << "[LumaCompositor]  wl_display_create.. " << std::endl;
 
-    compositorInput.Initialize(comp);
-
-
-    if (!comp->display) {
+    if (!comp->display)
+    {
         std::cerr << "[LumaCompositor] Failed to create display\n";
         exit(1);
         return false;
     }
+    else
+    {
+        std::cout << "[LumaCompositor] wl_display_create Done..." << std::endl;
+    }
 
-    std::string displayName = "luma-0";
+    compositorInput.Initialize(comp);
+    std::cout << "[LumaCompositor] compositorInput Initialize " << std::endl;
+
+
+
+    std::string displayName = "0";
 
     if (wl_display_add_socket(comp->display, displayName.c_str()))
     {
         std::cerr << "[LumaCompositor] Socket luma-0 in use, trying luma-1...\n";
 
-        displayName = "luma-1";
+        displayName = "1";
 
         if (wl_display_add_socket(comp->display, displayName.c_str())) {
             std::cerr << "[LumaCompositor] Failed to add any Wayland socket.\n";
