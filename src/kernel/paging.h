@@ -19,9 +19,12 @@ typedef struct {
 #define USER_END        0x0000000044000000ULL
 #define USER_STACK_TOP  USER_END
 #define USER_STACK_SIZE 0x00200000ULL
-#define USER_MMAP_BASE  0x50000000ULL 
+#define USER_MMAP_BASE  0x100000000
+#define USER_HEAP_START 0x60000000ULL
+#define USER_HEAP_END   0x70000000ULL   // 256MB heap space
 
-#define PAGE_SIZE 0x1000
+
+// #define PAGE_SIZE 0x1000
 #define TICKS_PER_SEC 1000             // e.g. 1ms tick
 
 // Prot flags (mirror Linux for future compatibility)

@@ -94,7 +94,10 @@ void debug_dump_user_stack(Process *p, uint64_t sp)
         uint64_t val = 0;
 
         if (pa) {
-            uint8_t *kva = (uint8_t *)phys_to_virt(pa);
+            uint64_t page_base = pa & ~(PAGE_SIZE - 1);
+            uint64_t offset    = va & (PAGE_SIZE - 1);
+            uint8_t *kva = (uint8_t *)phys_to_virt(page_base);
+            kva += offset;
             val = *(uint64_t *)kva;
         }
 
@@ -370,21 +373,31 @@ static void build_initial_stack(Process *p,
         u64_store(p, sp, arg_addrs[i]);
     }
 
+    // --- ALIGNMENT FIX HERE ---
+
+    // SysV ABI: at entry, %rsp % 16 == 8 (so (%rsp + 8) is 16-byte aligned).
+    // We are about to push argc (8 bytes). We want the *final* %rsp to satisfy:
+    //     final_rsp % 16 == 8
+    //
+    // Let sp_now be current sp (pointing to argv[0]).
+    // After pushing argc: final_rsp = sp_now - 8.
+    // Condition: (sp_now - 8) % 16 == 8  =>  sp_now % 16 == 0.
+    //
+    // So we must ensure sp is 16-byte aligned *before* pushing argc.
+    if ((sp & 0xF) != 0) {
+        sp -= 8;
+        u64_store(p, sp, 0);   // padding word
+    }
+
     // 9) argc
     sp -= 8;
     u64_store(p, sp, argc);
-
-    // SysV ABI: at entry, (%rsp + 8) must be 16‑byte aligned.
-    // After pushing argc, we want (sp + 8) % 16 == 0.
-    if (((sp + 8) & 0xF) != 0) {
-        sp -= 8;
-        u64_store(p, sp, 0); // padding
-    }
 
     p->regs.rsp = sp;
     log_info("EXEC", "build_initial_stack: final RSP=0x%llx (entry=%llx)",
              (unsigned long long)p->regs.rsp,
              (unsigned long long)eh->e_entry);
+
 }
 
 /* ---------- exec from memory ---------- */

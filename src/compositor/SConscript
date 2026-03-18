@@ -13,6 +13,9 @@ host_env = Environment(
 cross_prefix = '../../toolchain/bin/x86_64-linux-musl-'
 sysroot      = os.path.expanduser('~/Project/OperatingSystem/sysroot')
 
+# -----------------------------
+# TARGET ENVIRONMENT (DEBUG)
+# -----------------------------
 target_env = Environment(
     CC   = cross_prefix + 'gcc',
     CXX  = cross_prefix + 'g++',
@@ -33,9 +36,13 @@ target_env = Environment(
         'ffi',
     ],
 
+    # -----------------------------
+    # DEBUG FLAGS (IMPORTANT)
+    # -----------------------------
     CCFLAGS = [
         '--sysroot=' + sysroot,
-        '-Os',
+        '-g',               # <--- ADD DEBUG SYMBOLS
+        '-O0',              # <--- DISABLE OPTIMIZATION
         '-static',
         '-fno-pie',
         '-no-pie',
@@ -48,7 +55,8 @@ target_env = Environment(
     CXXFLAGS = [
         '--sysroot=' + sysroot,
         '-std=c++17',
-        '-Os',
+        '-g',               # <--- ADD DEBUG SYMBOLS
+        '-O0',              # <--- DISABLE OPTIMIZATION
         '-static',
         '-fno-pie',
         '-no-pie',
@@ -59,7 +67,6 @@ target_env = Environment(
         '-static',
         '-fno-pie',
         '-no-pie',
-        # Use our linker script to place code/data in the user region
         '-Wl,-Tlinker.ld',
     ],
 )
@@ -110,11 +117,11 @@ program = target_env.Program(
     source=sources,
 )
 
-# Strip
-target_env.AddPostAction(
-    program,
-    f"{cross_prefix}strip -s $TARGET"
-)
+# # Strip
+# target_env.AddPostAction(
+#     program,
+#     f"{cross_prefix}strip -s $TARGET"
+# )
 
 Default(program)
 Export('program')

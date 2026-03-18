@@ -21,10 +21,6 @@
 #define PT_NULL   0
 #define PT_LOAD   1
 
-#define USER_MMAP_BASE  0x50000000
-#define USER_HEAP_START 0x60000000ULL
-#define USER_HEAP_END   0x70000000ULL   // 256MB heap space
-
 
 /* e_ident indexes */
 enum {

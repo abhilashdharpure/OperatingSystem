@@ -239,11 +239,25 @@ uint64_t syscall_dispatch(uint64_t nr,
     case SYS_tkill:
         return sys_tkill((int)a0, (int)a1);
 
-    case SYS_membarrier:
-        return sys_membarrier(a0, a1);
+    case SYS_preadv:
+        // (you can stub it for now)
+        log_error("SYSCALL", "SYS_preadv not implemented yet");
+        return -ENOSYS;
 
     case SYS_pwritev:
-        return sys_pwritev_compat(a0, a1, a2, a3, a4, a5);
+        // pwritev (old) – you can implement or just route to pwritev2 with flags=0
+        return sys_pwritev2(a0, a1, a2, a3, 0, 0);
+
+    case SYS_preadv2:
+        log_error("SYSCALL", "SYS_preadv2 not implemented yet");
+        return -ENOSYS; // until you implement it
+
+    case SYS_pwritev2:
+        return sys_pwritev2(a0, a1, a2, a3, a4, a5);
+
+    case SYS_membarrier:
+        return sys_membarrier((int)a0, (int)a1);
+
 
     case SYS_test:
         log_info("SYSCALL", "TEST: a0=%llx a1=%llx a2=%llx a3=%llx a4=%llx a5=%llx",

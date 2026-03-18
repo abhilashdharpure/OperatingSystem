@@ -12,20 +12,6 @@ struct LumaSeat;
 struct my_surface;
 struct shm_buffer;
 
-
-// enum class toplevel_edges
-// {
-//     NONE = 0,
-//     TOP = 1,
-//     BOTTOM = 2,
-//     LEFT = 4,
-//     RIGHT = 8,
-//     TOP_LEFT = 5,
-//     TOP_RIGHT = 9,
-//     BOTTOM_RIGHT = 10,
-//     BOTTOM_LEFT = 6
-// };
-
 enum class toplevel_edges : uint32_t
 {
     NONE  = 0,

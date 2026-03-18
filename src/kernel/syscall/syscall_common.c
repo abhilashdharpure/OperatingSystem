@@ -18,6 +18,7 @@
 #include <stdint.h>
 #include <drivers/fb/fb.h>
 #include "syscall/sys_linux_dirent.h"
+#include <syscall/sys_execve.h>
 
 
 #define MEMBARRIER_CMD_QUERY                     0
@@ -26,14 +27,13 @@
 #define MEMBARRIER_CMD_REGISTER_GLOBAL_EXPEDITED (1 << 2)
 #define MEMBARRIER_CMD_PRIVATE_EXPEDITED         (1 << 3)
 #define MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED (1 << 4)
+#define SOME_REASONABLE_LIMIT 1024
 
 
-/* Simple kernel-side iovec (userspace one is in libc) */
 struct iovec {
-    void  *iov_base;
-    size_t iov_len;
+    void   *iov_base;   // 8 bytes
+    size_t  iov_len;    // 8 bytes
 };
-
 
 uint64_t syscall_next_rip = 0;
 
@@ -1094,75 +1094,61 @@ long sys_pwrite(uint64_t fd,
     return (long)written;
 }
 
-/*
- * x86_64 syscall 290: compat pwritev
- *   fd      = a0
- *   iov     = a1 (user pointer to array of struct iovec)
- *   vlen    = a2
- *   pos_l   = a3
- *   pos_h   = a4
- *   unused  = a5
- *
- * Very simple version:
- *   - assumes user pointers are valid (no copy_from_user yet)
- *   - writes each iovec sequentially, advancing the offset
- */
-long sys_pwritev_compat(uint64_t fd,
-                        uint64_t iov_user,
-                        uint64_t vlen,
-                        uint64_t pos_l,
-                        uint64_t pos_h,
-                        uint64_t unused)
+long sys_pwritev2(uint64_t fd,
+                  uint64_t iov_user,
+                  uint64_t vlen,
+                  uint64_t offset,   // low 64 bits of offset
+                  uint64_t flags,    // pwritev2 flags (ignored for now)
+                  uint64_t unused)   // unused
 {
+    (void)flags;
     (void)unused;
 
-    log_info("SYSCALL",
-             "sys_pwritev_compat (290) fd=%llu iov=%llx vlen=%llu pos_l=%llx pos_h=%llx",
-             (unsigned long long)fd,
-             (unsigned long long)iov_user,
-             (unsigned long long)vlen,
-             (unsigned long long)pos_l,
-             (unsigned long long)pos_h);
-
-    if (vlen == 0) {
-        log_info("SYSCALL", "sys_pwritev_compat (290) vlen=0, nothing to write");
+    if (vlen == 0)
         return 0;
+
+    if (vlen > SOME_REASONABLE_LIMIT)
+        return -EINVAL;
+
+    struct iovec iov_stack[16];
+    struct iovec *iov = iov_stack;
+
+    if (vlen > 16) {
+        iov = kmalloc(vlen * sizeof(*iov));
+        if (!iov)
+            return -ENOMEM;
     }
 
-    /* VERY SIMPLE / UNSAFE: directly use user pointer */
-    struct iovec *iov = (struct iovec *)iov_user;
+    if (copy_from_user(iov, (void *)iov_user, vlen * sizeof(*iov)) < 0) {
+        if (iov != iov_stack)
+            kfree(iov);
+        return -EFAULT;
+    }
 
     ssize_t total = 0;
-    for (size_t i = 0; i < vlen; ++i) {
-        if (!iov[i].iov_base || iov[i].iov_len == 0)
+    uint64_t off = offset;
+
+    for (size_t i = 0; i < vlen; i++) {
+        if (iov[i].iov_len == 0)
             continue;
 
         long ret = sys_pwrite(fd,
                               (const char *)iov[i].iov_base,
                               (uint64_t)iov[i].iov_len,
-                              pos_l,
-                              pos_h);
+                              off,
+                              0);
         if (ret < 0) {
-            if (total > 0) {
-                log_info("SYSCALL",
-                         "sys_pwritev_compat (290) partial write of %lld bytes before error",
-                         (long long)total);
-                return total;
-            }
-            log_info("SYSCALL",
-                     "sys_pwritev_compat (290) error ret=%lld",
-                     (long long)ret);
-            return ret;
+            if (iov != iov_stack)
+                kfree(iov);
+            return (total > 0) ? total : ret;
         }
 
         total += ret;
-        /* advance low 64-bit offset; ignore carry into pos_h for now */
-        pos_l += (uint64_t)ret;
+        off += (uint64_t)ret;
     }
 
-    log_info("SYSCALL",
-             "sys_pwritev_compat (290) total=%lld",
-             (long long)total);
+    if (iov != iov_stack)
+        kfree(iov);
 
     return total;
 }

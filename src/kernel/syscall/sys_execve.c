@@ -15,29 +15,61 @@
 extern BootParams g_bootParams;
 extern Process *current_process;
 
-static bool copy_from_user_byte(uint8_t *out, const uint8_t *user_ptr)
+bool copy_from_user_byte(uint8_t *out, const uint8_t *user_ptr)
 {
-    uint64_t pa = get_mapped_phys(current_process->page_directory,
-                                  (uint64_t)user_ptr);
-    if (!pa)
+    uint64_t va = (uint64_t)user_ptr;
+    uint64_t va_page = va & ~(PAGE_SIZE - 1);
+    uint64_t off     = va & (PAGE_SIZE - 1);
+
+    uint64_t pa_page = get_mapped_phys(current_process->page_directory, va_page);
+    if (!pa_page)
         return false;
 
-    *out = *(volatile uint8_t *)phys_to_virt(pa);
+    uint8_t *kptr = (uint8_t *)phys_to_virt(pa_page + off);
+    *out = *kptr;
     return true;
 }
 
-static bool copy_from_user_ptr(void *out, const void *user_ptr)
+
+bool copy_from_user_ptr(void *out, const void *user_ptr)
 {
-    uint64_t pa = get_mapped_phys(current_process->page_directory,
-                                  (uint64_t)user_ptr);
-    if (!pa)
+    uint64_t va = (uint64_t)user_ptr;
+    uint64_t va_page = va & ~(PAGE_SIZE - 1);
+    uint64_t off     = va & (PAGE_SIZE - 1);
+
+    uint64_t pa_page = get_mapped_phys(current_process->page_directory, va_page);
+    if (!pa_page)
         return false;
 
-    *(uint64_t *)out = *(uint64_t *)phys_to_virt(pa);
+    *(uint64_t *)out = *(uint64_t *)((uint8_t *)phys_to_virt(pa_page) + off);
     return true;
 }
 
-static void *read_entire_file(const char *path, size_t *out_size)
+int copy_from_user(void *dst, const void *src, size_t n)
+{
+    uint8_t *d = dst;
+    const uint8_t *s = src;
+
+    for (size_t i = 0; i < n; ++i) {
+        uint64_t va = (uint64_t)(s + i);
+        uint64_t pa = get_mapped_phys(current_process->page_directory, va);
+        if (!pa)
+        {
+            log_error("EXEC", "copy_from_user: unmapped user VA=0x%llx", va);
+            return -1;
+        
+        }
+        uint64_t off = va & (PAGE_SIZE - 1);
+        d[i] = *(volatile uint8_t *)phys_to_virt(pa + off);
+    }
+
+    log_error("EXEC", "copy_from_user: return 0");
+
+    return 0;
+}
+
+
+void *read_entire_file(const char *path, size_t *out_size)
 {
     int fd = VFS_Open(path, O_RDONLY);
     if (fd < 0) {
