@@ -4,6 +4,7 @@
 #include <paging.h>
 #include <string.h>
 #include <errno.h>
+#include <syscall/epoll.h>
 
 struct sigaction {
     void (*sa_handler)(int);
@@ -11,6 +12,7 @@ struct sigaction {
     void (*sa_restorer)(void);
     unsigned long sa_mask[1]; // enough for now
 };
+
 
 typedef unsigned long sigset_t;
 
@@ -70,3 +72,8 @@ long sys_pwritev_compat(uint64_t fd,
                         uint64_t pos_l,
                         uint64_t pos_h,
                         uint64_t unused);
+int eventfd2(unsigned int initval, int flags);
+long sys_epoll_create1(int flags);
+long sys_epoll_ctl(int epfd, int op, int fd, struct epoll_event *user_ev);
+long sys_epoll_wait(int epfd, struct epoll_event *user_events,
+                    int maxevents, int timeout);

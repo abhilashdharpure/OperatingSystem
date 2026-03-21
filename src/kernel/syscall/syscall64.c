@@ -239,6 +239,18 @@ uint64_t syscall_dispatch(uint64_t nr,
     case SYS_tkill:
         return sys_tkill((int)a0, (int)a1);
 
+    case SYS_eventfd2:
+        return sys_eventfd2((unsigned int)a0, (int)a1);
+        
+    case SYS_epoll_create1:
+        return sys_epoll_create1(a0);          // a0 = flags
+
+    case SYS_epoll_ctl:
+        return sys_epoll_ctl(a0, a1, a2, a3);  // epfd, op, fd, event*
+
+    case SYS_epoll_wait:
+        return sys_epoll_wait(a0, a1, a2, a3); // epfd, events*, maxevents, timeout
+
     case SYS_preadv:
         // (you can stub it for now)
         log_error("SYSCALL", "SYS_preadv not implemented yet");

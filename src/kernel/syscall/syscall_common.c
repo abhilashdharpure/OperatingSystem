@@ -19,7 +19,7 @@
 #include <drivers/fb/fb.h>
 #include "syscall/sys_linux_dirent.h"
 #include <syscall/sys_execve.h>
-
+#include "syscall/eventfd.h"
 
 #define MEMBARRIER_CMD_QUERY                     0
 #define MEMBARRIER_CMD_GLOBAL                    (1 << 0)
@@ -668,6 +668,69 @@ uint64_t sys_dup2(uint64_t oldfd, uint64_t newfd)
     return (uint64_t)r;
 }
 
+// uint64_t sys_fcntl(uint64_t fd, uint64_t cmd, uint64_t arg)
+// {
+//     log_info("SYSCALL", "sys_fcntl fd=%llu cmd=%llu arg=%llu",
+//              (unsigned long long)fd,
+//              (unsigned long long)cmd,
+//              (unsigned long long)arg);
+
+//     // Treat stdio as always-existing, like sys_write does
+//     if (!VFS_IsValidFd(fd)) {
+//         if (fd == VFS_FD_STDIN ||
+//             fd == VFS_FD_STDOUT ||
+//             fd == VFS_FD_STDERR ||
+//             fd == VFS_FD_DEBUG)
+//         {
+//             switch (cmd) {
+//             case F_GETFL:
+//                 // Just say "readable" for stdin, "writable" for stdout/err, or even 0
+//                 log_info("SYSCALL", "sys_fcntl fake stdio F_GETFL");
+
+//                 return O_RDONLY; // or 0, or something simple
+
+//             case F_SETFL:
+//                 // Ignore for now, pretend success
+//                 log_info("SYSCALL", "sys_fcntl fake stdio F_SETFL");
+//                 return 0;
+
+//             default:
+//                 // Unsupported fcntl on stdio: return -EINVAL (Linux style)
+//                 log_info("SYSCALL", "sys_fcntl fake stdio F_GETFL");
+
+//                 return (uint64_t)-EINVAL;
+//             }
+//         }
+
+//         // Truly invalid fd
+//         log_info("SYSCALL", "sys_fcntl fake stdio invalid fd");
+
+//         return (uint64_t)-EBADF;
+//     }
+
+//     struct file *f = VFS_GetFile(fd);
+
+//     switch (cmd) {
+//     case F_GETFL:
+//         log_info("SYSCALL", "sys_fcntl F_GETFL fd=%d", fd);
+
+//         return (uint64_t)f->flags;
+
+//     case F_SETFL: {
+//         int new_flags = (int)arg;
+//         int preserved = f->flags & ~O_NONBLOCK;
+//         int updated   = new_flags & O_NONBLOCK;
+//         f->flags = preserved | updated;
+//         log_info("SYSCALL", "sys_fcntl F_SETFL RETURN 0");
+
+//         return 0;
+//     }
+
+//     default:
+//         log_info("SYSCALL", "sys_fcntl unsupported cmd=%llu", (unsigned long long)cmd);
+//         return (uint64_t)-EINVAL;
+//     }
+// }
 uint64_t sys_fcntl(uint64_t fd, uint64_t cmd, uint64_t arg)
 {
     log_info("SYSCALL", "sys_fcntl fd=%llu cmd=%llu arg=%llu",
@@ -675,7 +738,6 @@ uint64_t sys_fcntl(uint64_t fd, uint64_t cmd, uint64_t arg)
              (unsigned long long)cmd,
              (unsigned long long)arg);
 
-    // Treat stdio as always-existing, like sys_write does
     if (!VFS_IsValidFd(fd)) {
         if (fd == VFS_FD_STDIN ||
             fd == VFS_FD_STDOUT ||
@@ -684,20 +746,30 @@ uint64_t sys_fcntl(uint64_t fd, uint64_t cmd, uint64_t arg)
         {
             switch (cmd) {
             case F_GETFL:
-                // Just say "readable" for stdin, "writable" for stdout/err, or even 0
-                return O_RDONLY; // or 0, or something simple
-
+                log_info("SYSCALL", "sys_fcntl F_GETFL fd=%d", fd);
+                return O_RDONLY;
             case F_SETFL:
-                // Ignore for now, pretend success
+                log_info("SYSCALL", "sys_fcntl F_SETFL fd=%d", fd);
                 return 0;
-
+            case F_GETFD:
+                log_info("SYSCALL", "sys_fcntl F_GETFD fd=%d", fd);
+                return 0;          // FD_CLOEXEC not set
+            case F_SETFD:
+                log_info("SYSCALL", "sys_fcntl F_SETFD fd=%d", fd);
+                return 0;          // ignore
+            case F_DUPFD:
+            case F_DUPFD_CLOEXEC:
+                // you can just say "no more fds"
+                log_info("SYSCALL", "sys_fcntl F_DUPFD fd=%d", fd);
+                return (uint64_t)-EMFILE;
             default:
-                // Unsupported fcntl on stdio: return -EINVAL (Linux style)
+                log_info("SYSCALL", "sys_fcntl fake stdio unsupported cmd=%llu",
+                         (unsigned long long)cmd);
                 return (uint64_t)-EINVAL;
             }
         }
 
-        // Truly invalid fd
+        log_info("SYSCALL", "sys_fcntl fake stdio invalid fd");
         return (uint64_t)-EBADF;
     }
 
@@ -705,6 +777,7 @@ uint64_t sys_fcntl(uint64_t fd, uint64_t cmd, uint64_t arg)
 
     switch (cmd) {
     case F_GETFL:
+        log_info("SYSCALL", "sys_fcntl F_GETFL fd=%d", fd);
         return (uint64_t)f->flags;
 
     case F_SETFL: {
@@ -712,10 +785,36 @@ uint64_t sys_fcntl(uint64_t fd, uint64_t cmd, uint64_t arg)
         int preserved = f->flags & ~O_NONBLOCK;
         int updated   = new_flags & O_NONBLOCK;
         f->flags = preserved | updated;
+        log_info("SYSCALL", "sys_fcntl F_SETFL fd=%d new_flags=%d", fd, new_flags);
         return 0;
     }
 
+    case F_GETFD:
+        // no per-fd flags yet, just say "no FD_CLOEXEC"
+        log_info("SYSCALL", "sys_fcntl F_GETFD fd=%d", fd);
+        return 0;
+
+    case F_SETFD:
+        // ignore FD_CLOEXEC for now
+        log_info("SYSCALL", "sys_fcntl F_SETFD fd=%d", fd);
+        return 0;
+
+    case F_DUPFD:
+    case F_DUPFD_CLOEXEC: {
+        // simplest: just duplicate the fd, ignore arg and CLOEXEC
+        int newfd = VFS_Dup((fd_t)fd);
+        if (newfd < 0)
+        {   
+            log_info("SYSCALL", "sys_fcntl F_DUPFD fd=%d failed: no more fds", fd);    
+            return (uint64_t)newfd;
+        }
+        log_info("SYSCALL", "sys_fcntl F_DUPFD fd=%d succeeded: newfd=%d", fd, newfd);
+        return (uint64_t)newfd;
+    }
+
     default:
+        log_info("SYSCALL", "sys_fcntl unsupported cmd=%llu",
+                 (unsigned long long)cmd);
         return (uint64_t)-EINVAL;
     }
 }
@@ -723,6 +822,7 @@ uint64_t sys_fcntl(uint64_t fd, uint64_t cmd, uint64_t arg)
 
 uint64_t sys_pipe(uint64_t user_fds_ptr)
 {
+    log_info("SYSCALL", "sys_pipe user_fds_ptr=0x%llx", (unsigned long long)user_fds_ptr);
     if (!user_fds_ptr)
         return (uint64_t)-1;
 
@@ -1152,3 +1252,64 @@ long sys_pwritev2(uint64_t fd,
 
     return total;
 }
+
+// long sys_epoll_create1(int flags)
+// {
+//     // ignore flags for now (EPOLL_CLOEXEC)
+//     int fd = VFS_AllocFd();
+//     if (fd < 0)
+//         return -EMFILE;
+
+//     struct epoll_instance *epi = kmalloc(sizeof(*epi));
+//     if (!epi)
+//         return -ENOMEM;
+
+//     memset(epi, 0, sizeof(*epi));
+//     // initialize epi->watch_list, etc.
+
+//     struct file *f = kmalloc(sizeof(*f));
+//     memset(f, 0, sizeof(*f));
+//     f->fops = &epoll_fops;
+//     f->private_data = epi;
+
+//     VFS_SetFd(fd, f);
+//     return fd;
+// }
+
+
+
+long sys_eventfd2(unsigned int initval, int flags)
+{
+    int fd = VFS_AllocFd();
+    if (fd < 0)
+    {
+        log_info("SYSCALL", "sys_eventfd2: returning -EMFILE");
+        return -EMFILE;
+    }
+
+    struct eventfd_ctx *ctx = kmalloc(sizeof(*ctx));
+    if (!ctx)
+    {
+        log_info("SYSCALL", "sys_eventfd2: returning -ENOMEM, failed to allocate eventfd_ctx"); 
+        return -ENOMEM;
+    }
+
+    ctx->counter = initval;
+    ctx->flags   = flags;
+
+    struct file *f = kmalloc(sizeof(*f));
+    if (!f) {
+        kfree(ctx);
+        log_info("SYSCALL", "sys_eventfd2: returning -ENOMEM, failed to allocate file struct");
+        return -ENOMEM;
+    }
+
+    memset(f, 0, sizeof(*f));
+    f->fops = &eventfd_fops;
+    f->private_data = ctx;
+
+    VFS_SetFd(fd, f);
+    log_info("SYSCALL", "sys_eventfd2: returning fd=%d", fd);
+    return fd;
+}
+
