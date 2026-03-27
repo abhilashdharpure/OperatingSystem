@@ -37,7 +37,6 @@ struct epoll_instance {
 
 extern struct file_operations epoll_fops;
 
-long sys_epoll_create1(int flags);
-long sys_epoll_ctl(int epfd, int op, int fd, struct epoll_event *user_ev);
-long sys_epoll_wait(int epfd, struct epoll_event *user_events,
-                    int maxevents, int timeout);
+long sys_epoll_ctl(uint64_t epfd, uint64_t op, uint64_t fd, struct epoll_event *user_ev);
+long sys_epoll_wait(uint64_t epfd, struct epoll_event *user_events,
+                    uint64_t maxevents, int timeout);

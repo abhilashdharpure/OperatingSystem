@@ -1384,6 +1384,11 @@ static const struct wl_surface_interface surface_impl = {
 void compositor_maximize(my_surface *surf, struct wl_display *display,
                          int work_w, int work_h)
 {
+    std::cout<<"compositor_maximize: surf="<<surf<<" disp="<<display<<" w="<<work_w<<" h="<<work_h<<"\n";
+    if (!surf) {
+        std::cout<<"compositor_maximize: NULL surf\n";
+        return;
+    }
     send_toplevel_configure(surf->toplevel_res, work_w, work_h,
                             /*activated=*/true, /*resizing=*/false,
                             /*maximized=*/true, /*fullscreen=*/false);
@@ -1395,6 +1400,11 @@ void compositor_maximize(my_surface *surf, struct wl_display *display,
 void compositor_restore(my_surface *surf, struct wl_display *display,
                         int w, int h)
 {
+    std::cout<<"compositor_restore: surf="<<surf<<" disp="<<display<<" w="<<w<<" h="<<h<<"\n";
+    if (!surf) {
+        std::cout<<"compositor_restore: NULL surf\n";
+        return;
+    }
     send_toplevel_configure(surf->toplevel_res, w, h,
                             /*activated=*/true, /*resizing=*/false,
                             /*maximized=*/false, /*fullscreen=*/false);

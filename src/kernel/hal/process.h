@@ -27,6 +27,12 @@ typedef struct Process {
     uint64_t    brk_end_limit;
 
     uint64_t    fs_base;
+
+    // Add child tracking
+    struct Process *child_list;       // first child
+    struct Process *next_sibling;     // next sibling in parent
+    int exit_code;
+    int exited;                        // 0 = running, 1 = exited
 } Process;
 
 

@@ -6,6 +6,7 @@
 #include "arch/x86_64/msr.h"
 #include "fs/sys_ftruncate.h"
 #include "hal/process.h"
+#include "sys_event_epoll.h"
 
 extern void x64_syscall_entry(void);
 
@@ -15,6 +16,9 @@ extern void x64_syscall_entry(void);
 #define IA32_FMASK  0xC0000084
 
 extern uint64_t syscall_next_rip;
+
+int m_fd = 0;
+int m_epfd = 0;
 
 void x64_SYSCALL_Initialize(void)
 {
@@ -35,6 +39,132 @@ void x64_SYSCALL_Initialize(void)
     uint64_t fmask = (1ull << 9) | (1ull << 8);  // IF, TF
     wrmsr(IA32_FMASK, fmask);
 }
+
+// Return 0 on success, -1 on failure
+static int copy_from_user_u32(uint32_t *dst, const void *user_ptr)
+{
+    if (!dst || !user_ptr) return -1;
+    if (!is_valid_user_ptr((void*)user_ptr)) return -1;
+    volatile uint32_t *p = (volatile uint32_t *)user_ptr;
+    *dst = *p;
+    return 0;
+}
+
+// Try reading a 32-bit value from user_ptr + off. Return 0 on success.
+static int try_read_user_u32_at_offset(uint32_t *out, const void *user_ptr, size_t off)
+{
+    if (!out || !user_ptr) return -1;
+    const void *addr = (const void *)((uintptr_t)user_ptr + off);
+    if (!is_valid_user_ptr((void*)addr)) return -1;
+    return copy_from_user_u32(out, addr);
+}
+
+// Return 0 on success, -1 on failure
+static int copy_from_user_u64(uint64_t *dst, const void *user_ptr)
+{
+    if (!dst || !user_ptr) return -1;
+    if (!is_valid_user_ptr((void*)user_ptr)) return -1;
+    volatile uint64_t *p = (volatile uint64_t *)user_ptr;
+    *dst = *p;
+    return 0;
+}
+
+// Read 'len' bytes from user VA 'va' of process 'p' into dst. Return 0 on success, -1 on failure.
+static int read_user_bytes(Process *p, uint64_t va, void *dst, size_t len)
+{
+    size_t copied = 0;
+    uint8_t *out = (uint8_t *)dst;
+
+    while (copied < len) {
+        uint64_t cur_va = va + copied;
+        uint64_t pa = get_mapped_phys(p->page_directory, cur_va);
+        if (!pa) return -1;
+        uint64_t page_base = pa & ~(PAGE_SIZE - 1);
+        uint64_t offset = cur_va & (PAGE_SIZE - 1);
+        uint8_t *kva = (uint8_t *)phys_to_virt(page_base) + offset;
+        size_t chunk = PAGE_SIZE - offset;
+        if (chunk > (len - copied)) chunk = len - copied;
+        memcpy(out + copied, kva, chunk);
+        copied += chunk;
+    }
+    return 0;
+}
+
+static int read_user_u32(Process *p, uint64_t va, uint32_t *out)
+{
+    return read_user_bytes(p, va, out, sizeof(uint32_t));
+}
+
+static int read_user_u64(Process *p, uint64_t va, uint64_t *out)
+{
+    return read_user_bytes(p, va, out, sizeof(uint64_t));
+}
+
+
+// Try offsets (in bytes) inside user_ptr and optionally follow one pointer indirection.
+// Returns fd >= 0 on success, -1 on failure.
+static int probe_user_fd(Process *p, uint64_t user_ptr)
+{
+    if (!user_ptr) return -1;
+
+    // Quick reject: if user_ptr itself is a small integer (register case), caller should check that first.
+    // Try reading 32-bit values at offsets 0,4,8,12,16
+    const size_t offs[] = {0, 4, 8, 12, 16};
+    uint32_t val32;
+
+    for (size_t i = 0; i < sizeof(offs)/sizeof(offs[0]); ++i) {
+        uint64_t addr = user_ptr + offs[i];
+        if (read_user_u32(p, addr, &val32) == 0) {
+            if ((int)val32 >= 0 && (int)val32 < MAX_OPEN_FILES && VFS_IsValidFd((int)val32)) {
+                log_info("SYSCALL", "probe_user_fd: found valid fd=%u at %llx+0x%zx",
+                         val32, (unsigned long long)user_ptr, offs[i]);
+                return (int)val32;
+            }
+        }
+    }
+
+    // If the memory at user_ptr looks like a pointer, follow it and probe that target
+    uint64_t maybe_ptr;
+    if (read_user_u64(p, user_ptr, &maybe_ptr) == 0 && is_valid_user_ptr((void*)maybe_ptr)) {
+        for (size_t i = 0; i < sizeof(offs)/sizeof(offs[0]); ++i) {
+            uint64_t addr = maybe_ptr + offs[i];
+            if (read_user_u32(p, addr, &val32) == 0) {
+                if ((int)val32 >= 0 && (int)val32 < MAX_OPEN_FILES && VFS_IsValidFd((int)val32)) {
+                    log_info("SYSCALL", "probe_user_fd: found valid fd=%u at *%llx+0x%zx",
+                             val32, (unsigned long long)maybe_ptr, offs[i]);
+                    return (int)val32;
+                }
+            }
+        }
+    }
+
+    return -1;
+}
+
+void debug_syscall_regs(uint64_t nr,
+                        uint64_t a0,
+                        uint64_t a1,
+                        uint64_t a2,
+                        uint64_t a3,
+                        uint64_t a4,
+                        uint64_t a5,
+                        uint64_t rsp_before_call)
+{
+    log_info("SYSCALLDBG",
+             "pre-call regs: nr=%llx a0=%llx a1=%llx a2=%llx a3=%llx a4=%llx a5=%llx",
+             (unsigned long long)nr,
+             (unsigned long long)a0,
+             (unsigned long long)a1,
+             (unsigned long long)a2,
+             (unsigned long long)a3,
+             (unsigned long long)a4,
+             (unsigned long long)a5);
+
+    log_info("SYSCALLDBG", "pre-call rsp=%llx",
+             (unsigned long long)rsp_before_call);
+}
+
+
 
 uint64_t syscall_dispatch(uint64_t nr,
                           uint64_t a0,
@@ -106,7 +236,8 @@ uint64_t syscall_dispatch(uint64_t nr,
         return sys_dup2(a0, a1);
 
     case SYS_fcntl:
-        return sys_fcntl(a0, a1, a2);
+        m_epfd = sys_fcntl(a0, a1, a2);
+        return m_epfd;
 
     case SYS_pipe:
         return sys_pipe(a0);
@@ -158,6 +289,7 @@ uint64_t syscall_dispatch(uint64_t nr,
         // current_process->regs.rip = 0x4000098f;
         return ret;   // <-- let userspace resume
     }
+
 
     case SYS_prlimit64: return sys_prlimit64(a0, a1, (void*)a2, (void*)a3);
     case SYS_getrandom: return sys_getrandom((void*)a0, a1, a2);
@@ -241,12 +373,77 @@ uint64_t syscall_dispatch(uint64_t nr,
 
     case SYS_eventfd2:
         return sys_eventfd2((unsigned int)a0, (int)a1);
-        
-    case SYS_epoll_create1:
-        return sys_epoll_create1(a0);          // a0 = flags
 
-    case SYS_epoll_ctl:
-        return sys_epoll_ctl(a0, a1, a2, a3);  // epfd, op, fd, event*
+    case SYS_epoll_create1:
+        m_fd = sys_epoll_create1(a0);          // a0 = flags
+        return m_fd;
+
+    // case SYS_epoll_ctl: {
+    //     uint64_t epfd;
+    //     uint64_t op;
+    //     uint64_t fd;
+    //     struct epoll_event *user_ev;
+
+    //     // Detect musl-style packed args: a0 = user pointer, a2 = nr
+    //     if (a2 == nr ) {
+    //         log_error("SYSCALL", "SYS_epoll_ctl using musl-style packed args, probing user pointer for fd...");
+
+    //         epfd    = m_epfd;
+    //         op      = a1;
+    //         fd      = m_fd;
+    //         user_ev = (struct epoll_event *)(uintptr_t)a3;
+
+    //     } else {
+    //         log_error("SYSCALL", "SYS_epoll_ctl using actual value");
+
+    //         epfd    = a0;
+    //         op      = a1;
+    //         fd      = a2;
+    //         user_ev = (struct epoll_event *)(uintptr_t)a3;
+    //     }
+
+    //     return sys_epoll_ctl(epfd, op, fd, user_ev);
+    // }
+
+
+case SYS_epoll_ctl: {
+    uint64_t epfd;
+    uint64_t op;
+    uint64_t fd;
+    struct epoll_event *user_ev;
+
+    // musl-style packed args: a0 = user pointer, a2 = nr
+    if (a2 == nr && is_valid_user_ptr((void*)a0)) {
+        struct {
+            int epfd;
+            int op;
+            int fd;
+            struct epoll_event *ev;
+        } u;
+
+        if (copy_from_user(&u, (void*)(uintptr_t)a0, sizeof(u)) < 0)
+            return -EFAULT;
+
+        epfd    = (uint64_t)u.epfd;
+        op      = (uint64_t)u.op;
+        fd      = (uint64_t)u.fd;
+        user_ev = u.ev;   // still a user pointer, pass through to sys_epoll_ctl
+    } else {
+        // normal Linux ABI: epfd, op, fd, event*
+        epfd    = a0;
+        op      = a1;
+        fd      = a2;
+        user_ev = (struct epoll_event *)(uintptr_t)a3;
+    }
+
+    log_info("SYSCALL", "sys_epoll_ctl: epfd=%llu op=%llu fd=%llu user_ev=%p",
+             (unsigned long long)epfd,
+             (unsigned long long)op,
+             (unsigned long long)fd,
+             (void*)user_ev);
+
+    return sys_epoll_ctl(epfd, op, fd, user_ev);
+}
 
     case SYS_epoll_wait:
         return sys_epoll_wait(a0, a1, a2, a3); // epfd, events*, maxevents, timeout

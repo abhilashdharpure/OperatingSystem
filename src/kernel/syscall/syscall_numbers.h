@@ -34,6 +34,7 @@ enum {
     SYS_clone           = 56,
     SYS_execve          = 59,
     SYS_exit            = 60,
+    SYS_wait4           = 61,
     SYS_uname           = 63,
     SYS_fcntl           = 72,  // or fcntl64 = 72 on x86_64
     SYS_ftruncate       = 77,
@@ -55,6 +56,7 @@ enum {
     SYS_faccessat       = 269,
     SYS_eventfd2        = 290,
     SYS_epoll_create1   = 291,
+    SYS_pipe2           = 293,
     SYS_preadv          = 295,
     SYS_pwritev         = 296,
     SYS_prlimit64       = 302,

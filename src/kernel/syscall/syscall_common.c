@@ -277,14 +277,35 @@ uint64_t sys_mmap(uint64_t addr,
     //          (unsigned long long)offset);
 
     if (addr != 0)
+    {        
+        log_error("SYSCALL", "sys_mmap: non-NULL addr not supported yet");
         return (uint64_t)-1;
+    }
 
     if (length == 0)
+    {
+        log_error("SYSCALL", "sys_mmap: length cannot be 0");
         return (uint64_t)-1;
+    }
+
+    if (length > 0x10000000) {
+        log_error("SYSCALL", "mmap too large");
+        return (uint64_t)-1;
+    }
+
+    // if (length > 0x50000000) // 1.25 GB
+    // {
+    //     log_error("SYSCALL", "mmap too large, more than 1.25 GB");
+    //     return (uint64_t)-1;
+    // }
 
     /* Anonymous mapping */
     if (fd == (uint64_t)-1 && (flags & MAP_ANONYMOUS)) {
         // For now we don’t care if it’s MAP_PRIVATE or MAP_SHARED
+        log_info("SYSCALL", "sys_mmap: anonymous mapping len=%llu prot=%llx flags=%llx",
+                 (unsigned long long)length,
+                 (unsigned long long)prot,
+                 (unsigned long long)flags);    
         return mmap_anon(length, prot);
     }
 
@@ -322,13 +343,19 @@ uint64_t sys_mmap(uint64_t addr,
                 return (uint64_t)-1;
             }
             length = kst.st_size;
-            if (length == 0)
+            if (length == 0)    
+            {
+                log_error("SYSCALL", "sys_mmap: file size is 0 for fd %lld", (long long)fd);    
                 return (uint64_t)-1;
+            }
         }
 
         uint64_t va = mmap_anon(length, prot);
         if (va == (uint64_t)-1)
+        {
+            log_error("SYSCALL", "sys_mmap: mmap_anon failed for file-backed mapping");
             return (uint64_t)-1;
+        }
 
         off_t old = VFS_Lseek((fd_t)fd, 0, SEEK_CUR);
         VFS_Lseek((fd_t)fd, (off_t)offset, SEEK_SET);
@@ -1278,38 +1305,80 @@ long sys_pwritev2(uint64_t fd,
 
 
 
-long sys_eventfd2(unsigned int initval, int flags)
+// long sys_eventfd2(unsigned int initval, int flags)
+// {
+//     int fd = VFS_AllocFd();
+//     if (fd < 0)
+//     {
+//         log_info("SYSCALL", "sys_eventfd2: returning -EMFILE");
+//         return -EMFILE;
+//     }
+
+//     struct eventfd_ctx *ctx = kmalloc(sizeof(*ctx));
+//     if (!ctx)
+//     {
+//         log_info("SYSCALL", "sys_eventfd2: returning -ENOMEM, failed to allocate eventfd_ctx"); 
+//         return -ENOMEM;
+//     }
+
+//     ctx->counter = initval;
+//     ctx->flags   = flags;
+
+//     struct file *f = kmalloc(sizeof(*f));
+//     if (!f) {
+//         kfree(ctx);
+//         log_info("SYSCALL", "sys_eventfd2: returning -ENOMEM, failed to allocate file struct");
+//         return -ENOMEM;
+//     }
+
+//     memset(f, 0, sizeof(*f));
+//     f->fops = &eventfd_fops;
+//     f->private_data = ctx;
+
+//     VFS_SetFd(fd, f);
+//     log_info("SYSCALL", "sys_eventfd2: returning fd=%d", fd);
+//     return fd;
+// }
+
+
+// This is a very minimal implementation
+// Does not support options or rusage yet
+long sys_wait4(uint64_t pid, uint64_t status_ptr, uint64_t options, uint64_t rusage_ptr)
 {
-    int fd = VFS_AllocFd();
-    if (fd < 0)
-    {
-        log_info("SYSCALL", "sys_eventfd2: returning -EMFILE");
-        return -EMFILE;
+    (void)options;   // ignore for now
+    (void)rusage_ptr; // ignore for now
+
+    log_info("SYSCALL", "sys_wait4 pid=%llu status_ptr=0x%llx", 
+             (unsigned long long)pid, 
+             (unsigned long long)status_ptr);
+
+    // Only support waiting for any child
+    if (!current_process->child_list) {
+        log_info("SYSCALL", "sys_wait4: no child, return -1");
+        return (uint64_t)-1; // no child to wait for
     }
 
-    struct eventfd_ctx *ctx = kmalloc(sizeof(*ctx));
-    if (!ctx)
-    {
-        log_info("SYSCALL", "sys_eventfd2: returning -ENOMEM, failed to allocate eventfd_ctx"); 
-        return -ENOMEM;
+    // Pick first child (minimal implementation)
+    Process *child = current_process->child_list;
+    int exit_code = child->exit_code; // should be set when child exits
+
+    // If child not exited yet, block (minimal: just return -1 for now)
+    if (!child->exited) {
+        log_info("SYSCALL", "sys_wait4: child not exited yet");
+        return (uint64_t)-1;
     }
 
-    ctx->counter = initval;
-    ctx->flags   = flags;
-
-    struct file *f = kmalloc(sizeof(*f));
-    if (!f) {
-        kfree(ctx);
-        log_info("SYSCALL", "sys_eventfd2: returning -ENOMEM, failed to allocate file struct");
-        return -ENOMEM;
+    // Write exit code to user-space status_ptr
+    if (status_ptr) {
+        int *user_status = (int *)status_ptr;
+        *user_status = exit_code & 0xFF; // WEXITSTATUS minimal
     }
 
-    memset(f, 0, sizeof(*f));
-    f->fops = &eventfd_fops;
-    f->private_data = ctx;
+    // Remove child from parent list (optional)
+    current_process->child_list = child->next_sibling;
 
-    VFS_SetFd(fd, f);
-    log_info("SYSCALL", "sys_eventfd2: returning fd=%d", fd);
-    return fd;
+    log_info("SYSCALL", "sys_wait4: returning pid=%llu exit=%d", 
+             (unsigned long long)child->pid, exit_code);
+
+    return child->pid;
 }
-

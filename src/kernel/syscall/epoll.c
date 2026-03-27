@@ -9,6 +9,9 @@
 #include "hal/file.h"
 #include "hal/vfs.h"
 #include "kernel_poll.h"
+#include <stdint.h>
+#include <stdbool.h>
+#include <paging.h>
 
 #define MAX_EPOLL_FDS 64
 
@@ -30,96 +33,79 @@ struct file_operations epoll_fops = {
     .write = epoll_write,
 };
 
-long sys_epoll_create1(int flags)
+// Check if a pointer is a valid user-space pointer
+bool is_valid_user_ptr(void *ptr)
 {
-    (void)flags; // ignore EPOLL_CLOEXEC for now
+    if (!ptr)
+        return false;
 
-    int fd = VFS_AllocFd();
-    if (fd < 0)
-    {
-        log_info("SYSCALL", "sys_epoll_create1: returning -EMFILE");
-        return -EMFILE;
-    }
+    uintptr_t addr = (uintptr_t)ptr;
 
-    struct epoll_instance *epi = kmalloc(sizeof(*epi));
-    if (!epi)
-    {
-        log_info("SYSCALL", "sys_epoll_create1: returning -ENOMEM, failed to allocate epoll_instance");
-        return -ENOMEM;
-    }
+    // Simple linear check for valid user-space range
+    if (addr >= USER_START && addr < USER_END)
+        return true;
 
-    memset(epi, 0, sizeof(*epi));
+    // Also allow user stack
+    if (addr >= (USER_STACK_TOP - USER_STACK_SIZE) && addr < USER_STACK_TOP)
+        return true;
 
-    struct file *f = kmalloc(sizeof(*f));
-    if (!f) {
-        kfree(epi);
-        log_info("SYSCALL", "sys_epoll_create1: returning -ENOMEM, failed to allocate file struct");
-        return -ENOMEM;
-    }
+    // Optionally, add heap/mmap ranges
+    if (addr >= USER_HEAP_START && addr < USER_HEAP_END)
+        return true;
 
-    memset(f, 0, sizeof(*f));
-    f->fops = &epoll_fops;
-    f->private_data = epi;
+    if (addr >= USER_MMAP_BASE)
+        return true;
 
-    VFS_SetFd(fd, f);
-    log_info("SYSCALL", "sys_epoll_create1: returning fd=%d", fd);
-
-    return fd;
+    return false;
 }
 
 
 
-static struct epoll_instance *epoll_from_fd(int epfd_raw)
+// Return 0 on success, -1 on failure
+static int copy_from_user_buf(void *dst, const void *user_ptr, size_t len)
 {
-    log_info("SYSCALL", "sys_epoll_from_fd: looking up epfd_raw=%d", epfd_raw);
+    if (!dst || !user_ptr) return -1;
+    if (!is_valid_user_ptr((void*)user_ptr)) return -1;
 
-    int epfd = epfd_raw;
+    volatile uint8_t *s = (volatile uint8_t *)user_ptr;
+    uint8_t *d = (uint8_t *)dst;
+    for (size_t i = 0; i < len; ++i) d[i] = s[i];
+    return 0;
+}
+
+
+
+static struct epoll_instance *epoll_from_fd(uint64_t epfd)
+{
     struct file *f = VFS_GetFile(epfd);
-
     if (!f || f->fops != &epoll_fops) {
-        // Try interpreting epfd_raw as a *user pointer* to an int fd
-        int maybe_fd = -1;
-
-        // If your kernel has copy_from_user, use that; otherwise, direct deref
-        // if user and kernel share address space.
-        maybe_fd = *(int *)(uintptr_t)epfd_raw;
-
-        log_info("SYSCALL", "sys_epoll_from_fd: epfd_raw invalid, trying *epfd_raw=%d", maybe_fd);
-
-        f = VFS_GetFile(maybe_fd);
-        if (!f || f->fops != &epoll_fops) {
-            log_info("SYSCALL", "sys_epoll_from_fd: still invalid, returning NULL");
-            return NULL;
-        }
-
-        epfd = maybe_fd;
+        log_info("SYSCALL", "sys_epoll_from_fd: epfd=%d invalid, returning NULL", epfd);
+        return NULL;
     }
-
-    log_info("SYSCALL", "sys_epoll_from_fd: success, epfd=%d", epfd);
     return (struct epoll_instance *)f->private_data;
 }
 
 
-long sys_epoll_ctl(int epfd, int op, int fd, struct epoll_event *user_ev)
+
+long sys_epoll_ctl(uint64_t epfd, uint64_t op, uint64_t fd, struct epoll_event *user_ev)
 {
+    log_info("SYSCALL", "sys_epoll_ctl: epfd=%d op=%d fd=%d user_ev=%p",
+             (int)epfd, (int)op, (int)fd, (void*)user_ev);
+
     struct epoll_instance *epi = epoll_from_fd(epfd);
-    if (!epi)
-    {
+    if (!epi) {
         log_info("SYSCALL", "sys_epoll_ctl: returning -EBADF");
         return -EBADF;
     }
 
-    if (op != EPOLL_CTL_DEL && !user_ev)
-    {
-        log_info("SYSCALL", "sys_epoll_ctl: returning -EINVAL, user_ev is NULL for op=%d", op);
+    if (op != EPOLL_CTL_DEL && !user_ev) {
+        log_info("SYSCALL", "sys_epoll_ctl: returning -EINVAL, user_ev is NULL for op=%d", (int)op);
         return -EINVAL;
     }
 
-    // lazy allocate watch array
     if (!epi->watches) {
         epi->watches = kmalloc(sizeof(struct epoll_watch) * MAX_EPOLL_FDS);
-        if (!epi->watches)
-        {
+        if (!epi->watches) {
             log_info("SYSCALL", "sys_epoll_ctl: returning -ENOMEM, failed to allocate watch array");
             return -ENOMEM;
         }
@@ -127,65 +113,57 @@ long sys_epoll_ctl(int epfd, int op, int fd, struct epoll_event *user_ev)
         epi->nfds = 0;
     }
 
-    // find existing slot
     int idx = -1;
     for (int i = 0; i < epi->nfds; i++) {
-        if (epi->watches[i].fd == fd) {
-            idx = i;
-            break;
-        }
+        if (epi->watches[i].fd == (int)fd) { idx = i; break; }
     }
 
     switch (op) {
-    case EPOLL_CTL_ADD:
-        if (idx != -1)
-        {   
-            log_info("SYSCALL", "sys_epoll_ctl: returning -EEXIST, fd=%d is already in epoll set", fd);        
-            return -EEXIST;
-        }
-        if (epi->nfds >= MAX_EPOLL_FDS)
-        {
-            log_info("SYSCALL", "sys_epoll_ctl: returning -ENOSPC, epoll set is full (nfds=%d)", epi->nfds);
-            return -ENOSPC;
-        }
+    case EPOLL_CTL_ADD: {
+        if (idx != -1) return -EEXIST;
+        if (epi->nfds >= MAX_EPOLL_FDS) return -ENOSPC;
+
+        struct epoll_event ev;
+        if (!is_valid_user_ptr((void*)user_ev)) return -EFAULT;
+        if (copy_from_user_buf(&ev, user_ev, sizeof(ev)) != 0) return -EFAULT;
+
         idx = epi->nfds++;
-        epi->watches[idx].fd     = fd;
-        epi->watches[idx].events = user_ev->events;
-        epi->watches[idx].data   = user_ev->data;
-        log_info("SYSCALL", "sys_epoll_ctl: added fd=%d to epoll set", fd);
+        epi->watches[idx].fd     = (int)fd;
+        epi->watches[idx].events = ev.events;
+        epi->watches[idx].data   = ev.data;
+        log_info("SYSCALL", "sys_epoll_ctl: added fd=%d events=0x%x", (int)fd, ev.events);
         return 0;
+    }
 
-    case EPOLL_CTL_MOD:
-        if (idx == -1)
-        {
-            log_info("SYSCALL", "sys_epoll_ctl: returning -ENOENT, fd=%d is not in epoll set", fd);
-            return -ENOENT;
-        }
-        epi->watches[idx].events = user_ev->events;
-        epi->watches[idx].data   = user_ev->data;
-        log_info("SYSCALL", "sys_epoll_ctl: modified fd=%d in epoll set", fd);
+    case EPOLL_CTL_MOD: {
+        if (idx == -1) return -ENOENT;
+
+        struct epoll_event ev;
+        if (!is_valid_user_ptr((void*)user_ev)) return -EFAULT;
+        if (copy_from_user_buf(&ev, user_ev, sizeof(ev)) != 0) return -EFAULT;
+
+        epi->watches[idx].events = ev.events;
+        epi->watches[idx].data   = ev.data;
+        log_info("SYSCALL", "sys_epoll_ctl: modified fd=%d events=0x%x", (int)fd, ev.events);
         return 0;
+    }
 
-    case EPOLL_CTL_DEL:
-        if (idx == -1)
-        {
-            log_info("SYSCALL", "sys_epoll_ctl: returning -ENOENT, fd=%d is not in epoll set", fd);
-            return -ENOENT;
-        }
-        // compact array
+    case EPOLL_CTL_DEL: {
+        if (idx == -1) return -ENOENT;
         epi->watches[idx] = epi->watches[epi->nfds - 1];
         epi->nfds--;
-        log_info("SYSCALL", "sys_epoll_ctl: deleted fd=%d from epoll set", fd);
+        log_info("SYSCALL", "sys_epoll_ctl: deleted fd=%d from epoll set", (int)fd);
         return 0;
+    }
 
     default:
-        log_info("SYSCALL", "sys_epoll_ctl: returning -EINVAL, unknown op=%d", op);
         return -EINVAL;
     }
 }
 
-long sys_epoll_wait(int epfd, struct epoll_event *user_events,
-                    int maxevents, int timeout)
+
+long sys_epoll_wait(uint64_t epfd, struct epoll_event *user_events,
+                    uint64_t maxevents, int timeout)
 {
     struct epoll_instance *epi = epoll_from_fd(epfd);
     if (!epi)

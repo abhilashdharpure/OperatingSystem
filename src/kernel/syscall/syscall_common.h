@@ -73,7 +73,4 @@ long sys_pwritev_compat(uint64_t fd,
                         uint64_t pos_h,
                         uint64_t unused);
 int eventfd2(unsigned int initval, int flags);
-long sys_epoll_create1(int flags);
-long sys_epoll_ctl(int epfd, int op, int fd, struct epoll_event *user_ev);
-long sys_epoll_wait(int epfd, struct epoll_event *user_events,
-                    int maxevents, int timeout);
+long sys_wait4(uint64_t pid, uint64_t status_ptr, uint64_t options, uint64_t rusage_ptr);

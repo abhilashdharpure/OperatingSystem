@@ -55,10 +55,15 @@ int sys_exit_group(int code) {
 
 long sys_ioctl(int fd, unsigned long req, unsigned long arg)
 {
+    log_info("SYSCALL", "sys_ioctl fd=%d req=%lu arg=%lu", fd, req, arg);
     struct file *f = VFS_GetFile(fd);
     if (!f || !f->fops || !f->fops->ioctl)
+    {        
+        log_info("SYSCALL", "sys_ioctl: invalid fd or file ops");
         return -ENOTTY;
+    }
 
+    log_info("SYSCALL", "sys_ioctl: dispatching to file ops ioctl handler");
     return f->fops->ioctl(f, (int)req, (void *)arg);
 }
 

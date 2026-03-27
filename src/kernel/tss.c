@@ -68,6 +68,13 @@ void x64_TSS_Install(uintptr_t stack_top) {
 
     g_syscall_rsp0 = stack_top;   // <-- this is what syscall64.asm will use
 
+    log_info("TSS", "g_syscall_rsp0 = 0x%llx", (unsigned long long)g_syscall_rsp0);
+    // run at boot or module init
+    if ((g_syscall_rsp0 & 0xF) != 0)
+    {
+        panic("g_syscall_rsp0 not 16-byte aligned");
+    }
+
     gdt_set_tss64_descriptor(TSS_GDT_INDEX, (uint64_t)&the_tss, sizeof(the_tss) - 1);
 
     log_info("TSS", "Reloading GDT");

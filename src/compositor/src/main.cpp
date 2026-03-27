@@ -9,6 +9,11 @@
 #include <sys/stat.h>
 #include <dirent.h>
 
+#include <fcntl.h>
+#include <unistd.h>
+#include <errno.h>
+#include <string.h>
+
 // Optional: include your compositor header
 #include "compositor.h"
 
@@ -26,6 +31,24 @@ int main() {
 
     setenv("XKB_CONFIG_ROOT", "/usr/share/X11/xkb", 1);
     setenv("XKB_LOG_LEVEL", "debug", 1);
+
+
+
+    // const char *path = "/usr/share/X11/xkb/rules/evdev";
+    // int fd = open(path, O_RDONLY);
+    // if (fd < 0) { perror("open"); return 1; }
+    // char buf[257];
+    // ssize_t n = read(fd, buf, 256);
+    // if (n < 0) { perror("read"); close(fd); return 1; }
+    // buf[n] = '\0';
+    // printf("read %zd bytes:\n", n);
+    // for (ssize_t i = 0; i < n; ++i) {
+    //     if ((i & 31) == 0) printf("\n%08zx: ", i);
+    //     printf("%02x ", (unsigned char)buf[i]);
+    // }
+    // printf("\n\nas text:\n%.*s\n", (int)n, buf);
+    // close(fd);
+    // return 0;
 
     // struct stat st;
 
@@ -73,6 +96,9 @@ int main() {
         fprintf(stderr, "fb_size is 0 (pitch=%u, height=%u)\n", info.pitch, info.height);
         exit(1);
     }
+
+    printf("checking mmap\n");
+
     void *fb = mmap(NULL,
                 fb_size,
                 PROT_READ | PROT_WRITE,
