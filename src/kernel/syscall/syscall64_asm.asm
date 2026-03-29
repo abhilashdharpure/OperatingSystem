@@ -1,96 +1,96 @@
-; ; syscall64_asm.asm
-; [BITS 64]
+; syscall64_asm.asm
+[BITS 64]
 
-; global x64_syscall_entry
+global x64_syscall_entry
 
-; extern syscall_dispatch
-; extern g_syscall_rsp0
+extern syscall_dispatch
+extern g_syscall_rsp0
 
-; section .text
+section .text
 
-; x64_syscall_entry:
-;     swapgs
+x64_syscall_entry:
+    swapgs
 
-;     ; Save user RSP before switching to kernel stack
-;     mov     r12, rsp              ; r12 = user RSP
+    ; Save user RSP before switching to kernel stack
+    mov     r12, rsp              ; r12 = user RSP
 
-;     ; Switch to kernel syscall stack
-;     mov     rsp, [rel g_syscall_rsp0]
+    ; Switch to kernel syscall stack
+    mov     rsp, [rel g_syscall_rsp0]
 
-;     ; Save callee-saved regs
-;     push    rbx
-;     push    rbp
-;     push    r12
-;     push    r13
-;     push    r14
-;     push    r15
+    ; Save callee-saved regs
+    push    rbx
+    push    rbp
+    push    r12
+    push    r13
+    push    r14
+    push    r15
 
-;     ; Save volatile regs we want to restore later
-;     push    r8
-;     push    r9
-;     push    r10
+    ; Save volatile regs we want to restore later
+    push    r8
+    push    r9
+    push    r10
 
-;     ; Save user RIP/RFLAGS exactly as given by SYSCALL
-;     push    rcx                   ; user RIP
-;     push    r11                   ; user RFLAGS
+    ; Save user RIP/RFLAGS exactly as given by SYSCALL
+    push    rcx                   ; user RIP
+    push    r11                   ; user RFLAGS
 
-;     ; --------- REORDER FOR C ABI (FIXED VERSION) ---------
-;     ; Linux syscall ABI on entry:
-;     ;   rax = nr
-;     ;   rdi = a0
-;     ;   rsi = a1
-;     ;   rdx = a2
-;     ;   r10 = a3
-;     ;   r8  = a4
-;     ;   r9  = a5
+    ; --------- REORDER FOR C ABI (FIXED VERSION) ---------
+    ; Linux syscall ABI on entry:
+    ;   rax = nr
+    ;   rdi = a0
+    ;   rsi = a1
+    ;   rdx = a2
+    ;   r10 = a3
+    ;   r8  = a4
+    ;   r9  = a5
 
-;     ; Save args in temps
-;     mov     r12, rdi              ; r12 = a0
-;     mov     r13, rsi              ; r13 = a1
-;     mov     r14, rdx              ; r14 = a2
-;     mov     r15, r10              ; r15 = a3
-;     mov     rbx, r8               ; rbx = a4
-;     mov     rbp, r9               ; rbp = a5
+    ; Save args in temps
+    mov     r12, rdi              ; r12 = a0
+    mov     r13, rsi              ; r13 = a1
+    mov     r14, rdx              ; r14 = a2
+    mov     r15, r10              ; r15 = a3
+    mov     rbx, r8               ; rbx = a4
+    mov     rbp, r9               ; rbp = a5
 
-;     ; syscall_dispatch(nr, a0, a1, a2, a3, a4, a5)
-;     mov     rdi, rax              ; rdi = nr
-;     mov     rsi, r12              ; rsi = a0
-;     mov     rdx, r13              ; rdx = a1
-;     mov     rcx, r14              ; rcx = a2
-;     mov     r8,  r15              ; r8  = a3
-;     mov     r9,  rbx              ; r9  = a4
-;     push    rbp                   ; a5 on stack
-;     ; -----------------------------------------------------
+    ; syscall_dispatch(nr, a0, a1, a2, a3, a4, a5)
+    mov     rdi, rax              ; rdi = nr
+    mov     rsi, r12              ; rsi = a0
+    mov     rdx, r13              ; rdx = a1
+    mov     rcx, r14              ; rcx = a2
+    mov     r8,  r15              ; r8  = a3
+    mov     r9,  rbx              ; r9  = a4
+    push    rbp                   ; a5 on stack
+    ; -----------------------------------------------------
 
-;     call    syscall_dispatch
-;     add     rsp, 8                ; pop a5
+    call    syscall_dispatch
+    add     rsp, 8                ; pop a5
 
-;     ; Restore user RFLAGS and RIP from stack
-;     pop     r11                   ; user RFLAGS
-;     pop     rcx                   ; user RIP
+    ; Restore user RFLAGS and RIP from stack
+    pop     r11                   ; user RFLAGS
+    pop     rcx                   ; user RIP
 
-;     ; Restore saved volatile regs
-;     pop     r10
-;     pop     r9
-;     pop     r8
+    ; Restore saved volatile regs
+    pop     r10
+    pop     r9
+    pop     r8
 
-;     ; Restore callee-saved regs
-;     pop     r15
-;     pop     r14
-;     pop     r13
-;     pop     r12                   ; r12 = user RSP
-;     pop     rbp
-;     pop     rbx
+    ; Restore callee-saved regs
+    pop     r15
+    pop     r14
+    pop     r13
+    pop     r12                   ; r12 = user RSP
+    pop     rbp
+    pop     rbx
 
-;     ; Build iret frame with the *real* user context
-;     push    qword 0x23            ; user SS
-;     push    r12                   ; user RSP
-;     push    r11                   ; user RFLAGS
-;     push    qword 0x1B            ; user CS
-;     push    rcx                   ; user RIP
+    ; Build iret frame with the *real* user context
+    push    qword 0x23            ; user SS
+    push    r12                   ; user RSP
+    push    r11                   ; user RFLAGS
+    push    qword 0x1B            ; user CS
+    push    rcx                   ; user RIP
 
-;     swapgs
-;     iretq
+    swapgs
+    iretq
 
 ;``````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````
 
@@ -492,96 +492,96 @@
 
 
 
-; syscall64_asm.asm
-[BITS 64]
+; ; syscall64_asm.asm
+; [BITS 64]
 
-global x64_syscall_entry
+; global x64_syscall_entry
 
-extern syscall_dispatch
-extern g_syscall_rsp0
+; extern syscall_dispatch
+; extern g_syscall_rsp0
 
-section .text
+; section .text
 
-x64_syscall_entry:
-    swapgs
+; x64_syscall_entry:
+;     swapgs
 
-    ; Save user RSP before switching to kernel stack
-    mov     r12, rsp              ; r12 = user RSP
+;     ; Save user RSP before switching to kernel stack
+;     mov     r12, rsp              ; r12 = user RSP
 
-    ; Switch to kernel syscall stack
-    mov     rsp, [rel g_syscall_rsp0]
+;     ; Switch to kernel syscall stack
+;     mov     rsp, [rel g_syscall_rsp0]
 
-    ; Save callee-saved regs
-    push    rbx
-    push    rbp
-    push    r12
-    push    r13
-    push    r14
-    push    r15
+;     ; Save callee-saved regs
+;     push    rbx
+;     push    rbp
+;     push    r12
+;     push    r13
+;     push    r14
+;     push    r15
 
-    ; Save volatile regs we want to restore later
-    push    r8
-    push    r9
-    push    r10
+;     ; Save volatile regs we want to restore later
+;     push    r8
+;     push    r9
+;     push    r10
 
-    ; Save user RIP/RFLAGS exactly as given by SYSCALL
-    push    rcx                   ; user RIP
-    push    r11                   ; user RFLAGS
+;     ; Save user RIP/RFLAGS exactly as given by SYSCALL
+;     push    rcx                   ; user RIP
+;     push    r11                   ; user RFLAGS
 
-    ; --------- REORDER FOR C ABI (FIXED VERSION) ---------
-    ; Linux syscall ABI on entry:
-    ;   rax = nr
-    ;   rdi = a0
-    ;   rsi = a1
-    ;   rdx = a2
-    ;   r10 = a3
-    ;   r8  = a4
-    ;   r9  = a5
+;     ; --------- REORDER FOR C ABI (FIXED VERSION) ---------
+;     ; Linux syscall ABI on entry:
+;     ;   rax = nr
+;     ;   rdi = a0
+;     ;   rsi = a1
+;     ;   rdx = a2
+;     ;   r10 = a3
+;     ;   r8  = a4
+;     ;   r9  = a5
 
-    ; Save args in temps
-; on entry: rax=nr, rdi=a0, rsi=a1, rdx=a2, r10=a3, r8=a4, r9=a5
+;     ; Save args in temps
+; ; on entry: rax=nr, rdi=a0, rsi=a1, rdx=a2, r10=a3, r8=a4, r9=a5
 
-    mov r12, rdi   ; a0
-    mov r13, rsi   ; a1
-    mov r14, rdx   ; a2
-    mov r15, r10   ; a3
-    mov rbx, r8    ; a4
-    mov rbp, r9    ; a5
+;     mov r12, rdi   ; a0
+;     mov r13, rsi   ; a1
+;     mov r14, rdx   ; a2
+;     mov r15, r10   ; a3
+;     mov rbx, r8    ; a4
+;     mov rbp, r9    ; a5
 
-    mov rdi, rax   ; nr
-    mov rsi, r12   ; a0
-    mov rdx, r13   ; a1
-    mov rcx, r14   ; a2
-    mov r8,  r15   ; a3
-    mov r9,  rbx   ; a4
-    push rbp       ; a5 on stack
-    call syscall_dispatch
+;     mov rdi, rax   ; nr
+;     mov rsi, r12   ; a0
+;     mov rdx, r13   ; a1
+;     mov rcx, r14   ; a2
+;     mov r8,  r15   ; a3
+;     mov r9,  rbx   ; a4
+;     push rbp       ; a5 on stack
+;     call syscall_dispatch
 
-    add     rsp, 8                ; pop a5
+;     add     rsp, 8                ; pop a5
 
-    ; Restore user RFLAGS and RIP from stack
-    pop     r11                   ; user RFLAGS
-    pop     rcx                   ; user RIP
+;     ; Restore user RFLAGS and RIP from stack
+;     pop     r11                   ; user RFLAGS
+;     pop     rcx                   ; user RIP
 
-    ; Restore saved volatile regs
-    pop     r10
-    pop     r9
-    pop     r8
+;     ; Restore saved volatile regs
+;     pop     r10
+;     pop     r9
+;     pop     r8
 
-    ; Restore callee-saved regs
-    pop     r15
-    pop     r14
-    pop     r13
-    pop     r12                   ; r12 = user RSP
-    pop     rbp
-    pop     rbx
+;     ; Restore callee-saved regs
+;     pop     r15
+;     pop     r14
+;     pop     r13
+;     pop     r12                   ; r12 = user RSP
+;     pop     rbp
+;     pop     rbx
 
-    ; Build iret frame with the *real* user context
-    push    qword 0x23            ; user SS
-    push    r12                   ; user RSP
-    push    r11                   ; user RFLAGS
-    push    qword 0x1B            ; user CS
-    push    rcx                   ; user RIP
+;     ; Build iret frame with the *real* user context
+;     push    qword 0x23            ; user SS
+;     push    r12                   ; user RSP
+;     push    r11                   ; user RFLAGS
+;     push    qword 0x1B            ; user CS
+;     push    rcx                   ; user RIP
 
-    swapgs
-    iretq
+;     swapgs
+;     iretq

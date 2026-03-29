@@ -1,5 +1,6 @@
 build/
 toolchain/
+toolchain_old/
 *.err
 bx_enh_dbg.ini
 .vscode/*.log
@@ -17,7 +18,9 @@ iso_root/boot/kernel.elf
 src/libs/
 src/linux-6.6/
 src/sysroot/*
+src/sysroot_old/*
 sysroot/*
+sysroot_old/*
 src/compositor/third_party/
 src/linux-6.6.tar.xz
 iso_root/usr

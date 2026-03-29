@@ -20,6 +20,12 @@ extern uint64_t syscall_next_rip;
 int m_fd = 0;
 int m_epfd = 0;
 
+// Return true if 'addr' is a canonical user-space virtual address on x86_64.
+// On x86_64 user canonical addresses have bits 47..63 == 0.
+static inline bool is_user_canonical(uint64_t addr)
+{
+    return ((addr >> 47) == 0);
+}
 void x64_SYSCALL_Initialize(void)
 {
     uint64_t efer = rdmsr(IA32_EFER);
@@ -296,13 +302,15 @@ uint64_t syscall_dispatch(uint64_t nr,
     case SYS_exit_group: return sys_exit_group(a0);
 
     case SYS_arch_prctl:
-        int ret = sys_arch_prctl(a0, a1);
-        log_info("SYSCALL", "sys_arch_prctl returned %d", ret);
-        // uint64_t efer = rdmsr(MSR_FS_BASE);
-        // log_info("SYSCALL", "sys_arch_prctl: EFER=0x%llx", efer);
-        // log_info("SYSCALL", "FS_BASE now = 0x%lx", rdmsr(MSR_FS_BASE));
+        // int ret = sys_arch_prctl(a0, a1);
+        // log_info("SYSCALL", "sys_arch_prctl returned %d", ret);
+        // // uint64_t efer = rdmsr(MSR_FS_BASE);
+        // // log_info("SYSCALL", "sys_arch_prctl: EFER=0x%llx", efer);
+        // // log_info("SYSCALL", "FS_BASE now = 0x%lx", rdmsr(MSR_FS_BASE));
 
-        return ret;
+        // return ret;
+
+        return sys_arch_prctl(a0, a1);
 
      case SYS_ioctl: 
         return sys_ioctl((int)a0, (unsigned long)a1, (unsigned long)a2);
@@ -378,75 +386,14 @@ uint64_t syscall_dispatch(uint64_t nr,
         m_fd = sys_epoll_create1(a0);          // a0 = flags
         return m_fd;
 
-    // case SYS_epoll_ctl: {
-    //     uint64_t epfd;
-    //     uint64_t op;
-    //     uint64_t fd;
-    //     struct epoll_event *user_ev;
-
-    //     // Detect musl-style packed args: a0 = user pointer, a2 = nr
-    //     if (a2 == nr ) {
-    //         log_error("SYSCALL", "SYS_epoll_ctl using musl-style packed args, probing user pointer for fd...");
-
-    //         epfd    = m_epfd;
-    //         op      = a1;
-    //         fd      = m_fd;
-    //         user_ev = (struct epoll_event *)(uintptr_t)a3;
-
-    //     } else {
-    //         log_error("SYSCALL", "SYS_epoll_ctl using actual value");
-
-    //         epfd    = a0;
-    //         op      = a1;
-    //         fd      = a2;
-    //         user_ev = (struct epoll_event *)(uintptr_t)a3;
-    //     }
-
-    //     return sys_epoll_ctl(epfd, op, fd, user_ev);
-    // }
-
-
-case SYS_epoll_ctl: {
-    uint64_t epfd;
-    uint64_t op;
-    uint64_t fd;
-    struct epoll_event *user_ev;
-
-    // musl-style packed args: a0 = user pointer, a2 = nr
-    if (a2 == nr && is_valid_user_ptr((void*)a0)) {
-        struct {
-            int epfd;
-            int op;
-            int fd;
-            struct epoll_event *ev;
-        } u;
-
-        if (copy_from_user(&u, (void*)(uintptr_t)a0, sizeof(u)) < 0)
-            return -EFAULT;
-
-        epfd    = (uint64_t)u.epfd;
-        op      = (uint64_t)u.op;
-        fd      = (uint64_t)u.fd;
-        user_ev = u.ev;   // still a user pointer, pass through to sys_epoll_ctl
-    } else {
-        // normal Linux ABI: epfd, op, fd, event*
-        epfd    = a0;
-        op      = a1;
-        fd      = a2;
-        user_ev = (struct epoll_event *)(uintptr_t)a3;
-    }
-
-    log_info("SYSCALL", "sys_epoll_ctl: epfd=%llu op=%llu fd=%llu user_ev=%p",
-             (unsigned long long)epfd,
-             (unsigned long long)op,
-             (unsigned long long)fd,
-             (void*)user_ev);
-
-    return sys_epoll_ctl(epfd, op, fd, user_ev);
-}
+    case SYS_epoll_ctl:
+        return sys_epoll_ctl((int)a0,
+                            (int)a1,
+                            (int)a2,
+                            (struct epoll_event *)(uintptr_t)a3);
 
     case SYS_epoll_wait:
-        return sys_epoll_wait(a0, a1, a2, a3); // epfd, events*, maxevents, timeout
+        return sys_epoll_wait((int)a0, (struct epoll_event *)(uintptr_t)a1, (int)a2, (int)a3); // epfd, events*, maxevents, timeout
 
     case SYS_preadv:
         // (you can stub it for now)
@@ -488,3 +435,4 @@ case SYS_epoll_ctl: {
     // }
     return (uint64_t)-1;
 }
+

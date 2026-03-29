@@ -92,7 +92,9 @@ long sys_epoll_ctl(uint64_t epfd, uint64_t op, uint64_t fd, struct epoll_event *
     log_info("SYSCALL", "sys_epoll_ctl: epfd=%d op=%d fd=%d user_ev=%p",
              (int)epfd, (int)op, (int)fd, (void*)user_ev);
 
-    struct epoll_instance *epi = epoll_from_fd(epfd);
+    // struct epoll_instance *epi = epoll_from_fd(epfd);
+    struct epoll_instance *epi = sys_epoll_from_fd(epfd);
+
     if (!epi) {
         log_info("SYSCALL", "sys_epoll_ctl: returning -EBADF");
         return -EBADF;

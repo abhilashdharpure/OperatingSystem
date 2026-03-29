@@ -947,3 +947,31 @@ DESTDIR=/home/abhilash/Project/OperatingSystem/sysroot ninja -C build install
 ## Mount issue Device or resource busy
 sudo umount build/x86_64_debug/root.mnt
 sudo losetup -D
+
+
+
+
+
+pip3 install --user meson
+
+
+✅ Step 1 — Build a native wayland-scanner (for your host)
+mkdir -p external
+cd external
+git clone https://gitlab.freedesktop.org/wayland/wayland.git
+cd wayland
+
+cd ~/Project/OperatingSystem/external/wayland
+mkdir -p build-native
+cd build-native
+
+meson setup \
+  --prefix=/usr \
+  -Ddefault_library=static \
+  -Ddocumentation=false \
+  -Dtests=false \
+  -Dscanner=true \
+  ..
+
+ninja
+sudo ninja install
