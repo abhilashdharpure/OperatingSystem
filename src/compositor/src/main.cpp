@@ -55,36 +55,36 @@ int main() {
 
 
 
-    int fb_fd = open("/dev/fb0", O_RDWR);
-    if (fb_fd < 0) {
-        perror("open /dev/fb0");
-        exit(1);
-    }
+    // int fb_fd = open("/dev/fb0", O_RDWR);
+    // if (fb_fd < 0) {
+    //     perror("open /dev/fb0");
+    //     exit(1);
+    // }
 
-    if (ioctl(fb_fd, 0x4602, &info) < 0) {
-        perror("ioctl FBIOGET_VSCREENINFO");
-        exit(1);
-    }
+    // if (ioctl(fb_fd, 0x4602, &info) < 0) {
+    //     perror("ioctl FBIOGET_VSCREENINFO");
+    //     exit(1);
+    // }
 
-    size_t fb_size = (size_t)info.pitch * info.height;
-    printf("fb_size is %zu (pitch=%u, height=%u)\n", fb_size, info.pitch, info.height);
+    // size_t fb_size = (size_t)info.pitch * info.height;
+    // printf("fb_size is %zu (pitch=%u, height=%u)\n", fb_size, info.pitch, info.height);
 
-    if (fb_size == 0) {
-        fprintf(stderr, "fb_size is 0 (pitch=%u, height=%u)\n", info.pitch, info.height);
-        exit(1);
-    }
-    void *fb = mmap(NULL,
-                fb_size,
-                PROT_READ | PROT_WRITE,
-                MAP_SHARED,
-                fb_fd,
-                0);
-    if (fb == MAP_FAILED) {
-        perror("ERROR: mmap fb Failed \0");
-        exit(1);
-    }
+    // if (fb_size == 0) {
+    //     fprintf(stderr, "fb_size is 0 (pitch=%u, height=%u)\n", info.pitch, info.height);
+    //     exit(1);
+    // }
+    // void *fb = mmap(NULL,
+    //             fb_size,
+    //             PROT_READ | PROT_WRITE,
+    //             MAP_SHARED,
+    //             fb_fd,
+    //             0);
+    // if (fb == MAP_FAILED) {
+    //     perror("ERROR: mmap fb Failed \0");
+    //     exit(1);
+    // }
 
-    close(fb_fd);
+    // close(fb_fd);
 
     printf("User-space test complete. Ready to launch compositor!\n");
 

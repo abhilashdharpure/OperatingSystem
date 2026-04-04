@@ -164,6 +164,7 @@ uint64_t syscall_dispatch(uint64_t nr,
     case SYS_exit_group: return sys_exit_group(a0);
 
     case SYS_arch_prctl:
+    {
         int ret = sys_arch_prctl(a0, a1);
         log_info("SYSCALL", "sys_arch_prctl returned %d", ret);
         // uint64_t efer = rdmsr(MSR_FS_BASE);
@@ -171,6 +172,7 @@ uint64_t syscall_dispatch(uint64_t nr,
         // log_info("SYSCALL", "FS_BASE now = 0x%lx", rdmsr(MSR_FS_BASE));
 
         return ret;
+    }
 
      case SYS_ioctl: 
         return sys_ioctl((int)a0, (unsigned long)a1, (unsigned long)a2);

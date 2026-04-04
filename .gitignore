@@ -9,8 +9,6 @@ __pycache__/
 image/root
 image/root/bin/init
 image/root/bin/init.elf
-image/root/bin/init
-image/root/bin/init
 image/root/usr/share/X11/xkb/
 iso_root/boot/kernel.elf
 *.elf
@@ -21,3 +19,18 @@ sysroot/*
 src/compositor/third_party/
 src/linux-6.6.tar.xz
 iso_root/usr
+toolchain_old/
+src/sysroot_old/
+sysroot_old/*
+image/root/bin/
+image/root/bin/compositor
+image/root/bin/init_luma-compositor
+image/root/bin/test
+image/root/bin/wl-test
+iso_root/bin/compositor
+iso_root/bin/init
+iso_root/bin/init_luma-compositor
+iso_root/bin/test
+iso_root/*
+
+

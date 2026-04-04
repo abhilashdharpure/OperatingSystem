@@ -1,0 +1,713 @@
+
+
+✔ Step 1 — Build binutils
+
+cd ~/Project/OperatingSystem/toolchain
+mkdir binutils-build
+cd binutils-build
+
+../binutils-2.37/configure \
+  --target=x86_64-linux-musl \
+  --prefix=$HOME/Project/OperatingSystem/toolchain \
+  --disable-nls \
+  --disable-werror
+
+make -j$(nproc)
+make install
+
+
+
+✔ Step 2 — Build libgcc
+
+cd ~/Project/OperatingSystem/toolchain/gcc-build
+make all-target-libgcc -j"$(nproc)"
+make install-target-libgcc
+
+
+
+✔ Step 3 — Install musl headers into sysroot
+
+cd ~/Project/OperatingSystem/toolchain/musl-1.2.5
+make clean
+
+./configure --prefix=/home/abhilash/Project/OperatingSystem/toolchain/x86_64-linux-musl
+make -j$(nproc)
+make install
+
+
+CC=true \
+./configure \
+  --prefix=/ \
+  --target=x86_64-linux-musl
+
+make install-headers DESTDIR=$HOME/Project/OperatingSystem/sysroot
+
+
+cd ~/Project/OperatingSystem
+mkdir -p ~/Project/OperatingSystem/sysroot/usr
+ln -s ../include ~/Project/OperatingSystem/sysroot/usr/include
+
+
+✔ Step 4 — Build GCC (stage 1)
+
+cd ~/Project/OperatingSystem/toolchain
+mkdir -p gcc-build
+cd gcc-build
+
+../gcc-11.2.0/configure \
+  --target=x86_64-linux-musl \
+  --prefix=$HOME/Project/OperatingSystem/toolchain \
+  --with-sysroot=$HOME/Project/OperatingSystem/sysroot \
+  --with-native-system-header-dir=/usr/include \
+  --enable-languages=c,c++ \
+  --disable-multilib \
+  --disable-nls \
+  --disable-shared
+
+make all-gcc -j"$(nproc)"
+make install-gcc
+
+
+
+✔ Step 5 — Build full musl (static)
+
+cd ~/Project/OperatingSystem/toolchain/musl-1.2.5
+make clean
+
+AR=$HOME/Project/OperatingSystem/toolchain/bin/x86_64-linux-musl-ar \
+RANLIB=$HOME/Project/OperatingSystem/toolchain/bin/x86_64-linux-musl-ranlib \
+CC=$HOME/Project/OperatingSystem/toolchain/bin/x86_64-linux-musl-gcc \
+./configure \
+  --prefix=/ \
+  --target=x86_64-linux-musl
+
+make -j"$(nproc)"
+make DESTDIR=$HOME/Project/OperatingSystem/sysroot install
+
+
+✔ Step 6 — Build libstdc++
+
+
+cd ~/Project/OperatingSystem
+git clone https://github.com/richfelker/musl-cross-make
+cd musl-cross-make
+
+cat > config.mak << 'EOF'
+TARGET = x86_64-linux-musl
+OUTPUT = /home/abhilash/Project/OperatingSystem/toolchain
+EOF
+
+
+make -j"$(nproc)"
+make install
+
+3. Set up a clean sysroot for your OS
+
+export TOOLCHAIN=/home/abhilash/Project/OperatingSystem/toolchain
+export TARGET=x86_64-linux-musl
+export SYSROOT=/home/abhilash/Project/OperatingSystem/sysroot
+
+mkdir -p "$SYSROOT"
+
+4.  Download Linux kernel headers (same version as your kernel)
+cd ~/Project/OperatingSystem/src/libs
+wget https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.6.tar.xz
+tar xf linux-6.6.tar.xz
+cd linux-6.6
+
+cd ~/Project/OperatingSystem/src/libs/linux-6.6
+make mrproper
+make headers
+make INSTALL_HDR_PATH="$SYSROOT/usr" headers_install
+
+
+
+🌟 Step 1 — Download Wayland 1.24.91 again
+cd ~/Project/OperatingSystem/src/libs
+wget https://gitlab.freedesktop.org/wayland/wayland/-/archive/1.24.91/wayland-1.24.91.tar.gz
+tar -xvf wayland-1.24.91.tar.gz
+
+🌟 Step 2 — Build native wayland‑scanner (host)
+cd ~/Project/OperatingSystem/src/libs/wayland-1.24.91
+mkdir build-native
+cd build-native
+
+meson setup \
+  --prefix=$HOME/.local/wayland-host/usr \
+  -Dscanner=true \
+  -Dtests=false \
+  -Ddocumentation=false \
+  ..
+
+ninja
+ninja install
+
+
+🌟 STEP 3 — Ensure pkg-config sees the correct scanner version
+
+
+
+
+Create file:
+gedit /home/abhilash/.local/wayland-host/usr/lib/pkgconfig/wayland-scanner.pc
+
+######################################################################################
+prefix=/home/abhilash/.local/wayland-host/usr
+bindir=${prefix}/bin
+includedir=${prefix}/include
+
+datarootdir=${prefix}/share
+pkgdatadir=${pc_sysrootdir}${datarootdir}/wayland
+wayland_scanner=${bindir}/wayland-scanner
+
+Name: Wayland Scanner
+Description: Wayland scanner
+Version: 1.24.91
+Cflags: -I${includedir}
+
+######################################################################################
+
+export PKG_CONFIG_PATH=$HOME/.local/wayland-host/usr/lib/pkgconfig
+pkg-config --modversion wayland-scanner
+
+
+⭐ STEP 1 — Configure libffi for cross‑compilation
+
+cd ~/Project/OperatingSystem/src/libs/libffi-3.4.6
+rm -rf build
+mkdir build
+cd build
+
+
+../configure \
+  --host=x86_64-linux-musl \
+  --prefix=/usr \
+  --disable-shared \
+  --enable-static \
+  --disable-exec-static-tramp \
+  CC=/home/abhilash/Project/OperatingSystem/toolchain/bin/x86_64-linux-musl-gcc \
+  CFLAGS="-O2" \
+  LDFLAGS="-static"
+
+
+make -j$(nproc)
+make DESTDIR=$HOME/Project/OperatingSystem/sysroot install
+
+
+🌟 STEP 4 — Cross‑compile Wayland 1.24.91
+
+cd ~/Project/OperatingSystem/src/libs/wayland-1.24.91/build-cross
+rm -rf *
+
+meson setup \
+  --cross-file=$HOME/Project/OperatingSystem/toolchain/musl-cross.txt \
+  --prefix=/usr \
+  --libdir=lib \
+  -Ddefault_library=static \
+  -Ddocumentation=false \
+  -Dtests=false \
+  -Dscanner=false \
+  ..
+
+
+ninja
+DESTDIR=$HOME/Project/OperatingSystem/sysroot ninja install
+
+✅ STEP 1 — Build libxkbcommon 1.6.0 (NO ICU, NO PATCHES)
+cd ~/Project/OperatingSystem/src/libs
+rm -rf libxkbcommon-1.6.0
+tar xf libxkbcommon-1.6.0.tar.xz
+cd libxkbcommon-1.6.0
+
+rm -rf build
+mkdir build
+cd build
+
+meson setup \
+  --cross-file=$HOME/Project/OperatingSystem/toolchain/musl-cross.txt \
+  --prefix=/usr \
+  --libdir=lib \
+  -Ddefault_library=static \
+  -Denable-x11=false \
+  -Denable-docs=false \
+  -Denable-wayland=false \
+  -Denable-xkbregistry=false \
+  -Denable-tools=false \
+  ..
+
+ninja
+DESTDIR=$HOME/Project/OperatingSystem/sysroot ninja install
+
+
+🌟 PHASE 2 — Build native wayland-scanner (host tool)
+cd ~/Project/OperatingSystem/external/wayland
+rm -rf build-native
+mkdir build-native
+cd build-native
+
+meson setup \
+  --cross-file=$HOME/Project/OperatingSystem/toolchain/musl-cross.txt \
+  --prefix=/usr \
+  --libdir=lib \
+  -Ddefault_library=static \
+  -Denable-x11=false \
+  -Denable-docs=false \
+  -Denable-wayland=false \
+  -Denable-xkbregistry=false \
+  -Denable-tools=false \
+  -Dtests=false \
+  ..
+
+
+ninja
+ninja install
+
+
+
+🌟 PHASE 3 — Create the correct Meson cross file
+
+~/Project/OperatingSystem/toolchain/musl-cross.txt
+Paste this EXACT content:
+#####################################################################################################
+[binaries]
+c = '/home/abhilash/Project/OperatingSystem/toolchain/bin/x86_64-linux-musl-gcc'
+cpp = '/home/abhilash/Project/OperatingSystem/toolchain/bin/x86_64-linux-musl-g++'
+ar = '/home/abhilash/Project/OperatingSystem/toolchain/bin/x86_64-linux-musl-ar'
+strip = '/home/abhilash/Project/OperatingSystem/toolchain/bin/x86_64-linux-musl-strip'
+
+pkg-config = '/home/abhilash/Project/OperatingSystem/toolchain/pkg-config-wayland'
+wayland-scanner = '/home/abhilash/.local/wayland-host/usr/bin/wayland-scanner'
+
+[properties]
+sys_root = '/home/abhilash/Project/OperatingSystem/sysroot'
+needs_exe_wrapper = true
+pkg_config_path = '/home/abhilash/.local/wayland-host/usr/lib/pkgconfig'
+
+[built-in options]
+c_args = ['-static', '-O2']
+c_link_args = ['-static']
+
+[host_machine]
+system = 'linux'
+cpu_family = 'x86_64'
+cpu = 'x86_64'
+endian = 'little'
+#####################################################################################################
+
+
+🌟 PHASE 4 — Cross‑compile Wayland
+
+cd ~/Project/OperatingSystem/external/wayland
+mkdir -p build-cross
+cd build-cross
+
+meson setup \
+  --cross-file=$HOME/Project/OperatingSystem/toolchain/musl-cross.txt \
+  --prefix=/usr \
+  --libdir=lib \
+  -Ddefault_library=static \
+  -Ddocumentation=false \
+  -Dtests=false \
+  -Dscanner=false \
+  ..
+
+ninja
+DESTDIR=$HOME/Project/OperatingSystem/sysroot ninja install
+
+
+###############################################################################################################################################
+
+cd ~/Project/OperatingSystem
+git clone https://github.com/richfelker/musl-cross-make
+cd musl-cross-make
+
+cat > config.mak << 'EOF'
+TARGET = x86_64-linux-musl
+OUTPUT = /home/abhilash/Project/OperatingSystem/toolchain
+EOF
+
+
+make -j"$(nproc)"
+make install
+
+3. Set up a clean sysroot for your OS
+
+export TOOLCHAIN=/home/abhilash/Project/OperatingSystem/toolchain
+export TARGET=x86_64-linux-musl
+export SYSROOT=/home/abhilash/Project/OperatingSystem/sysroot
+
+mkdir -p "$SYSROOT"
+
+4.  Download Linux kernel headers (same version as your kernel)
+cd ~/Project/OperatingSystem/src/libs
+wget https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.6.tar.xz
+tar xf linux-6.6.tar.xz
+cd linux-6.6
+
+cd ~/Project/OperatingSystem/src/libs/linux-6.6
+make mrproper
+make headers
+make INSTALL_HDR_PATH="$SYSROOT/usr" headers_install
+
+✅ NEXT STEP: Build pkg-config (cross‑friendly wrapper)
+Create this file:
+gedit ~/Project/OperatingSystem/toolchain/bin/x86_64-linux-musl-pkg-config
+Add below:
+########################################
+#!/bin/sh
+export PKG_CONFIG_SYSROOT_DIR=/home/abhilash/Project/OperatingSystem/sysroot
+export PKG_CONFIG_LIBDIR=/home/abhilash/Project/OperatingSystem/sysroot/usr/lib/pkgconfig:/home/abhilash/Project/OperatingSystem/sysroot/usr/share/pkgconfig
+exec pkg-config "$@"
+########################################
+
+chmod +x ~/Project/OperatingSystem/toolchain/bin/x86_64-linux-musl-pkg-config
+
+export TOOLCHAIN=/home/abhilash/Project/OperatingSystem/toolchain
+export TARGET=x86_64-linux-musl
+export SYSROOT=/home/abhilash/Project/OperatingSystem/sysroot
+
+export CC=$TOOLCHAIN/bin/$TARGET-gcc
+export CXX=$TOOLCHAIN/bin/$TARGET-g++
+export AR=$TOOLCHAIN/bin/$TARGET-ar
+export RANLIB=$TOOLCHAIN/bin/$TARGET-ranlib
+export PKG_CONFIG=$TOOLCHAIN/bin/$TARGET-pkg-config
+export PKG_CONFIG_SYSROOT_DIR=$SYSROOT
+export PKG_CONFIG_LIBDIR=$SYSROOT/usr/lib/pkgconfig:$SYSROOT/usr/share/pkgconfig
+
+
+⭐ 1. Build libffi
+cd ~/Project/OperatingSystem/src/libs/libffi-3.4.6
+./configure --host=$TARGET --prefix=/usr
+make -j$(nproc)
+make DESTDIR=$SYSROOT install
+
+
+⭐ 2. Build libxml2
+cd ~/Project/OperatingSystem/src/libs/libxml2-v2.15.2/
+./configure --host=$TARGET --prefix=/usr --without-python
+make -j$(nproc)
+make DESTDIR=$SYSROOT install
+
+⭐ 3. Build wayland-protocols (header-only)
+cd ~/Project/OperatingSystem/src/libs/wayland-protocols-<version>
+./configure --host=$TARGET --prefix=/usr
+make -j$(nproc)
+make DESTDIR=$SYSROOT install
+
+
+✅ NEXT STEP: Build and install expat into your sysroot
+cd ~/Project/OperatingSystem/src/libs
+wget https://github.com/libexpat/libexpat/releases/download/R_2_6_2/expat-2.6.2.tar.gz
+tar xf expat-2.6.2.tar.gz
+cd expat-2.6.2
+
+export TOOLCHAIN=/home/abhilash/Project/OperatingSystem/toolchain
+export TARGET=x86_64-linux-musl
+export SYSROOT=/home/abhilash/Project/OperatingSystem/sysroot
+
+export CC=$TOOLCHAIN/bin/$TARGET-gcc
+export CXX=$TOOLCHAIN/bin/$TARGET-g++
+export AR=$TOOLCHAIN/bin/$TARGET-ar
+export RANLIB=$TOOLCHAIN/bin/$TARGET-ranlib
+export PKG_CONFIG=$TOOLCHAIN/bin/$TARGET-pkg-config
+export PKG_CONFIG_SYSROOT_DIR=$SYSROOT
+export PKG_CONFIG_LIBDIR=$SYSROOT/usr/lib/pkgconfig:$SYSROOT/usr/share/pkgconfig
+
+./configure --host=$TARGET --prefix=/usr
+
+make -j$(nproc)
+make DESTDIR=$SYSROOT install
+
+✅ STEP 1 — Build a native Wayland (host build)
+
+cd ~/Project/OperatingSystem/src/libs
+mkdir wayland-native
+cd wayland-native
+
+meson setup build-native ../wayland-1.24.91 \
+  --prefix=/usr \
+  --buildtype=release \
+  -Ddocumentation=false \
+  -Dtests=false
+
+
+
+
+
+unset CC
+unset CXX
+unset AR
+unset RANLIB
+unset STRIP
+unset PKG_CONFIG
+unset PKG_CONFIG_PATH
+unset PKG_CONFIG_SYSROOT_DIR
+
+cd ~/wayland-src/wayland-host
+rm -rf build
+meson setup build ../wayland-1.24.91 \
+  --prefix=/usr \
+  --buildtype=release \
+  -Ddocumentation=false \
+  -Dtests=false
+
+cd build
+ninja
+sudo ninja install
+
+cd ~/wayland-src/wayland-host/build
+
+sudo rsync -av \
+    ./ \
+    /usr/
+
+sudo install -m 755 /home/abhilash/wayland-src/wayland-host/build/src/wayland-scanner /usr/bin/wayland-scanner
+
+⭐ Step 2 — (Optional but recommended) Install the Wayland headers + pkgconfig files
+sudo rsync -av /home/abhilash/wayland-src/wayland-host/build/ /usr/
+
+
+
+sudo mv /usr/lib/pkgconfig/wayland-scanner.pc /usr/lib/x86_64-linux-gnu/pkgconfig/
+
+
+
+
+✅ Step 1 — Build native Wayland (host build)
+unset PKG_CONFIG_PATH
+unset PKG_CONFIG_LIBDIR
+unset PKG_CONFIG_SYSROOT_DIR
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+cd ~/Project/OperatingSystem/src/libs/wayland-1.24.91
+rm -rf build-native
+
+meson setup build-native \
+  --prefix=/usr \
+  --buildtype=release \
+  -Ddocumentation=false \
+  -Dtests=false
+
+cd build-native
+ninja
+
+
+cd ~/Project/OperatingSystem/src/libs/wayland-1.24.91
+sudo cp build-native/src/wayland-scanner /usr/local/bin/
+sudo chmod +x /usr/local/bin/wayland-scanner
+
+
+sudo mkdir -p /usr/local/lib/x86_64-linux-gnu/pkgconfig
+sudo cp build-native/meson-private/wayland-scanner.pc /usr/local/lib/x86_64-linux-gnu/pkgconfig/
+export PATH=/home/abhilash/Project/OperatingSystem/toolchain:$PATH
+
+
+⭐ 4. Build Wayland
+cd ~/Project/OperatingSystem/src/libs/wayland-1.24.91/
+
+
+mkdir build
+cd ~/Project/OperatingSystem/src/libs/wayland-1.24.91
+rm -f musl-cross.txt
+
+
+
+// Below is single command --------------------------------------------------------------------------------------------------
+cat > musl-cross.txt << 'EOF'
+[binaries]
+c = '/home/abhilash/Project/OperatingSystem/toolchain/bin/x86_64-linux-musl-gcc'
+cpp = '/home/abhilash/Project/OperatingSystem/toolchain/bin/x86_64-linux-musl-g++'
+ar = '/home/abhilash/Project/OperatingSystem/toolchain/bin/x86_64-linux-musl-ar'
+strip = '/home/abhilash/Project/OperatingSystem/toolchain/bin/x86_64-linux-musl-strip'
+pkg-config = '/home/abhilash/Project/OperatingSystem/toolchain/pkg-config'
+pkgconfig = '/home/abhilash/Project/OperatingSystem/toolchain/pkg-config'
+wayland-scanner = '/home/abhilash/.local/wayland-host/usr/bin/wayland-scanner'
+
+[properties]
+sys_root = '/home/abhilash/Project/OperatingSystem/sysroot'
+needs_exe_wrapper = true
+
+[built-in options]
+c_args = ['-static', '-O2']
+c_link_args = ['-static']
+
+[host_machine]
+system = 'linux'
+cpu_family = 'x86_64'
+cpu = 'x86_64'
+endian = 'little'
+
+EOF
+
+
+//-------------------------------------------------------------------------------------------------
+
+cat /home/abhilash/Project/OperatingSystem/toolchain/musl-cross.txt
+
+
+
+sudo nano /usr/lib/x86_64-linux-gnu/pkgconfig/wayland-scanner.pc
+
+// Add in file --------------------------------------------------------------------------------------------------
+
+prefix=/usr
+exec_prefix=${prefix}
+bindir=${exec_prefix}/bin
+
+Name: wayland-scanner
+Description: Wayland protocol XML to code scanner
+Version: 1.24.91
+
+# REQUIRED by Wayland's meson.build
+wayland_scanner=${bindir}/wayland-scanner
+
+//-------------------------------------------------------------------------------------------------
+
+sudo ldconfig
+pkg-config --variable=wayland_scanner wayland-scanner
+
+gedit /home/abhilash/Project/OperatingSystem/toolchain/pkg-config
+
+//-------------------------------------------------------------------------------------------------
+
+#!/bin/bash
+echo "WRAPPER ACTIVE" >&2
+
+export PKG_CONFIG_SYSROOT_DIR=/home/abhilash/Project/OperatingSystem/sysroot
+export PKG_CONFIG_LIBDIR=/home/abhilash/Project/OperatingSystem/sysroot/usr/lib/pkgconfig
+export PKG_CONFIG_TOP_BUILD_DIR=/home/abhilash/Project/OperatingSystem/sysroot
+
+export PKG_CONFIG_SYSTEM_INCLUDE_PATH=
+export PKG_CONFIG_SYSTEM_LIBRARY_PATH=
+
+unset PKG_CONFIG_PATH
+
+exec /usr/bin/pkg-config "$@"
+
+
+
+//-------------------------------------------------------------------------------------------------
+chmod +x /home/abhilash/Project/OperatingSystem/toolchain/pkg-config
+
+
+nano /home/abhilash/Project/OperatingSystem/sysroot/usr/lib/pkgconfig/libffi.pc
+//-------------------------------------------------------------------------------------------------
+prefix=/usr
+exec_prefix=${prefix}
+includedir=/usr/include
+libdir=/usr/lib
+toolexeclibdir=${libdir}
+
+Name: libffi
+Description: Library supporting Foreign Function Interfaces
+Version: 3.4.6
+Libs: -L${toolexeclibdir} -lffi
+Cflags: -I${includedir}
+
+
+//-------------------------------------------------------------------------------------------------
+
+export PATH=/home/abhilash/Project/OperatingSystem/toolchain:$PATH
+
+unset PKG_CONFIG_PATH
+
+export PKG_CONFIG_PATH=$HOME/.local/wayland-host/usr/lib/pkgconfig
+
+chmod +x /home/abhilash/Project/OperatingSystem/toolchain/pkg-config
+
+
+
+✅ Step 1 — Run Meson with the correct path
+
+cd ~/wayland-host-build
+
+env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+    meson setup build-native \
+    /home/abhilash/Project/OperatingSystem/src/libs/wayland-1.24.91 \
+    -Dtests=false -Ddocumentation=false
+
+env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+    ninja -C build-native
+
+env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+    DESTDIR=~/wayland-host ninja -C build-native install
+
+
+gedit /home/abhilash/Project/OperatingSystem/toolchain/native-wayland.ini
+
+###################################################################
+[binaries]
+c = 'cc'
+cpp = 'c++'
+pkgconfig = '/usr/bin/pkg-config'
+wayland-scanner = '/home/abhilash/.local/wayland-host/usr/bin/wayland-scanner'
+
+[host_machine]
+system = 'linux'
+cpu_family = 'x86_64'
+cpu = 'x86_64'
+endian = 'little'
+
+###################################################################
+PKG_CONFIG=/usr/bin/pkg-config \
+PKG_CONFIG_LIBDIR='' \
+PKG_CONFIG_PATH=/home/abhilash/wayland-host/usr/local/lib/x86_64-linux-gnu/pkgconfig \
+/usr/bin/pkg-config --modversion wayland-scanner
+
+unset PKG_CONFIG
+unset PKG_CONFIG_LIBDIR
+unset PKG_CONFIG_PATH
+
+
+/home/abhilash/Project/OperatingSystem/toolchain/pkg-config
+###################################################################
+#!/bin/bash
+echo "WRAPPER ACTIVE" >&2
+
+export PKG_CONFIG_SYSROOT_DIR=/home/abhilash/Project/OperatingSystem/sysroot
+export PKG_CONFIG_LIBDIR=/home/abhilash/Project/OperatingSystem/sysroot/usr/lib/pkgconfig
+export PKG_CONFIG_TOP_BUILD_DIR=/home/abhilash/Project/OperatingSystem/sysroot
+
+export PKG_CONFIG_SYSTEM_INCLUDE_PATH=
+export PKG_CONFIG_SYSTEM_LIBRARY_PATH=
+
+unset PKG_CONFIG_PATH
+
+exec /usr/bin/pkg-config "$@"
+
+###################################################################
+
+cd ~/Project/OperatingSystem/src/libs/wayland-1.24.91
+rm -rf build
+
+env -i \
+  PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+  meson setup build \
+    --cross-file /home/abhilash/Project/OperatingSystem/toolchain/musl-cross.txt \
+    --native-file /home/abhilash/Project/OperatingSystem/toolchain/native-wayland.ini \
+    -Dscanner=true \
+    -Dtests=false \
+    -Ddocumentation=false
+
+mkdir build
+ninja -C build
+DESTDIR=/home/abhilash/Project/OperatingSystem/sysroot ninja -C build install
+
+⭐ 5. Build libxkbcommon
+cd ~/Project/OperatingSystem/src/libs/libxkbcommon-1.6.0
+rm -rf build
+
+meson setup build \
+  --cross-file ~/Project/OperatingSystem/toolchain/musl-cross.txt \
+  --prefix=/usr \
+  --libdir=lib \
+  -Ddefault_library=static \
+  -Denable-x11=false \
+  -Denable-docs=false \
+  -Denable-wayland=false \
+  -Denable-xkbregistry=false \
+  -Denable-tools=false
+  
+ninja -C build
+
+DESTDIR=/home/abhilash/Project/OperatingSystem/sysroot ninja -C build install

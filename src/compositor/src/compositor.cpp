@@ -2545,8 +2545,7 @@ bool luma_init(LumaCompositor* comp)
     std::cout << "[LumaCompositor] framebuffer size: " << comp_framebuffer.size()
           << " (expected " << (comp->output_width * comp->output_height) << ")\n";
     std::cout << "[LumaCompositor] fb_stride = " << comp->fb_stride << std::endl;
-    // sdl_thread = std::thread(sdl_renderer_thread, comp->output_width, comp->output_height, comp);
-    // std::cout << "[LumaCompositor] sdl_thread_running = " << sdl_thread_running.load() << std::endl;
+
     comp->display = wl_display_create();
     std::cout << "[LumaCompositor]  wl_display_create.. " << std::endl;
 
