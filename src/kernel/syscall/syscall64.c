@@ -35,6 +35,87 @@ void x64_SYSCALL_Initialize(void)
     uint64_t fmask = (1ull << 9) | (1ull << 8);  // IF, TF
     wrmsr(IA32_FMASK, fmask);
 }
+// kernel/syscall/syscall_dbg.c
+volatile uint64_t dbg_saved_rip;
+volatile uint64_t dbg_saved_rsp;
+volatile uint64_t dbg_saved_rflags;
+
+/* small hex conversion: writes "0x" + up to 16 hex digits, returns pointer to buffer end */
+static char *u64_to_hex(char *buf, uint64_t v)
+{
+    static const char hex[] = "0123456789abcdef";
+    char tmp[17];
+    int i = 0;
+    if (v == 0) {
+        buf[0] = '0'; buf[1] = 'x'; buf[2] = '0'; buf[3] = '\0';
+        return buf + 3;
+    }
+    while (v && i < 16) {
+        tmp[i++] = hex[v & 0xF];
+        v >>= 4;
+    }
+    char *p = buf;
+    *p++ = '0'; *p++ = 'x';
+    for (int j = i - 1; j >= 0; --j) {
+        *p++ = tmp[j];
+    }
+    *p = '\0';
+    return p;
+}
+
+/* Safe logger: build a single string and pass it as one argument to log_info */
+__attribute__((used))
+void log_syscall_return_safe(uint64_t rip, uint64_t rsp, uint64_t rflags)
+{
+    char buf[256];
+    char *p = buf;
+
+    /* marker */
+    const char *marker = "LOG_HELPER_CALLED\n";
+    for (const char *q = marker; *q; ++q) *p++ = *q;
+
+    /* args line */
+    const char *args_label = "args: rip=";
+    for (const char *q = args_label; *q; ++q) *p++ = *q;
+    p = u64_to_hex(p, rip);
+    *p++ = ' ';
+    const char *rsp_label = "rsp=";
+    for (const char *q = rsp_label; *q; ++q) *p++ = *q;
+    p = u64_to_hex(p, rsp);
+    *p++ = ' ';
+    const char *rflags_label = "rflags=";
+    for (const char *q = rflags_label; *q; ++q) *p++ = *q;
+    p = u64_to_hex(p, rflags);
+    *p++ = '\n';
+
+    /* dbg line (raw values stored by assembly) */
+    const char *dbg_label = "dbg:  rip=";
+    for (const char *q = dbg_label; *q; ++q) *p++ = *q;
+    p = u64_to_hex(p, dbg_saved_rip);
+    *p++ = ' ';
+    for (const char *q = "rsp="; *q; ++q) *p++ = *q;
+    p = u64_to_hex(p, dbg_saved_rsp);
+    *p++ = ' ';
+    for (const char *q = "rflags="; *q; ++q) *p++ = *q;
+    p = u64_to_hex(p, dbg_saved_rflags);
+    *p++ = '\n';
+
+    /* Null-terminate and emit as a single string argument */
+    *p = '\0';
+    log_info("SYSCALL", "%s", buf);
+}
+
+
+
+
+void log_syscall_entry(uint64_t rip, uint64_t rsp, uint64_t nr)
+{
+    log_info("SYSCALL", "entry: user_rip=%#llx user_rsp=%#llx nr=%llu",
+             (unsigned long long)rip,
+             (unsigned long long)rsp,
+             (unsigned long long)nr);
+}
+
 
 uint64_t syscall_dispatch(uint64_t nr,
                           uint64_t a0,
@@ -47,6 +128,7 @@ uint64_t syscall_dispatch(uint64_t nr,
     log_info("SYSCALL", "syscall_dispatch: nr=%llu a0=%llx a1=%llx a2=%llx a3=%llx a4=%llx a5=%llx",
              nr, a0, a1, a2, a3, a4, a5);
 
+             
     switch (nr) {
     case SYS_write:
         return sys_write(a0, (const char *)a1, a2);
@@ -241,21 +323,40 @@ uint64_t syscall_dispatch(uint64_t nr,
     case SYS_tkill:
         return sys_tkill((int)a0, (int)a1);
 
+    case SYS_eventfd2:
+        return sys_eventfd2((unsigned int)a0, (int)a1);
+        
+    case SYS_epoll_create1: {
+        long ret = sys_epoll_create1(a0);
+        log_info("SYSCALL", "SYS_epoll_create1(flags=%llx) -> %ld (0x%lx)",
+                (unsigned long long)a0, ret, (unsigned long long)ret);
+        return ret;
+    }
+
+    case SYS_epoll_ctl:
+        return sys_epoll_ctl(a0, a1, a2, a3);  // epfd, op, fd, event*
+
+    case SYS_epoll_wait:
+        return sys_epoll_wait(a0, a1, a2, a3); // epfd, events*, maxevents, timeout
+
+
     case SYS_preadv:
-        // (you can stub it for now)
-        log_error("SYSCALL", "SYS_preadv not implemented yet");
-        return -ENOSYS;
+        // preadv(fd, iov, vlen, offset)
+        // flags = 0, unused = 0
+        return sys_preadv2(a0, a1, a2, a3, 0, 0);
 
     case SYS_pwritev:
-        // pwritev (old) – you can implement or just route to pwritev2 with flags=0
+        // pwritev(fd, iov, vlen, offset)
         return sys_pwritev2(a0, a1, a2, a3, 0, 0);
 
     case SYS_preadv2:
-        log_error("SYSCALL", "SYS_preadv2 not implemented yet");
-        return -ENOSYS; // until you implement it
+        // preadv2(fd, iov, vlen, offset, flags)
+        return sys_preadv2(a0, a1, a2, a3, a4, 0);
 
     case SYS_pwritev2:
-        return sys_pwritev2(a0, a1, a2, a3, a4, a5);
+        // pwritev2(fd, iov, vlen, offset, flags)
+        return sys_pwritev2(a0, a1, a2, a3, a4, 0);
+
 
     case SYS_membarrier:
         return sys_membarrier((int)a0, (int)a1);
@@ -279,5 +380,5 @@ uint64_t syscall_dispatch(uint64_t nr,
     // {
 
     // }
-    return (uint64_t)-1;
+    return -ENOSYS;
 }

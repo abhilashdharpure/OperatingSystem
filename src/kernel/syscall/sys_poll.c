@@ -5,6 +5,7 @@
 #include "debug.h"
 #include <stdint.h>
 #include <unix_socket.h>
+#include "errno.h"
 
 // Simple monotonic ms based on PIT
 static uint64_t ktime_monotonic_ms(void)
@@ -94,7 +95,7 @@ uint64_t sys_poll(uint64_t ufds_ptr,
     if (nfds > 64) {
         log_error("SYSCALL", "sys_poll: nfds too large (%llu)",
                   (unsigned long long)nfds);
-        return (uint64_t)-1;
+        return -ENOSYS;
     }
 
     struct pollfd *user_fds = (struct pollfd *)ufds_ptr;

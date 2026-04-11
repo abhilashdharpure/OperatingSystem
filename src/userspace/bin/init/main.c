@@ -920,7 +920,6 @@ void testClientSocketPool()
 void start_compositor() 
 {
     char *argv[] = { "/bin/comp", NULL };
-    // char *argv[] = { "/bin/c-test", NULL };
     char *envp[] = { NULL };
 
     execve(argv[0], argv, envp);

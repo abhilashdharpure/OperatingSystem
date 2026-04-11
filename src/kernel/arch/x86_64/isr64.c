@@ -52,7 +52,6 @@ void dump_iret_frame(uint64_t *sp)
         sp[0], sp[1], sp[2], sp[3], sp[4]);
 }
 
-
 void x64_ISR_Handler(ISRFrame64* r)
 {
     uint8_t vec = (uint8_t)r->vector; 
@@ -123,10 +122,27 @@ void x64_ISR_Handler(ISRFrame64* r)
         {
             uint64_t cr2 = read_cr2();
             log_critical("PF", "Page fault: cr2=%p error=%llx", (void*)cr2, r->error);
+
+            // Existing debug
             debug_dump_va_mapping(current_process->page_directory, r->cpu.rip);
             debug_dump_user_bytes(current_process, r->cpu.rip, 0x40);
             debug_dump_user_stack(current_process, r->cpu.rsp);
+
+            // NEW: inspect the heap metadata around the failing cmp
+            uint64_t rbp = r->rbp;      // <-- FIXED
+            uint64_t rcx = r->rcx;      // <-- FIXED
+            uint64_t addr_cmp = rbp + 0x10;
+
+            log_info("PFDBG", "rbp=0x%llx rcx=0x%llx addr_cmp=0x%llx",
+                    (unsigned long long)rbp,
+                    (unsigned long long)rcx,
+                    (unsigned long long)addr_cmp);
+
+            // Dump the memory that __libc_free is trying to read
+            debug_dump_user_bytes(current_process, addr_cmp, 0x40);
+            debug_dump_user_bytes(current_process, rcx,      0x40);
         }
+
 
         log_critical("EXC",
             "vec=%llu rip=%p cs=%llx rflags=%llx",
@@ -135,6 +151,7 @@ void x64_ISR_Handler(ISRFrame64* r)
             r->cpu.cs,
             r->cpu.rflags
         );
+
         panic();
     }
 

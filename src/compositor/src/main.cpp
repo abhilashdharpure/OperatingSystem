@@ -8,6 +8,9 @@
 #include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <dirent.h>
+#include <iostream>
+#include <sys/epoll.h>     // struct epoll_event, EPOLLIN, EPOLL_CTL_ADD
+#include <sys/syscall.h>
 
 // Optional: include your compositor header
 #include "compositor.h"
@@ -55,36 +58,36 @@ int main() {
 
 
 
-    // int fb_fd = open("/dev/fb0", O_RDWR);
-    // if (fb_fd < 0) {
-    //     perror("open /dev/fb0");
-    //     exit(1);
-    // }
+    int fb_fd = open("/dev/fb0", O_RDWR);
+    if (fb_fd < 0) {
+        perror("open /dev/fb0");
+        exit(1);
+    }
 
-    // if (ioctl(fb_fd, 0x4602, &info) < 0) {
-    //     perror("ioctl FBIOGET_VSCREENINFO");
-    //     exit(1);
-    // }
+    if (ioctl(fb_fd, 0x4602, &info) < 0) {
+        perror("ioctl FBIOGET_VSCREENINFO");
+        exit(1);
+    }
 
-    // size_t fb_size = (size_t)info.pitch * info.height;
-    // printf("fb_size is %zu (pitch=%u, height=%u)\n", fb_size, info.pitch, info.height);
+    size_t fb_size = (size_t)info.pitch * info.height;
+    printf("fb_size is %zu (pitch=%u, height=%u)\n", fb_size, info.pitch, info.height);
 
-    // if (fb_size == 0) {
-    //     fprintf(stderr, "fb_size is 0 (pitch=%u, height=%u)\n", info.pitch, info.height);
-    //     exit(1);
-    // }
-    // void *fb = mmap(NULL,
-    //             fb_size,
-    //             PROT_READ | PROT_WRITE,
-    //             MAP_SHARED,
-    //             fb_fd,
-    //             0);
-    // if (fb == MAP_FAILED) {
-    //     perror("ERROR: mmap fb Failed \0");
-    //     exit(1);
-    // }
+    if (fb_size == 0) {
+        fprintf(stderr, "fb_size is 0 (pitch=%u, height=%u)\n", info.pitch, info.height);
+        exit(1);
+    }
+    void *fb = mmap(NULL,
+                fb_size,
+                PROT_READ | PROT_WRITE,
+                MAP_SHARED,
+                fb_fd,
+                0);
+    if (fb == MAP_FAILED) {
+        perror("ERROR: mmap fb Failed \0");
+        exit(1);
+    }
 
-    // close(fb_fd);
+    close(fb_fd);
 
     printf("User-space test complete. Ready to launch compositor!\n");
 
@@ -100,3 +103,39 @@ int main() {
     // xyz
     return 0;
 }
+
+
+
+    // // uint64_t rbp_before = 0, rbp_after = 0;
+    // // asm volatile("mov %%rbp, %0" : "=r"(rbp_before));
+    // // syscall(SYS_getpid);
+    // // asm volatile("mov %%rbp, %0" : "=r"(rbp_after));
+    // // printf("rbp_before=%p rbp_after=%p\n", (void*)rbp_before, (void*)rbp_after);
+
+    // // int fd = syscall(SYS_epoll_create1, 0);
+    // // printf("epoll_create1 -> fd=%d\n", fd);
+    // // struct epoll_event ev = { .events = EPOLLIN, .data = { .u32 = 123 } };
+    // // int r = syscall(SYS_epoll_ctl, fd, EPOLL_CTL_ADD, 0, &ev);
+    // // printf("epoll_ctl -> r=%d errno=%d\n", r, errno);
+
+    // LumaCompositor comp{};
+    // printf("LumaCompositor] starting wl_display_create.. \n");
+
+    // comp.display = wl_display_create();
+    // printf("LumaCompositor]  wl_display_create.. \n");
+    // // std::cout << "[LumaCompositor]  wl_display_create.. " << std::endl;
+
+    // if (!comp.display)
+    // {
+    //     printf("[LumaCompositor] Failed to create display \n");
+
+    //     // std::cerr << "[LumaCompositor] Failed to create display\n";
+    //     exit(1);
+    //     return false;
+    // }
+    // else
+    // {
+    //     printf("[LumaCompositor] wl_display_create Done... \n");
+
+    //     // std::cout << "[LumaCompositor] wl_display_create Done..." << std::endl;
+    // }

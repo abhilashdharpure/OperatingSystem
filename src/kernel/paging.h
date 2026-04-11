@@ -37,10 +37,13 @@ typedef struct {
 #define MAP_ANONYMOUS 0x20
 
 #define MSR_FS_BASE 0xC0000100
+#define MSR_GS_BASE 0xC0000101
 
 // linux values
-#define ARCH_SET_FS 0x1002
-#define ARCH_GET_FS 0x1003
+#define ARCH_SET_FS  0x1002
+#define ARCH_SET_GS  0x1001
+#define ARCH_GET_FS  0x1003
+#define ARCH_GET_GS  0x1004
 
 // For now, kernel low memory is identity-mapped: VA == PA for all paging
 // structures and low RAM. This matches your current boot paging setup.

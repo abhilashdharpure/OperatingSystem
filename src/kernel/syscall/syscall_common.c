@@ -19,7 +19,8 @@
 #include <drivers/fb/fb.h>
 #include "syscall/sys_linux_dirent.h"
 #include <syscall/sys_execve.h>
-
+#include "syscall/eventfd.h"
+#include "fcntl.h"
 
 #define MEMBARRIER_CMD_QUERY                     0
 #define MEMBARRIER_CMD_GLOBAL                    (1 << 0)
@@ -137,18 +138,18 @@ static uint64_t mmap_file(uint64_t length, uint64_t prot, uint64_t flags,
 {
     struct file *f = VFS_GetFile(fd);
     if (!f || f->fops != &memfd_fops)
-        return (uint64_t)-1;
+        return -ENOSYS;
 
     memfd_t *m = (memfd_t *)f->private_data;
     if (!m)
-        return (uint64_t)-1;
+        return -ENOSYS;
 
     size_t page_size   = PAGE_SIZE;
     size_t aligned_len = (length + page_size - 1) & ~(page_size - 1);
 
     size_t needed = offset + aligned_len;
     if (memfd_ensure_capacity(m, needed) != 0)
-        return (uint64_t)-1;
+        return -ENOSYS;
 
     if (needed > m->size)
         m->size = needed;
@@ -172,7 +173,7 @@ static uint64_t mmap_file(uint64_t length, uint64_t prot, uint64_t flags,
         if (!pa) {
             pa = pmm_alloc_page();
             if (!pa)
-                return (uint64_t)-1;
+                return -ENOSYS;
 
             memset(phys_to_virt(pa), 0, PAGE_SIZE);
             m->pages[page_idx] = pa;
@@ -198,10 +199,10 @@ static uint64_t mmap_file(uint64_t length, uint64_t prot, uint64_t flags,
 static uint64_t mmap_anon(uint64_t length, uint64_t prot)
 {
     if (!current_process)
-        return (uint64_t)-1;
+        return -ENOSYS;
 
     if (length == 0)
-        return (uint64_t)-1;
+        return -ENOSYS;
 
     // Initialize mmap_base once
     if (current_process->mmap_base == 0) {
@@ -226,7 +227,7 @@ static uint64_t mmap_anon(uint64_t length, uint64_t prot)
         if (!pa) {
             log_error("SYSCALL", "mmap_anon: out of physical memory");
             // Optional: roll back already-mapped pages here.
-            return (uint64_t)-1;
+            return -ENOSYS;
         }
 
         // Zero the new page via kernel virtual address
@@ -240,7 +241,7 @@ static uint64_t mmap_anon(uint64_t length, uint64_t prot)
             log_error("SYSCALL", "mmap_anon: map_page failed for VA 0x%llx",
                       (unsigned long long)va);
             // Optional: roll back here too.
-            return (uint64_t)-1;
+            return -ENOSYS;
         }
     }
 
@@ -276,40 +277,63 @@ uint64_t sys_mmap(uint64_t addr,
     //          (long long)fd,
     //          (unsigned long long)offset);
 
+    log_info("SYSCALL", "sys_mmap addr=%llx len=%llx prot=%llx flags=%llx fd=%lld off=%llx",
+         addr, length, prot, flags, (long long)fd, offset);
+
     if (addr != 0)
-        return (uint64_t)-1;
+    {
+         log_info("SYSCALL", "sys_mmap return -ENOSYS, addr != 0");
+        return -ENOSYS;
+    }
 
     if (length == 0)
-        return (uint64_t)-1;
+    {
+        log_info("SYSCALL", "sys_mmap return -ENOSYS, length == 0");
+        return -ENOSYS;
+    }
 
     /* Anonymous mapping */
     if (fd == (uint64_t)-1 && (flags & MAP_ANONYMOUS)) {
         // For now we don’t care if it’s MAP_PRIVATE or MAP_SHARED
-        return mmap_anon(length, prot);
+
+        uint64_t mmap_anonvalue = mmap_anon(length, prot);
+        log_info("SYSCALL", "sys_mmap return mmap_anonvalue = %d", mmap_anonvalue);
+
+        return mmap_anonvalue;
     }
 
     /* File-backed mapping */
     struct file *f = VFS_GetFile((int)fd);
     if (!f) {
         log_error("SYSCALL", "sys_mmap: invalid fd %lld", (long long)fd);
-        return (uint64_t)-1;
+        return -ENOSYS;
     }
 
     /* If the file has a real mmap op, use it */
     if (f->fops && f->fops->mmap) {
         uint64_t va = 0;
         int r = f->fops->mmap(f, length, prot, flags, offset, &va);
-        return (r == 0) ? va : (uint64_t)-1;
+
+        uint64_t va_ret = (r == 0) ? va : (uint64_t)-1;
+        log_info("SYSCALL", "sys_mmap return va = %d", va_ret);
+
+        return va_ret;
     }
 
     /* memfd special case (keep your existing behavior) */
     if (f->fops == &memfd_fops) {
         if (offset != 0) {
             log_error("SYSCALL", "sys_mmap: memfd non-zero offset not supported yet");
-            return (uint64_t)-1;
+            return -ENOSYS;
         }
         // For now, ignore MAP_SHARED vs MAP_PRIVATE and just map pages
-        return mmap_memfd(length, prot, flags, (int)fd, offset);
+
+
+        uint64_t mmap_memfd_value = mmap_memfd(length, prot, flags, (int)fd, offset);
+
+        log_info("SYSCALL", "sys_mmap return mmap_memfd_value = %d", mmap_memfd_value);
+
+        return mmap_memfd_value;
     }
 
     /* Generic emulation for regular files: allocate anon + read file */
@@ -319,16 +343,25 @@ uint64_t sys_mmap(uint64_t addr,
             struct kstat kst;
             if (!f->fops || !f->fops->stat || f->fops->stat(f, &kst) < 0) {
                 log_error("SYSCALL", "sys_mmap: stat failed for fd %lld", (long long)fd);
-                return (uint64_t)-1;
+                return -ENOSYS;
             }
             length = kst.st_size;
             if (length == 0)
-                return (uint64_t)-1;
+            {
+                
+                log_error("SYSCALL", "sys_mmap: stat failed for length == 0 fd %lld", (long long)fd);
+
+                return -ENOSYS;
+            }
         }
 
         uint64_t va = mmap_anon(length, prot);
         if (va == (uint64_t)-1)
-            return (uint64_t)-1;
+        {
+            log_error("SYSCALL", "sys_mmap: va == (uint64_t)-1 retuning -ENOSYS");
+
+            return -ENOSYS;
+        }
 
         off_t old = VFS_Lseek((fd_t)fd, 0, SEEK_CUR);
         VFS_Lseek((fd_t)fd, (off_t)offset, SEEK_SET);
@@ -345,10 +378,10 @@ uint64_t sys_mmap(uint64_t addr,
         if (old >= 0)
             VFS_Lseek((fd_t)fd, old, SEEK_SET);
 
-        // log_info("SYSCALL", "sys_mmap: emulated file-backed mmap fd=%lld -> 0x%llx len=%llu",
-        //          (long long)fd,
-        //          (unsigned long long)va,
-        //          (unsigned long long)length);
+        log_info("SYSCALL", "sys_mmap: emulated file-backed mmap fd=%lld -> 0x%llx len=%llu",
+                 (long long)fd,
+                 (unsigned long long)va,
+                 (unsigned long long)length);
 
         return va;
     }
@@ -362,12 +395,12 @@ uint64_t sys_munmap(uint64_t addr, uint64_t length)
 
     if (!current_process) {
         log_error("SYSCALL", "sys_munmap: current_process is NULL");
-        return (uint64_t)-1;
+        return -ENOSYS;
     }
 
     if (addr == 0 || length == 0) {
         log_error("SYSCALL", "sys_munmap: invalid addr/len");
-        return (uint64_t)-1;
+        return -ENOSYS;
     }
 
     // Align addr down, length up to page boundaries
@@ -399,10 +432,10 @@ uint64_t sys_mprotect(uint64_t addr, uint64_t length, uint64_t prot)
     //          (unsigned long long)prot);
 
     if (!current_process)
-        return (uint64_t)-1;
+        return -ENOSYS;
 
     if (addr == 0 || length == 0)
-        return (uint64_t)-1;
+        return -ENOSYS;
 
 
     uint64_t flags = PAGE_PRESENT | PAGE_USER;
@@ -426,7 +459,7 @@ uint64_t sys_mprotect(uint64_t addr, uint64_t length, uint64_t prot)
         if (set_page_flags(current_process->page_directory, va, flags) != 0) {
             log_error("SYSCALL", "sys_mprotect: failed to set flags for VA 0x%llx",
                       (unsigned long long)va);
-            return (uint64_t)-1;
+            return -ENOSYS;
         }
     }
 
@@ -434,79 +467,211 @@ uint64_t sys_mprotect(uint64_t addr, uint64_t length, uint64_t prot)
 }
 
 
+// uint64_t sys_brk(uint64_t new_brk)
+// {
+//     log_info("SYSCALL", "sys_brk(new=%llx) cur=%llx start=%llx end=%llx",
+//          new_brk, current_process->brk_cur,
+//          current_process->brk_start, current_process->brk_end);
+
+//     if (!current_process) {
+//         log_error("SYSCALL", "sys_brk: current_process is NULL");
+//         return 0;
+//     }
+
+//     // Query current break
+//     if (new_brk == 0) {
+//         return current_process->brk_cur;
+//     }
+
+//     uint64_t old_brk = current_process->brk_cur;
+
+//     log_info("SYSCALL", "sys_brk: new=%llx old=%llx start=%llx end=%llx",
+//          new_brk, old_brk, current_process->brk_start, current_process->brk_end);
+
+//     // Enforce heap bounds
+//     if (new_brk < current_process->brk_start) {
+//         log_error("SYSCALL", "sys_brk: new_brk below heap start");
+//         return old_brk;
+//     }
+
+//     // For now, clamp to some max (static or per-process)
+//     if (new_brk > USER_HEAP_END) {
+//         log_error("SYSCALL", "sys_brk: new_brk beyond heap limit");
+//         return old_brk;
+//     }
+
+//     // Grow
+//     if (new_brk > old_brk) {
+//         uint64_t grow_start = (old_brk + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+//         uint64_t grow_end   = (new_brk + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+
+//         for (uint64_t va = grow_start; va < grow_end; va += PAGE_SIZE) {
+//             uint64_t pa = pmm_alloc_page();
+//             if (!pa) {
+//                 log_error("SYSCALL", "sys_brk: out of physical memory");
+//                 // Do not roll back already mapped pages for simplicity.
+//                 current_process->brk_cur = va;
+//                 return current_process->brk_cur;
+//             }
+
+//             map_page(current_process->page_directory, va, pa,
+//                      PAGE_PRESENT | PAGE_RW | PAGE_USER);
+//         }
+
+//         current_process->brk_cur = new_brk;
+//         if (current_process->brk_end < grow_end)
+//             current_process->brk_end = grow_end;
+//         return current_process->brk_cur;
+//     }
+
+//     // Shrink
+//     if (new_brk < old_brk) {
+//         uint64_t shrink_start = (new_brk + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+//         uint64_t shrink_end   = (old_brk + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+
+//         for (uint64_t va = shrink_start; va < shrink_end; va += PAGE_SIZE) {
+//             uint64_t pa = get_mapped_phys(current_process->page_directory, va);
+//             if (!pa)
+//                 continue;
+
+//             unmap_page(current_process->page_directory, va);
+//             pmm_free_page(pa);
+//         }
+
+//         current_process->brk_cur = new_brk;
+//         // You can also adjust brk_end downward, but not strictly necessary.
+//         return current_process->brk_cur;
+//     }
+
+//     // new_brk == old_brk
+//     return old_brk;
+// }
+
 uint64_t sys_brk(uint64_t new_brk)
 {
     if (!current_process) {
-        log_error("SYSCALL", "sys_brk: current_process is NULL");
-        return 0;
+        log_critical("BRK", "sys_brk: current_process is NULL (new=%llx)", new_brk);
+        panic();
     }
 
-    // Query current break
+    log_info("BRK",
+        "sys_brk(entry): new=%llx cur=%llx start=%llx end=%llx limit=%llx",
+        new_brk,
+        current_process->brk_cur,
+        current_process->brk_start,
+        current_process->brk_end,
+        current_process->brk_end_limit);
+
+    /* Query current break */
     if (new_brk == 0) {
+        log_info("BRK", "sys_brk query -> %llx", current_process->brk_cur);
         return current_process->brk_cur;
     }
 
     uint64_t old_brk = current_process->brk_cur;
 
-    log_info("SYSCALL", "sys_brk: new=%llx old=%llx start=%llx end=%llx",
-         new_brk, old_brk, current_process->brk_start, current_process->brk_end);
+    /* Hard sanity: all brk fields must be within [USER_HEAP_START, USER_HEAP_END] */
+    if (current_process->brk_start != USER_HEAP_START ||
+        current_process->brk_end_limit != USER_HEAP_END ||
+        current_process->brk_cur < USER_HEAP_START ||
+        current_process->brk_cur > USER_HEAP_END) {
 
-    // Enforce heap bounds
+        log_critical("BRK",
+            "sys_brk: corrupted process heap state: "
+            "cur=%llx start=%llx end=%llx limit=%llx (new=%llx)",
+            current_process->brk_cur,
+            current_process->brk_start,
+            current_process->brk_end,
+            current_process->brk_end_limit,
+            new_brk);
+        panic();
+    }
+
+    /* Enforce heap bounds */
     if (new_brk < current_process->brk_start) {
-        log_error("SYSCALL", "sys_brk: new_brk below heap start");
+        log_error("BRK",
+            "sys_brk: new_brk below heap start: new=%llx start=%llx (cur=%llx)",
+            new_brk, current_process->brk_start, old_brk);
         return old_brk;
     }
 
-    // For now, clamp to some max (static or per-process)
-    if (new_brk > USER_HEAP_END) {
-        log_error("SYSCALL", "sys_brk: new_brk beyond heap limit");
+    if (new_brk > current_process->brk_end_limit) {
+        log_error("BRK",
+            "sys_brk: new_brk beyond heap limit: new=%llx limit=%llx (cur=%llx)",
+            new_brk, current_process->brk_end_limit, old_brk);
         return old_brk;
     }
 
-    // Grow
+    /* Grow */
     if (new_brk > old_brk) {
         uint64_t grow_start = (old_brk + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
         uint64_t grow_end   = (new_brk + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
 
+        log_info("BRK",
+            "sys_brk grow: old=%llx new=%llx grow_start=%llx grow_end=%llx",
+            old_brk, new_brk, grow_start, grow_end);
+
         for (uint64_t va = grow_start; va < grow_end; va += PAGE_SIZE) {
             uint64_t pa = pmm_alloc_page();
             if (!pa) {
-                log_error("SYSCALL", "sys_brk: out of physical memory");
-                // Do not roll back already mapped pages for simplicity.
+                log_critical("BRK",
+                    "sys_brk: out of physical memory while growing at va=%llx", va);
                 current_process->brk_cur = va;
                 return current_process->brk_cur;
             }
 
-            map_page(current_process->page_directory, va, pa,
-                     PAGE_PRESENT | PAGE_RW | PAGE_USER);
+            log_info("BRK",
+                "sys_brk: map_page heap va=%llx -> pa=%llx", va, pa);
+
+            if (map_page(current_process->page_directory, va, pa,
+                         PAGE_PRESENT | PAGE_RW | PAGE_USER) != 0) {
+                log_critical("BRK",
+                    "sys_brk: map_page failed for heap va=%llx", va);
+                panic();
+            }
         }
 
         current_process->brk_cur = new_brk;
         if (current_process->brk_end < grow_end)
             current_process->brk_end = grow_end;
+
+        log_info("BRK",
+            "sys_brk grow done: cur=%llx end=%llx",
+            current_process->brk_cur, current_process->brk_end);
+
         return current_process->brk_cur;
     }
 
-    // Shrink
+    /* Shrink */
     if (new_brk < old_brk) {
         uint64_t shrink_start = (new_brk + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
         uint64_t shrink_end   = (old_brk + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+
+        log_info("BRK",
+            "sys_brk shrink: old=%llx new=%llx shrink_start=%llx shrink_end=%llx",
+            old_brk, new_brk, shrink_start, shrink_end);
 
         for (uint64_t va = shrink_start; va < shrink_end; va += PAGE_SIZE) {
             uint64_t pa = get_mapped_phys(current_process->page_directory, va);
             if (!pa)
                 continue;
 
+            log_info("BRK",
+                "sys_brk: unmap_page heap va=%llx pa=%llx", va, pa);
+
             unmap_page(current_process->page_directory, va);
             pmm_free_page(pa);
         }
 
         current_process->brk_cur = new_brk;
-        // You can also adjust brk_end downward, but not strictly necessary.
+        log_info("BRK",
+            "sys_brk shrink done: cur=%llx end=%llx",
+            current_process->brk_cur, current_process->brk_end);
         return current_process->brk_cur;
     }
 
-    // new_brk == old_brk
+    /* new_brk == old_brk */
+    log_info("BRK", "sys_brk: no-op (new == old == %llx)", old_brk);
     return old_brk;
 }
 
@@ -518,12 +683,12 @@ uint64_t sys_stat(uint64_t user_path_ptr, uint64_t user_buf_ptr)
     // 1. Open the file or directory
     int fd = VFS_Open(path, 0);
     if (fd < 0)
-        return (uint64_t)-1;
+        return -ENOSYS;
 
     struct file *f = VFS_GetFile(fd);
     if (!f || !f->fops || !f->fops->stat) {
         VFS_Close(fd);
-        return (uint64_t)-1;
+        return -ENOSYS;
     }
 
     // 2. Kernel-side stat
@@ -532,7 +697,7 @@ uint64_t sys_stat(uint64_t user_path_ptr, uint64_t user_buf_ptr)
     VFS_Close(fd);
 
     if (r < 0)
-        return (uint64_t)-1;
+        return -ENOSYS;
 
     // 3. Translate kstat → userspace struct stat
     memset(ust, 0, sizeof(struct stat));
@@ -564,12 +729,12 @@ uint64_t sys_fstat(uint64_t fd, uint64_t user_buf_ptr)
 {
     struct file *f = VFS_GetFile(fd);
     if (!f || !f->fops || !f->fops->stat)
-        return (uint64_t)-1;
+        return -ENOSYS;
 
     struct kstat kst;
     int r = f->fops->stat(f, &kst);
     if (r < 0)
-        return (uint64_t)-1;
+        return -ENOSYS;
 
     struct stat *ust = (struct stat *)user_buf_ptr;
     memset(ust, 0, sizeof(struct stat));
@@ -614,11 +779,11 @@ uint64_t sys_getdents(uint64_t fd_arg,
     //          fd, ubuf, (unsigned)max);
 
     if (!VFS_IsValidFd(fd) || !ubuf || max == 0)
-        return (uint64_t)-1;
+        return -ENOSYS;
 
     struct file *dir = VFS_GetFile(fd);
     if (!dir || !dir->fops || !dir->fops->readdir)
-        return (uint64_t)-1;
+        return -ENOSYS;
 
     size_t written = 0;
     dirent_t kentry;
@@ -684,15 +849,26 @@ uint64_t sys_fcntl(uint64_t fd, uint64_t cmd, uint64_t arg)
         {
             switch (cmd) {
             case F_GETFL:
-                // Just say "readable" for stdin, "writable" for stdout/err, or even 0
-                return O_RDONLY; // or 0, or something simple
+                log_info("SYSCALL", "sys_fcntl F_GETFL fd=%d", fd);
+                return O_RDONLY;
 
             case F_SETFL:
-                // Ignore for now, pretend success
+                log_info("SYSCALL", "sys_fcntl F_SETFL fd=%d", fd);
                 return 0;
-
+            case F_GETFD:
+                log_info("SYSCALL", "sys_fcntl F_GETFD fd=%d", fd);
+                return 0;          // FD_CLOEXEC not set
+            case F_SETFD:
+                log_info("SYSCALL", "sys_fcntl F_SETFD fd=%d", fd);
+                return 0;          // ignore
+            case F_DUPFD:
+            case F_DUPFD_CLOEXEC:
+                // you can just say "no more fds"
+                log_info("SYSCALL", "sys_fcntl F_DUPFD fd=%d", fd);
+                return (uint64_t)-EMFILE;
             default:
-                // Unsupported fcntl on stdio: return -EINVAL (Linux style)
+                log_info("SYSCALL", "sys_fcntl fake stdio unsupported cmd=%llu",
+                         (unsigned long long)cmd);
                 return (uint64_t)-EINVAL;
             }
         }
@@ -724,12 +900,12 @@ uint64_t sys_fcntl(uint64_t fd, uint64_t cmd, uint64_t arg)
 uint64_t sys_pipe(uint64_t user_fds_ptr)
 {
     if (!user_fds_ptr)
-        return (uint64_t)-1;
+        return -ENOSYS;
 
     int kfds[2];
     int r = VFS_CreatePipe(kfds);
     if (r < 0)
-        return (uint64_t)-1;
+        return -ENOSYS;
 
     int *user_fds = (int *)user_fds_ptr;
     user_fds[0] = kfds[0];
@@ -754,7 +930,7 @@ uint64_t sys_clock_gettime(uint64_t clk_id, uint64_t tp_user)
 {
     struct timespec *tp = (struct timespec *)tp_user;
     if (!tp)
-        return (uint64_t)-1;
+        return -ENOSYS;
 
     uint64_t ticks = pit_get_ticks();   // <-- use PIT ticks
     uint64_t pit_frequency =  pit_get_frequency();
@@ -775,7 +951,7 @@ uint64_t sys_nanosleep(uint64_t req_ptr, uint64_t rem_ptr)
 
     const struct timespec *req = (const struct timespec *)req_ptr;
     if (!req)
-        return (uint64_t)-1;
+        return -ENOSYS;
 
     uint64_t freq = pit_get_frequency();
     uint64_t req_ns = (uint64_t)req->tv_sec * 1000000000ULL
@@ -819,7 +995,7 @@ uint64_t sys_socketpair(uint64_t domain,
              (unsigned long long)sv_ptr);
 
     if (domain != AF_UNIX || type != SOCK_STREAM)
-        return (uint64_t)-1;
+        return -ENOSYS;
 
     // You can ignore protocol for now
     (void)protocol;
@@ -837,14 +1013,14 @@ uint64_t sys_socketpair(uint64_t domain,
 
 
     int fd0 = VFS_AllocFd();
-    if (fd0 < 0) return (uint64_t)-1;
+    if (fd0 < 0) return -ENOSYS;
 
     VFS_SetFd(fd0, (struct file*)1);
 
     int fd1 = VFS_AllocFd();
     if (fd1 < 0) {
         VFS_SetFd(fd0, NULL);
-        return (uint64_t)-1;
+        return -ENOSYS;
     }
 
     log_info("SYSCALL", "sys_socketpair: fd0=%d fd1=%d", fd0, fd1);
@@ -867,28 +1043,89 @@ uint64_t sys_socketpair(uint64_t domain,
     VFS_SetFd(fd0, f0);
     VFS_SetFd(fd1, f1);
 
-    sv[0] = fd0;
-    sv[1] = fd1;
+    // sv[0] = fd0;
+    // sv[1] = fd1;
+
+    int tmp[2] = { fd0, fd1 };
+    if (copy_to_user((uint64_t)sv_ptr, tmp, sizeof(tmp)) != 0) {
+        log_error("SYSCALL", "sys_socketpair: copy_to_user failed");
+        VFS_SetFd(fd0, NULL);
+        VFS_SetFd(fd1, NULL);
+        kfree(f0); kfree(f1); kfree(sp);
+        return -EFAULT;
+    }
+
 
     return 0;
 }
 
-long sys_arch_prctl(long code, unsigned long addr)
+// long sys_arch_prctl(long code, unsigned long addr)
+// {
+//     log_info("SYSCALL", "sys_arch_prctl: code=%ld addr=%lx", code, addr);
+    
+//     switch (code) {
+
+//     case ARCH_SET_FS:
+//         current_process->fs_base = addr;
+//         wrmsr(MSR_FS_BASE, addr);
+//         return 0;
+
+//     case ARCH_GET_FS:
+//         return current_process->fs_base;
+
+//     default:
+//         return -EINVAL;
+//     }
+// }
+
+
+int sys_arch_prctl(int code, uint64_t addr)
 {
     log_info("SYSCALL", "sys_arch_prctl: code=%ld addr=%lx", code, addr);
-    
+
     switch (code) {
+        case ARCH_SET_FS:
+            if (addr >= current_process->mmap_base) {
+                log_error("ARCH_PRCTL", "Invalid FS base addr: %lx", addr);
+                return -EINVAL;
+            }
+            current_process->fs_base = addr;
+            wrmsr(MSR_FS_BASE, addr);
+            return 0;
 
-    case ARCH_SET_FS:
-        current_process->fs_base = addr;
-        wrmsr(MSR_FS_BASE, addr);
-        return 0;
+        case ARCH_SET_GS:
+            if (addr >= current_process->mmap_base) {
+                log_error("ARCH_PRCTL", "Invalid GS base addr: %lx", addr);
+                return -EINVAL;
+            }
+            current_process->gs_base = addr;
+            wrmsr(MSR_GS_BASE, addr);
+            return 0;
 
-    case ARCH_GET_FS:
-        return current_process->fs_base;
+        case ARCH_GET_FS:
+            if (copy_to_user(addr, &current_process->fs_base, sizeof(uint64_t)) != 0)
+            {
+                log_error("ARCH_PRCTL", "ARCH_GET_FS return : %lx", -EFAULT);
 
-    default:
-        return -EINVAL;
+                return -EFAULT;
+            }
+            log_error("ARCH_PRCTL", "ARCH_GET_FS return current_process->fs_base : %lx", current_process->fs_base);
+
+            return current_process->fs_base;
+
+        case ARCH_GET_GS:
+            if (copy_to_user(addr, &current_process->gs_base, sizeof(uint64_t)) != 0)
+            {
+                log_error("ARCH_PRCTL", "ARCH_GET_GS return : %lx", -EFAULT);
+
+                return -EFAULT;
+            }
+
+            log_error("ARCH_PRCTL", "ARCH_GET_GS return current_process->gs_base : %lx", current_process->gs_base);
+            return current_process->gs_base;
+
+        default:
+            return -EINVAL;
     }
 }
 
@@ -1152,3 +1389,126 @@ long sys_pwritev2(uint64_t fd,
 
     return total;
 }
+
+long sys_pread(uint64_t fd,
+               char *buf,
+               uint64_t len,
+               uint64_t offset,
+               uint64_t unused)
+{
+    (void)unused;
+
+    // Seek to offset
+    off_t old = VFS_Lseek((fd_t)fd, 0, SEEK_CUR);
+    if (old < 0)
+        return -1;
+
+    if (VFS_Lseek((fd_t)fd, (off_t)offset, SEEK_SET) < 0)
+        return -1;
+
+    long r = VFS_Read((fd_t)fd, buf, len);
+
+    // Restore old offset
+    if (old >= 0)
+        VFS_Lseek((fd_t)fd, old, SEEK_SET);
+
+    return r;
+}
+
+long sys_preadv2(uint64_t fd,
+                 uint64_t iov_user,
+                 uint64_t vlen,
+                 uint64_t offset,
+                 uint64_t flags,
+                 uint64_t unused)
+{
+    (void)flags;
+    (void)unused;
+
+    if (vlen == 0)
+        return 0;
+
+    if (vlen > SOME_REASONABLE_LIMIT)
+        return -EINVAL;
+
+    struct iovec iov_stack[16];
+    struct iovec *iov = iov_stack;
+
+    if (vlen > 16) {
+        iov = kmalloc(vlen * sizeof(*iov));
+        if (!iov)
+            return -ENOMEM;
+    }
+
+    if (copy_from_user(iov, (void *)iov_user, vlen * sizeof(*iov)) < 0) {
+        if (iov != iov_stack)
+            kfree(iov);
+        return -EFAULT;
+    }
+
+    ssize_t total = 0;
+    uint64_t off = offset;
+
+    for (size_t i = 0; i < vlen; i++) {
+        if (iov[i].iov_len == 0)
+            continue;
+
+        long ret = sys_pread(fd,
+                             (char *)iov[i].iov_base,
+                             (uint64_t)iov[i].iov_len,
+                             off,
+                             0);
+        if (ret < 0) {
+            if (iov != iov_stack)
+                kfree(iov);
+            return (total > 0) ? total : ret;
+        }
+
+        total += ret;
+        off += (uint64_t)ret;
+    }
+
+    if (iov != iov_stack)
+        kfree(iov);
+
+    return total;
+}
+
+
+
+long sys_eventfd2(unsigned int initval, int flags)
+{
+    int fd = VFS_AllocFd();
+    if (fd < 0)
+    {
+        log_info("SYSCALL", "sys_eventfd2: returning -EMFILE");
+        return -EMFILE;
+    }
+
+    struct eventfd_ctx *ctx = kmalloc(sizeof(*ctx));
+    if (!ctx)
+    {
+        log_info("SYSCALL", "sys_eventfd2: returning -ENOMEM, failed to allocate eventfd_ctx"); 
+        return -ENOMEM;
+    }
+
+    ctx->counter = initval;
+    ctx->flags   = flags;
+
+    struct file *f = kmalloc(sizeof(*f));
+    if (!f) {
+        kfree(ctx);
+        log_info("SYSCALL", "sys_eventfd2: returning -ENOMEM, failed to allocate file struct");
+        return -ENOMEM;
+    }
+
+    memset(f, 0, sizeof(*f));
+    f->fops = &eventfd_fops;
+    f->private_data = ctx;
+
+    VFS_SetFd(fd, f);
+    log_info("SYSCALL", "sys_eventfd2: returning fd=%d", fd);
+    return fd;
+}
+
+

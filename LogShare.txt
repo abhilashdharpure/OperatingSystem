@@ -1,0 +1,54 @@
+[VFS] Mounted: / (index=3)
+[MAIN] FAT32 mounted at / from sda1
+[Main] Kernel After init_filesystem
+[Boot] after map_framebuffer
+[PGDBG] VA=ffffffffc0000000 PML4[511]=ac7003
+[PGDBG]   PDPT[511]=ac6003
+[PGDBG]   PD[0]=ac5003
+[PGDBG]   PT[0]=fd000003
+[FB] Framebuffer initialized: 1024x768, pitch=4096, bpp=32, addr=0xffffffffc0000000
+[VFS] Registered device: /dev/fb0 (index=4)
+[GFX] Graphics subsystem initialized
+[MAIN] Framebuffer ready: 1024x768
+[HAL] Interrupts enabled
+[Main] Starting start_userspace!
+[Main] calling start_userspace
+[PIT] tick=256
+[EXEC] exec_elf_mem start
+[EXEC] exec_elf_mem process_create
+[EXEC] exec_elf_mem create_user_pd
+[Paging] create_user_pd (64-bit) start
+[EXEC] exec_elf_mem clone_kernel_mappings
+[Paging] clone_kernel_mappings_for_user: no extra changes
+[ELF] Selected User Region: start=0x100000 length=0x1fee0000 type=1
+[ELF] map_elf_segments_from_mem: e_phnum=4 e_phoff=0x40
+[ELF]  PHDR[0]: type=1 off=0x1000 vaddr=0x40000000 filesz=0x5948 memsz=0x5b94 flags=0x7
+[ELF]  PHDR[1]: type=4 off=0x6908 vaddr=0x40005908 filesz=0x30 memsz=0x30 flags=0x4
+[ELF]  PHDR[2]: type=1685382483 off=0x6908 vaddr=0x40005908 filesz=0x30 memsz=0x30 flags=0x4
+[ELF]  PHDR[3]: type=1685382481 off=0x0 vaddr=0x0 filesz=0x0 memsz=0x0 flags=0x6
+[ELF] Mapped PT_LOAD segment 0: VA [0x40000000, 0x40006000)
+[STACK] Mapped user stack: [0x43e00000, 0x44000000)
+[EXEC] exec_elf_mem: argc=1 argv=12f010 envp=12f020
+[EXEC]   argv[0]=124428
+[EXEC]   envp[0]=12442d
+[EXEC] Before build_initial_stack: phdr_addr=0x40000040
+[EXEC] After build_initial_stack: RSP=0x43ffff60
+[EXEC] Process regs: RIP=0x40000000 RSP=0x43ffff60
+[EXEC] RIP VA=0x40000000 -> PA=0xac2000
+[EXEC] RSP VA=0x43ffff60 -> PA=0x8baf60
+[EXEC] ELF64 loaded entry=0x40000000
+[PROC] RIP=40000000 RSP=43ffff60
+[EXEC] Before dump: RSP=0x63b340, RIP(entry)=0x40000000, cr3=0xac3000
+[EXEC] Before write_cr3: RSP=0x63b340, RIP(entry)=0x40000000, cr3=0xac3000
+[PGDBG] PML4[0]=0x103027
+[PGDBG]  PDPT[1]=0xac1007
+[PGDBG]   PD[0]=0xac0007
+[PGDBG]    PT[0]=0xac2007
+[PGDBG] PML4[0]=0x103027
+[PGDBG]  PDPT[1]=0xac1007
+[PGDBG]   PD[31]=0xab9007
+[PGDBG]    PT[511]=0x8ba007
+[EXEC] enter_user_mode_from_process: after write_cr3, jumping to user
+[SYSCALL] syscall_dispatch: nr=158 a0=1002 a1=40005a58 a2=8 a3=104baa a4=0 a5=0
+[SYSCALL] sys_arch_prctl: code=4098 addr=40005a58
+[SYSCALL] sys_arch_prctl returned 0

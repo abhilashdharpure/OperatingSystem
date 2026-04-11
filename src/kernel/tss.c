@@ -67,6 +67,8 @@ void x64_TSS_Install(uintptr_t stack_top) {
     the_tss.iomap_base = sizeof(the_tss);
 
     g_syscall_rsp0 = stack_top;   // <-- this is what syscall64.asm will use
+    log_info("TSS","g_syscall_rsp0=%p (top=%p) aligned=%d", (void*)g_syscall_rsp0, (void*)(stack_top),
+            ((uintptr_t)g_syscall_rsp0 & 0xF) == 0);
 
     gdt_set_tss64_descriptor(TSS_GDT_INDEX, (uint64_t)&the_tss, sizeof(the_tss) - 1);
 

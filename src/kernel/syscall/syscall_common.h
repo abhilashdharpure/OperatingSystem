@@ -4,6 +4,7 @@
 #include <paging.h>
 #include <string.h>
 #include <errno.h>
+#include <syscall/epoll.h>
 
 struct sigaction {
     void (*sa_handler)(int);
@@ -70,3 +71,16 @@ long sys_pwritev_compat(uint64_t fd,
                         uint64_t pos_l,
                         uint64_t pos_h,
                         uint64_t unused);
+long sys_pread(uint64_t fd,
+               char *buf,
+               uint64_t len,
+               uint64_t offset,
+               uint64_t unused);
+long sys_preadv2(uint64_t fd,       
+                 uint64_t iov_user,
+                 uint64_t vlen,
+                 uint64_t offset,
+                 uint64_t flags,
+                 uint64_t unused);
+
+int eventfd2(unsigned int initval, int flags);

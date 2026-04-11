@@ -9,14 +9,6 @@
 #include <hal/process.h>
 
 
-
-// #define USER_START 0x40000000ULL
-// #define USER_END   0x40200000ULL   // adjust to cover your program + stack
-
-#define USER_START 0x40000000ULL
-#define USER_END   0x44000000ULL    // 64 MiB user space
-
-
 #define PML4_INDEX(va)       (((uint64_t)(va) >> 39) & 0x1FF)
 #define PDP_INDEX(va)        (((uint64_t)(va) >> 30) & 0x1FF)
 #define PD_INDEX(va)         (((uint64_t)(va) >> 21) & 0x1FF)
@@ -415,6 +407,73 @@ page_dir_t create_user_pd(void)
     };
 }
 
+// page_dir_t create_user_pd(void)
+// {
+//     log_info("Paging", "create_user_pd (64-bit) start");
+//     uint64_t new_pml4_pa = pmm_alloc_page();
+//     uint64_t *new_pml4 = phys_to_virt(new_pml4_pa);
+
+//     memset(new_pml4, 0, PAGE_SIZE);
+
+//     // ✅ Keep low memory for kernel (supervisor only)
+//     new_pml4[0] = kernel_pml4_virt[0] & ~PAGE_USER;
+
+
+//     // // Option 1: no low-half at all in user CR3
+//     // new_pml4[0] = 0;
+
+//     // ✅ Keep high-half kernel
+//     for (int i = KERNEL_PML4_INDEX; i < 512; i++) {
+//         new_pml4[i] = kernel_pml4_virt[i];
+//     }
+
+//     return (page_dir_t){ .pd_phys = new_pml4_pa, .pd_virt = new_pml4 };
+// }
+
+
+// page_dir_t create_user_pd(void)
+// {
+//     log_info("Paging", "create_user_pd (64-bit) start");
+
+//     uint64_t new_pml4_pa = pmm_alloc_page();
+//     if (!new_pml4_pa) {
+//         log_critical("Paging", "create_user_pd: no memory for PML4");
+//         return (page_dir_t){ .pd_phys = 0, .pd_virt = NULL };
+//     }
+
+//     uint64_t *new_pml4 = (uint64_t *)phys_to_virt(new_pml4_pa);
+
+//     uint64_t cur_pml4_pa = read_cr3() & ~0xFFFULL;
+//     uint64_t *cur_pml4   = (uint64_t *)phys_to_virt(cur_pml4_pa);
+
+//     memcpy(new_pml4, cur_pml4, PAGE_SIZE);
+
+//     log_info("Paging", "create_user_pd done: new_pml4_pa=0x%llx new_pml4=%p",
+//              (unsigned long long)new_pml4_pa, new_pml4);
+
+//     return (page_dir_t){
+//         .pd_phys = new_pml4_pa,
+//         .pd_virt = new_pml4
+//     };
+// }
+
+// page_dir_t create_user_pd(void)
+// {
+//     uint64_t new_pml4_pa = pmm_alloc_page();
+//     uint64_t *new_pml4   = phys_to_virt(new_pml4_pa);
+
+//     // Copy full kernel PML4 (identity + high half)
+//     memcpy(new_pml4, kernel_pml4_virt, PAGE_SIZE);
+
+//     // Clear ONLY user mappings (but keep kernel identity mapping!)
+//     for (int i = 0; i < KERNEL_PML4_INDEX; i++)
+//         new_pml4[i] = 0;
+
+//     // Restore kernel identity mapping (slot 0)
+//     new_pml4[0] = kernel_pml4_virt[0] & ~PAGE_USER;
+
+//     return (page_dir_t){ .pd_phys = new_pml4_pa, .pd_virt = new_pml4 };
+// }
 
 
 // recursively set PAGE_USER on all PT entries in a range

@@ -27,6 +27,10 @@ typedef struct Process {
     uint64_t    brk_end_limit;
 
     uint64_t    fs_base;
+    uint64_t    gs_base;
+
+    uintptr_t kernel_stack_base;
+    uintptr_t kernel_stack_top;
 } Process;
 
 
