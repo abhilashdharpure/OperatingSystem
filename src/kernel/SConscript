@@ -63,7 +63,7 @@ if arch == 'x86_64':
         '-fno-pie',
         '-fno-plt',
         '-mno-red-zone',
-        '-mcmodel=large',   # IMPORTANT: large model for 0xFFFF8000... base
+        '-mcmodel=large',
     ])
 else:
     env.Append(CCFLAGS=[
@@ -73,7 +73,31 @@ else:
         '-fno-pie',
     ])
 
-c_objects = env.Object(all_c_cpp)
+# Split early_boot.c out
+early_src = None
+other_c_cpp = []
+for src in all_c_cpp:
+    if str(src).endswith('early_boot.c'):
+        early_src = src
+    else:
+        other_c_cpp.append(src)
+
+
+# Normal C objects
+c_objects = env.Object(other_c_cpp)
+
+# Special env for early_boot.c: no unwind tables
+if early_src is not None:
+    early_env = env.Clone()
+    early_env.Append(CCFLAGS=[
+        '-fno-asynchronous-unwind-tables',
+        '-fno-unwind-tables',
+        '-fno-exceptions',
+    ])
+    early_obj = early_env.Object(early_src)
+    c_objects.append(early_obj)
+
+# c_objects = env.Object(all_c_cpp)
 
 # -------------------------------------------------------
 # Build 32-bit ASM for stub

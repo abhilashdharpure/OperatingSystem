@@ -21,6 +21,7 @@
 #include <syscall/sys_execve.h>
 #include "syscall/eventfd.h"
 #include "fcntl.h"
+#include "arch/x86_64/cpu.h"
 
 #define MEMBARRIER_CMD_QUERY                     0
 #define MEMBARRIER_CMD_GLOBAL                    (1 << 0)
@@ -198,62 +199,148 @@ static uint64_t mmap_file(uint64_t length, uint64_t prot, uint64_t flags,
 
 static uint64_t mmap_anon(uint64_t length, uint64_t prot)
 {
+    log_info("MMAPDBG", "mmap_anon: length=%llu prot=%llu, cur_base=%llu",
+            (unsigned long long)length,
+            (unsigned long long)prot,
+            (unsigned long long)(current_process ? current_process->mmap_base : 0));
+
     if (!current_process)
+    {
+        log_error("MMAPDBG", "mmap_anon: no current process");
         return -ENOSYS;
-
-    if (length == 0)
-        return -ENOSYS;
-
-    // Initialize mmap_base once
-    if (current_process->mmap_base == 0) {
-        current_process->mmap_base = USER_MMAP_BASE;   // e.g. 0x50000000
     }
 
-    // Page-align length
+    if (length == 0)
+    {
+        log_error("MMAPDBG", "mmap_anon: length is 0");
+        return -ENOSYS;
+    }
+
+    if (current_process->mmap_base == 0) {
+        current_process->mmap_base = USER_MMAP_BASE;
+    }
+
     uint64_t len   = (length + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
-    // Page-align start
+
+    log_info("MMAPDBG", "before big mmap: mmap_base=%llu", current_process->mmap_base);
+
     uint64_t start = (current_process->mmap_base + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
 
-    // Build PTE flags from prot
+    log_info("MMAPDBG",
+         "mmap_anon: AFTER INIT mmap_base=%llu start=%llu len=%llu end=%llu",
+         (unsigned long long)current_process->mmap_base,
+         (unsigned long long)start,
+         (unsigned long long)length,
+         (unsigned long long)(start + length));
+             
     uint64_t flags = PAGE_PRESENT | PAGE_USER;
     if (prot & PROT_WRITE)
         flags |= PAGE_RW;
-    // You can later add PROT_EXEC / NX handling here.
-    // NOTE: PROT_NONE is a userspace concept; with this simple scheme
-    //       PROT_NONE still results in a readable page (no PAGE_RW).
 
     for (uint64_t va = start; va < start + len; va += PAGE_SIZE) {
         uint64_t pa = pmm_alloc_page();
         if (!pa) {
-            log_error("SYSCALL", "mmap_anon: out of physical memory");
-            // Optional: roll back already-mapped pages here.
+            log_error("MMAPDBG", "mmap_anon: pmm_alloc_page failed at va=%llu",
+                    (unsigned long long)va);
             return -ENOSYS;
         }
 
-        // Zero the new page via kernel virtual address
+        // Zero the *physical* page via its kernel mapping
         memset(phys_to_virt(pa), 0, PAGE_SIZE);
 
-        if (map_page(current_process->page_directory,
-                     va,
-                     pa,
-                     flags) != 0)
-        {
-            log_error("SYSCALL", "mmap_anon: map_page failed for VA 0x%llx",
-                      (unsigned long long)va);
-            // Optional: roll back here too.
+        // log_info("MMAPDBG",
+        //     "mmap_anon: loop va=%llu pa=%llu flags=0x%llx pd=%llu cr3=0x%llx cur_proc=%p",
+        //     (unsigned long long)va,
+        //     (unsigned long long)pa,
+        //     (unsigned long long)flags,
+        //     (unsigned long long)current_process->page_directory,
+        //     (unsigned long long)(read_cr3() & ~0xFFFULL),
+        //     current_process);
+
+        if (!current_process) {
+            log_critical("MMAPDBG", "mmap_anon: current_process became NULL mid-loop at va=%llu",
+                        (unsigned long long)va);
+            panic("current_process corrupted");
+        }
+
+
+        if (map_page(current_process->page_directory, va, pa, flags) != 0) {
+            log_error("MMAPDBG", "mmap_anon: map_page failed for va=%llu",
+                    (unsigned long long)va);
             return -ENOSYS;
         }
     }
 
-    current_process->mmap_base = start + len;
 
-    // log_info("SYSCALL", "mmap_anon: mapped %llu bytes at 0x%llx (prot=%llx)",
-    //          (unsigned long long)len,
-    //          (unsigned long long)start,
-    //          (unsigned long long)prot);
+    log_info("MMAPDBG", "mmap_anon: After for loop");
+
+
+    current_process->mmap_base = start + len;
+    log_info("MMAPDBG", "mmap_anon: done, ret=%llu new_base=%llu",
+             (unsigned long long)start,
+             (unsigned long long)current_process->mmap_base);
 
     return start;
 }
+
+// static uint64_t mmap_anon(uint64_t length, uint64_t prot)
+// {
+//     if (!current_process)
+//         return -ENOSYS;
+
+//     if (length == 0)
+//         return -ENOSYS;
+
+//     // Initialize mmap_base once
+//     if (current_process->mmap_base == 0) {
+//         current_process->mmap_base = USER_MMAP_BASE;   // e.g. 0x50000000
+//     }
+
+//     // Page-align length
+//     uint64_t len   = (length + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+//     // Page-align start
+//     uint64_t start = (current_process->mmap_base + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+
+//     // Build PTE flags from prot
+//     uint64_t flags = PAGE_PRESENT | PAGE_USER;
+//     if (prot & PROT_WRITE)
+//         flags |= PAGE_RW;
+//     // You can later add PROT_EXEC / NX handling here.
+//     // NOTE: PROT_NONE is a userspace concept; with this simple scheme
+//     //       PROT_NONE still results in a readable page (no PAGE_RW).
+
+//     for (uint64_t va = start; va < start + len; va += PAGE_SIZE) {
+//         uint64_t pa = pmm_alloc_page();
+//         if (!pa) {
+//             log_error("SYSCALL", "mmap_anon: out of physical memory");
+//             // Optional: roll back already-mapped pages here.
+//             return -ENOSYS;
+//         }
+
+//         // Zero the new page via kernel virtual address
+//         memset(phys_to_virt(pa), 0, PAGE_SIZE);
+
+//         if (map_page(current_process->page_directory,
+//                      va,
+//                      pa,
+//                      flags) != 0)
+//         {
+//             log_error("SYSCALL", "mmap_anon: map_page failed for VA 0x%llx",
+//                       (unsigned long long)va);
+//             // Optional: roll back here too.
+//             return -ENOSYS;
+//         }
+//     }
+
+//     current_process->mmap_base = start + len;
+
+//     // log_info("SYSCALL", "mmap_anon: mapped %llu bytes at 0x%llx (prot=%llx)",
+//     //          (unsigned long long)len,
+//     //          (unsigned long long)start,
+//     //          (unsigned long long)prot);
+
+//     return start;
+// }
 
 uint64_t mmap_memfd(uint64_t length, uint64_t prot, uint64_t flags,
                     int fd, uint64_t offset)
@@ -262,6 +349,28 @@ uint64_t mmap_memfd(uint64_t length, uint64_t prot, uint64_t flags,
     return mmap_file(length, prot, flags, fd, offset);
 }
 
+uint64_t mmap_fixed(uint64_t addr, uint64_t length, uint64_t prot)
+{
+    uint64_t start = addr & ~(PAGE_SIZE - 1);
+    uint64_t end   = (addr + length + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+
+    uint64_t flags = PAGE_PRESENT | PAGE_USER;
+    if (prot & PROT_WRITE) flags |= PAGE_RW;
+
+    for (uint64_t va = start; va < end; va += PAGE_SIZE) {
+        uint64_t pa = pmm_alloc_page();
+        if (!pa) return -ENOSYS;
+
+        memset(phys_to_virt(pa), 0, PAGE_SIZE);
+
+        if (map_page(current_process->page_directory, va, pa, flags) != 0)
+            return -ENOSYS;
+    }
+
+    return start;
+}
+
+
 uint64_t sys_mmap(uint64_t addr,
                   uint64_t length,
                   uint64_t prot,
@@ -269,22 +378,28 @@ uint64_t sys_mmap(uint64_t addr,
                   uint64_t fd,
                   uint64_t offset)
 {
-    // log_info("SYSCALL", "sys_mmap addr=%llx len=%llx prot=%llx flags=%llx fd=%lld off=%llx",
-    //          (unsigned long long)addr,
-    //          (unsigned long long)length,
-    //          (unsigned long long)prot,
-    //          (unsigned long long)flags,
-    //          (long long)fd,
-    //          (unsigned long long)offset);
-
     log_info("SYSCALL", "sys_mmap addr=%llx len=%llx prot=%llx flags=%llx fd=%lld off=%llx",
          addr, length, prot, flags, (long long)fd, offset);
 
-    if (addr != 0)
-    {
-         log_info("SYSCALL", "sys_mmap return -ENOSYS, addr != 0");
-        return -ENOSYS;
+    // if (addr != 0)
+    // {
+    //      log_info("SYSCALL", "sys_mmap return -ENOSYS, addr != 0");
+    //     return -ENOSYS;
+    // }
+
+    bool want_fixed = flags & MAP_FIXED;
+
+    if (want_fixed) {
+        // unmap existing pages in [addr, addr+len)
+        sys_munmap(addr, length);
+
+        log_info("SYSCALL", "sys_mmap return mmap_fixed for addr=0x%llx len=%llx prot=%llx",
+         (unsigned long long)addr, (unsigned long long)length, (unsigned long long)prot);
+
+        // map exactly at addr
+        return mmap_fixed(addr, length, prot);
     }
+
 
     if (length == 0)
     {
@@ -297,7 +412,9 @@ uint64_t sys_mmap(uint64_t addr,
         // For now we don’t care if it’s MAP_PRIVATE or MAP_SHARED
 
         uint64_t mmap_anonvalue = mmap_anon(length, prot);
-        log_info("SYSCALL", "sys_mmap return mmap_anonvalue = %d", mmap_anonvalue);
+        log_info("SYSCALL", "sys_mmap return mmap_anonvalue = 0x%llx",
+         (unsigned long long)mmap_anonvalue);
+
 
         return mmap_anonvalue;
     }
@@ -315,7 +432,9 @@ uint64_t sys_mmap(uint64_t addr,
         int r = f->fops->mmap(f, length, prot, flags, offset, &va);
 
         uint64_t va_ret = (r == 0) ? va : (uint64_t)-1;
-        log_info("SYSCALL", "sys_mmap return va = %d", va_ret);
+        log_info("SYSCALL", "sys_mmap return va = 0x%llx",
+         (unsigned long long)va_ret);
+
 
         return va_ret;
     }

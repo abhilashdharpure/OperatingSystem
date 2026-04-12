@@ -932,8 +932,8 @@ int main()
     klog("[Userspace] *** NEW INIT BUILD v3 ***\n");
 
     klog("[Userspace] Hello from userspace from klog from main!\n");
-    printf("[Userspace] Hello from userspace from printf!\n");
-    printf("[Userspace] Issue after first printf, this will not print\n");
+    // printf("[Userspace] Hello from userspace from printf!\n");
+    // printf("[Userspace] Issue after first printf, this will not print\n");
     klog("[Userspace] KLog is still fine..!\n");
 
 

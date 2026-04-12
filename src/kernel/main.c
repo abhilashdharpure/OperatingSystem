@@ -31,6 +31,8 @@
 #include "hal/block.h"
 #include "hal/fat32.h"
 
+#include "boot_paging.h"
+
 extern uint8_t _kernel_stack_top;
 
 #define VGA_PHYS 0xB8000
@@ -42,9 +44,23 @@ extern uint32_t mb_info_ptr;
 BootParams   g_bootParams;
 static VbeModeInfo  g_fbInfo;
 
+// extern uint64_t pml4_table[];
+__attribute__((section(".data.boot")))
+uint64_t pml4_table[512] __attribute__((aligned(4096))) = {0};
+
+
+// Data-only section
+__attribute__((section(".boot64_stub_data")))
+static BootParams bootparams_low;
+
 /* reasonable upper bound */
 #define MAX_MEMORY_REGIONS 64
+__attribute__((section(".boot64_stub_data")))
 static MemoryRegion g_memoryRegions[MAX_MEMORY_REGIONS];
+
+
+__attribute__((section(".boot64_stub_data")))
+static VbeModeInfo fb_low;
 
 // FOr Framebuffer
 #define KERNEL_FB_VA 0xFFFFFFFFC0000000ULL
@@ -147,14 +163,27 @@ void start_userspace(BootParams* bootParams)
     }
 }
 
+__attribute__((section(".boot64_stub")))
+void test_serial_putc_asm(char c) {
+    __asm__ volatile (
+        "mov $0x3F8, %%dx\n\t"
+        "mov %0, %%al\n\t"
+        "out %%al, %%dx\n\t"
+        :
+        : "r"(c)
+        : "dx", "al"
+    );
+}
+
+
+__attribute__((section(".boot64_stub")))
 void parse_multiboot2_memory_map(multiboot2_info_t* mbi, BootParams* out)
 {
     uint8_t* tag_ptr = mbi->tags;
     uintptr_t mbi_end = (uintptr_t)mbi + mbi->total_size;
-
     out->Memory.RegionCount = 0;
-    out->Memory.Regions = g_memoryRegions;
 
+    out->Memory.Regions = g_memoryRegions;
     while ((uintptr_t)tag_ptr < mbi_end)
     {
         multiboot2_tag_header_t* tag =
@@ -177,7 +206,6 @@ void parse_multiboot2_memory_map(multiboot2_info_t* mbi, BootParams* out)
                 {
                     MemoryRegion* r =
                         &out->Memory.Regions[out->Memory.RegionCount++];
-
                     r->Begin  = e->addr;
                     r->Length = e->len;
                     r->Type   = e->type;
@@ -192,6 +220,7 @@ void parse_multiboot2_memory_map(multiboot2_info_t* mbi, BootParams* out)
     }
 }
 
+__attribute__((section(".boot64_stub")))
 void parse_multiboot2_framebuffer(multiboot2_info_t* mbi, VbeModeInfo* fb)
 {
     uint8_t* tag_ptr = mbi->tags;
@@ -218,13 +247,13 @@ void parse_multiboot2_framebuffer(multiboot2_info_t* mbi, VbeModeInfo* fb)
             fb->green_mask = 8;
             fb->blue_mask  = 0;
 
-            log_info("FB",
-                "Framebuffer at %p %ux%u pitch=%u bpp=%u",
-                fb->framebuffer,
-                fb->width,
-                fb->height,
-                fb->pitch,
-                fb->bpp);
+            // log_info("FB",
+            //     "Framebuffer at %p %ux%u pitch=%u bpp=%u",
+            //     fb->framebuffer,
+            //     fb->width,
+            //     fb->height,
+            //     fb->pitch,
+            //     fb->bpp);
             return;
         }
 
@@ -255,60 +284,181 @@ void map_framebuffer(VbeModeInfo* fb)
     fb->framebuffer = (uintptr_t)KERNEL_FB_VA;
 }
 
-void early_kernel_main(void* multiboot_info)
+
+void kernel_high_entry(BootParams* params)
 {
-    log_info("Boot", "early_kernel_main entered");
+    log_info("Main", "Hello from higher half");
+    // here you can safely use log_info, start(), etc.
 
-    multiboot2_info_t* mbi = (multiboot2_info_t*)multiboot_info;
-    log_info("Boot", "mbi=%p total_size=%u", mbi, mbi->total_size);
-    log_info("Boot", "total_size=%u, reserved=%u, tags=%p", mbi->total_size, mbi->reserved, (void*)mbi->tags);
+    g_bootParams = *params; 
+    start(params, &fb_low);
+}
 
-    serial_putc_asm('1');
-    serial_init();
-    serial_putc_asm('2');
-
-    parse_multiboot2_memory_map(mbi, &g_bootParams);
-    parse_multiboot2_framebuffer(mbi, &g_fbInfo);
-
-    log_info("Boot", "after parse_multiboot2_framebuffer");
-
-    g_bootParams.BootDevice = 0; // GRUB does not provide this
-
-    log_info("Boot", "Handing off to start()");
-
-    start(&g_bootParams, &g_fbInfo);
-
-    for (;;) {
-        __asm__ volatile("hlt");
+__attribute__((section(".boot64_stub")))
+static void print_hex64(uint64_t v)
+{
+    for (int i = 60; i >= 0; i -= 4) {
+        uint8_t nib = (v >> i) & 0xF;
+        char c = (nib < 10) ? ('0' + nib) : ('A' + nib - 10);
+        test_serial_putc_asm(c);
     }
 }
+
+
+
+extern uint8_t _boot_stub_end;
+
+__attribute__((section(".boot64_stub")))
+void kernel_main_entry(void* multiboot_info)
+{
+    boot_pmm_init();
+
+    multiboot2_info_t* mbi = (multiboot2_info_t*)multiboot_info;
+    uint64_t *pml4 = pml4_table;
+
+    parse_multiboot2_memory_map(mbi, &bootparams_low);
+    parse_multiboot2_framebuffer(mbi, &fb_low);
+    bootparams_low.BootDevice = 0;
+
+    setup_high_mappings(pml4);
+
+    test_serial_putc_asm('K');
+    print_hex64((uint64_t)&kernel_high_entry);
+
+    switch_to_high_pml4(pml4);
+
+    kernel_high_entry(&bootparams_low);
+    for (;;) __asm__ volatile("hlt");
+}
+
+
+
+// __attribute__((section(".boot64_stub")))
+// void kernel_main_entry(void* multiboot_info)
+// {
+//     boot_pmm_init();
+//     test_serial_putc_asm('1');
+
+//     test_serial_putc_asm('{');
+//     print_hex64((uint64_t)&kernel_main_entry);
+//     test_serial_putc_asm('}');
+
+//     test_serial_putc_asm('(');
+//     print_hex64((uint64_t)&_boot_stub_end);
+//     test_serial_putc_asm(')');
+
+
+//     multiboot2_info_t* mbi = (multiboot2_info_t*)multiboot_info;
+//     test_serial_putc_asm('2');
+
+//     uint64_t *pml4 = pml4_table;
+//     test_serial_putc_asm('3');
+
+//     test_serial_putc_asm('<');
+//     print_hex64((uint64_t)pml4);
+//     test_serial_putc_asm('>');
+
+
+//     parse_multiboot2_memory_map(mbi, &bootparams_low);
+//     test_serial_putc_asm('4');
+
+//     parse_multiboot2_framebuffer(mbi, &fb_low); // fb struct can also be a low copy if needed
+//     test_serial_putc_asm('5');
+
+//     bootparams_low.BootDevice = 0;
+//     test_serial_putc_asm('6');
+
+//     setup_high_mappings(pml4);
+//     test_serial_putc_asm('7');
+
+//     test_serial_putc_asm('x');
+//     uint64_t e0 = pml4[0];
+//     uint64_t e256 = pml4[256];
+//     test_serial_putc_asm((e0 & PAGE_PRESENT) ? 'P' : 'p');
+//     test_serial_putc_asm((e256 & PAGE_PRESENT) ? 'K' : 'k');
+
+
+//     test_serial_putc_asm('{');
+//     print_hex64(pml4[0]);
+//     test_serial_putc_asm('}');
+
+//     test_serial_putc_asm('[');
+//     print_hex64((uint64_t)boot_pdpt_identity);
+//     test_serial_putc_asm(']');
+
+//     test_serial_putc_asm('(');
+//     print_hex64(boot_pdpt_identity[0]);
+//     test_serial_putc_asm(')');
+
+
+//     switch_to_high_pml4(pml4);
+//     test_serial_putc_asm('8');
+
+//     // hand off the low copy to higher-half
+//     kernel_high_entry(&bootparams_low);
+
+//     for (;;) __asm__ volatile("hlt");
+// }
+
+
+
+// __attribute__((section(".boot64_stub")))
+// void kernel_main_entry(void* multiboot_info)
+// {
+//     // log_info("Boot", "kernel_main_entry start");
+
+
+//     multiboot2_info_t* mbi = (multiboot2_info_t*)multiboot_info;
+//     // log_info("Boot", "mbi=%p total_size=%u", mbi, mbi->total_size);
+//     // log_info("Boot", "total_size=%u, reserved=%u, tags=%p", mbi->total_size, mbi->reserved, (void*)mbi->tags);
+
+//     // serial_putc_asm('1');
+//     serial_init();
+//     // serial_putc_asm('2');
+
+//     parse_multiboot2_memory_map(mbi, &g_bootParams);
+//     parse_multiboot2_framebuffer(mbi, &g_fbInfo);
+
+//     // log_info("Boot", "after parse_multiboot2_framebuffer");
+
+//     g_bootParams.BootDevice = 0; // GRUB does not provide this
+
+//     // log_info("Boot", "Handing off to start()");
+
+//     start(&g_bootParams, &g_fbInfo);
+
+//     for (;;) {
+//         __asm__ volatile("hlt");
+//     }
+// }
 
 void start(BootParams* bootParams, VbeModeInfo* fb_info)
 {   
     log_info("Main", "Kernel Started");
+
     pmm_init(&bootParams->Memory);
 
-    for (int i = 0; i < bootParams->Memory.RegionCount; i++) 
-    {
-        log_info("Main", "MEM: start=0x%llx length=0x%llx type=%x", 
-            bootParams->Memory.Regions[i].Begin,
-            bootParams->Memory.Regions[i].Length,
-            bootParams->Memory.Regions[i].Type);
-    }
+    // for (int i = 0; i < bootParams->Memory.RegionCount; i++) 
+    // {
+    //     log_info("Main", "MEM: start=0x%llx length=0x%llx type=%x", 
+    //         bootParams->Memory.Regions[i].Begin,
+    //         bootParams->Memory.Regions[i].Length,
+    //         bootParams->Memory.Regions[i].Type);
+    // }
 
     // _init();         // global constructors
     HAL_Initialize();
 
-    log_info("Main", "Kernel After HAL intialized");
+    // log_info("Main", "Kernel After HAL intialized");
 
     VFS_Init();  
-    log_info("Main", "Kernel After VFS_Init");
+    // log_info("Main", "Kernel After VFS_Init");
 
     init_filesystem();
-    log_info("Main", "Kernel After init_filesystem");
+    // log_info("Main", "Kernel After init_filesystem");
 
-    map_framebuffer(&g_fbInfo);
-    log_info("Boot", "after map_framebuffer");
+    map_framebuffer(&fb_low);
+    // log_info("Boot", "after map_framebuffer");
 
     debug_dump_va_mapping(kernel_pml4_virt, KERNEL_FB_VA);
 

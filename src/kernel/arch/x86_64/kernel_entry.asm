@@ -1,30 +1,36 @@
-; 64-bit low stub
-SECTION .boot64_stub
 [BITS 64]
+SECTION .boot64_stub
+
 global kernel_low_entry
-; extern kernel_entry
+global kernel_entry
+
+extern _boot_stack_top
+extern kernel_main_entry
+
+%macro putc_imm 1
+    mov al, %1
+    mov dx, 0x3F8
+    out dx, al
+%endmacro
 
 kernel_low_entry:
-    mov     rax, kernel_entry
-    jmp     rax       ; kernel_entry is also in low identity-mapped region
-
-; Kernel proper, low identity-mapped
-SECTION .text
-[BITS 64]
-global kernel_entry
-extern _kernel_stack_top
-extern early_kernel_main
+    putc_imm 'L'
+    jmp kernel_entry
 
 kernel_entry:
     cli
+    putc_imm 'E'
 
-    mov     rsp, _kernel_stack_top
+    mov     rsp, _boot_stack_top
     and     rsp, -16
     xor     rbp, rbp
 
-    ; RDI still has multiboot info
-    call    early_kernel_main
+    putc_imm 'S'
 
-.hang:
+    ; RDI has multiboot info
+    call    kernel_main_entry
+
+hang:
+    putc_imm 'H'
     hlt
-    jmp .hang
+    jmp     hang

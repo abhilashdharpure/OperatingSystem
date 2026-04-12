@@ -11,12 +11,10 @@
 
 
 #define PAGE_SIZE 4096
-// #define MEM_USABLE 1
-/* kernel is mapped at 0xC0000000 */
-#define KERNEL_VIRT_OFFSET 0xC0000000
 #define PMM_FREE_START   0x00100000ULL   // 1 MiB
 #define PMM_MAX_IDENTITY 0x01000000ULL   // 16 MiB
 
+#define KERNEL_VMA 0xffffffff80000000ULL
 
 typedef struct free_page {
     uint32_t next_pa; // physical address of next
@@ -25,11 +23,14 @@ typedef struct free_page {
 static uint32_t free_list_head_pa = 0;
 
 static uint32_t next_free_page = 0;
-// #define PAGE_SIZE 4096
 #define MAX_PAGES 262144 
 
 extern char _kernel_start;
 extern char _kernel_end;
+
+
+extern char _kernel_phys_start;
+extern char _kernel_phys_end;
 
 static uintptr_t freelist[MAX_PAGES];
 static size_t free_count = 0;
@@ -73,10 +74,13 @@ void pmm_init(MemoryInfo *mem)
             pmm_free_page(pa);
     }
 
-    // For current identity-mapped kernel: VA == PA for kernel image and low memory.
-    // No virtual offset – physical = virtual for kernel sections.
-    uintptr_t kernel_phys_start = (uintptr_t)&_kernel_start;
-    uintptr_t kernel_phys_end   = (uintptr_t)&_kernel_end;
+    uintptr_t kernel_phys_start = (uintptr_t)&_kernel_phys_start;
+    uintptr_t kernel_phys_end   = (uintptr_t)&_kernel_phys_end;
+
+    log_info("PMM", "kernel_phys: [0x%llx, 0x%llx)",
+            (unsigned long long)kernel_phys_start,
+            (unsigned long long)kernel_phys_end);
+
 
     pmm_reserve_region(kernel_phys_start,
                     kernel_phys_end - kernel_phys_start);
@@ -89,6 +93,23 @@ void pmm_init(MemoryInfo *mem)
     log_info("PMM", "free_count=%u (pages), approx %u KiB",
              (unsigned)free_count,
              (unsigned)(free_count * 4));
+
+    log_info("PMM", "after init: free_count=%zu", free_count);
+    for (size_t i = 0; i < 16 && i < free_count; i++) {
+        log_info("PMM", "  freelist[%zu] = 0x%llx", i,
+                (unsigned long long)freelist[i]);
+    }
+    for (size_t i = 0; i < 16; i++) {
+        log_info("PMM", "  tail[%zu] = 0x%llx",
+                i,
+                (unsigned long long)freelist[free_count - 1 - i]);
+    }
+    for (size_t i = 0; i < free_count; i++) {
+        if (freelist[i] < PMM_FREE_START || freelist[i] >= PMM_MAX_IDENTITY)
+            panic("freelist contains invalid entry");
+    }
+
+
 }
 
 void pmm_mark_all_used(void)
@@ -98,14 +119,22 @@ void pmm_mark_all_used(void)
 
 int pmm_free_page(uintptr_t phys)
 {
-    if (free_count >= MAX_PAGES)
+    if ((phys & (PAGE_SIZE - 1)) != 0 ||
+        phys < PMM_FREE_START ||
+        phys >= PMM_MAX_IDENTITY)
     {
-        return -1;
+        log_critical("PMM", "pmm_free_page: BAD phys=0x%llx", (unsigned long long)phys);
+        panic("pmm_free_page: invalid phys");
+    }
+
+    if (free_count >= MAX_PAGES) {
+        panic("pmm_free_page: freelist overflow");
     }
 
     freelist[free_count++] = phys;
     return 0;
 }
+
 
 uint64_t pmm_alloc_page(void)
 {
@@ -115,9 +144,7 @@ uint64_t pmm_alloc_page(void)
     }
 
     uintptr_t pa = freelist[free_count - 1];
-    // log_info("PMM", "alloc page: pa=0x%llx", pa);
 
-    // log_info("PMM", "alloc_page -> 0x%llx", (unsigned long long)pa);
     if ((pa & (PAGE_SIZE - 1)) != 0 ||
         pa < PMM_FREE_START ||
         pa >= PMM_MAX_IDENTITY)

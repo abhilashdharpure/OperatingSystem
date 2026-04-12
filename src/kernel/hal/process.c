@@ -1,14 +1,18 @@
 // process.c
 #include <hal/process.h>
+#include <debug.h>
+#include "kmalloc.h"
 
 Process *process_create(const char *name) {
-    static Process dummy;
     (void)name;
-    // pd/cr3 will be filled by exec_elf_mem, so no need to init here yet.
-    return &dummy;
-}
 
-uintptr_t process_setup_stack(Process *p) {
-    (void)p;
-    return 0x800000; // fake stack pointer
+    Process *p = kmalloc(sizeof(Process));
+    if (!p) {
+        log_critical("PROC", "process_create: kmalloc(Process) failed");
+        return NULL;
+    }
+
+    memset(p, 0, sizeof(Process));
+    log_info("PROC", "process at %p", p);
+    return p;
 }

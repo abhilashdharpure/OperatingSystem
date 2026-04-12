@@ -42,9 +42,9 @@ env = Environment(
         f"-Wl,-T,{os.getcwd()}/src/link.ld",
 
         # musl startup files (must come BEFORE libc)
-        f"{SYSROOT}/usr/lib/crt1.o",
-        f"{SYSROOT}/usr/lib/crti.o",
-        f"{SYSROOT}/usr/lib/crtn.o",
+        f"{SYSROOT}/lib/crt1.o",
+        f"{SYSROOT}/lib/crti.o",
+        f"{SYSROOT}/lib/crtn.o",
     ],
 )
 

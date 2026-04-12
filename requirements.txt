@@ -1,2 +1,9 @@
-sh
-pyparted
+Design
+
+    Userspace lives entirely in the lower canonical half  
+    0x0000_0000_0000_0000 → 0x0000_7FFF_FFFF_FFFF
+
+    Kernel lives entirely in the higher canonical half  
+    0xFFFF_8000_0000_0000 → 0xFFFF_FFFF_FFFF_FFFF
+
+And linker script + boot path now enforce that separation cleanly.

@@ -84,3 +84,12 @@ long sys_preadv2(uint64_t fd,
                  uint64_t unused);
 
 int eventfd2(unsigned int initval, int flags);
+
+uint64_t mmap_fixed(uint64_t addr, uint64_t length, uint64_t prot);
+uint64_t sys_mmap(uint64_t addr,
+                  uint64_t length,
+                  uint64_t prot,
+                  uint64_t flags,
+                  uint64_t fd,
+                  uint64_t offset);
+uint64_t sys_munmap(uint64_t addr, uint64_t length);

@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <hal/process.h>
+#include <boot_paging.h>
 
 // 64-bit page directory = PML4
 typedef struct {
@@ -35,6 +36,7 @@ typedef struct {
 #define MAP_SHARED    0x01
 #define MAP_PRIVATE   0x02
 #define MAP_ANONYMOUS 0x20
+#define MAP_FIXED     0x10
 
 #define MSR_FS_BASE 0xC0000100
 #define MSR_GS_BASE 0xC0000101
@@ -56,6 +58,17 @@ static inline uint64_t virt_to_phys(void *va)
 {
     return (uint64_t)(uintptr_t)va;
 }
+
+static inline void* kernel_phys_to_virt(uint64_t pa)
+{
+    return (void*)(pa + KERNEL_VMA_BASE);
+}
+
+static inline uint64_t kernel_virt_to_phys(void* va)
+{
+    return (uint64_t)va - KERNEL_VMA_BASE;
+}
+
 
 void debug_dump_va_mapping(uint64_t *pml4, uint64_t va);
 

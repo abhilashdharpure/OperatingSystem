@@ -11,8 +11,8 @@ global enter_user_mode
 enter_user_mode:
     cli
 
-    mov     rax, [rdi + OFFSET_REGS_RIP]   ; user RIP
-    mov     rbx, [rdi + OFFSET_REGS_RSP]   ; user RSP
+    mov     rax, [rdi + 0]   ; RIP
+    mov     rbx, [rdi + 8]   ; RSP
 
     cld
 
