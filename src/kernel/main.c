@@ -45,14 +45,9 @@ extern uint32_t mb_info_ptr;
 BootParams   g_bootParams;
 static VbeModeInfo  g_fbInfo;
 
-// extern uint64_t pml4_table[];
-__attribute__((section(".data.boot")))
-uint64_t pml4_table[512] __attribute__((aligned(4096))) = {0};
-
-// extern uint64_t pml4_table[];      // defined in paging_tables.asm
+extern uint64_t pml4_table[];      // defined in paging_tables.asm
 extern uint64_t *kernel_pml4_virt; // defined in paging_bootstrap.c
 extern uint64_t  kernel_pml4_phys; // defined in paging_bootstrap.c
-
 
 
 // Data-only section
