@@ -44,32 +44,6 @@ static struct epoll_instance *epoll_from_fd(int epfd_raw)
     return (struct epoll_instance *)f->private_data;
 }
 
-// long sys_epoll_create1(int flags)
-// {
-//     log_info("SYSCALL", "sys_epoll_create1..");
-
-//     (void)flags;
-//     return -ENOSYS;
-// }
-
-// long sys_epoll_ctl(int epfd, int op, int fd, struct epoll_event *user_ev)
-// {
-//     log_info("SYSCALL", "sys_epoll_ctl..");
-
-//     (void)epfd; (void)op; (void)fd; (void)user_ev;
-//     return -ENOSYS;
-// }
-
-// long sys_epoll_wait(int epfd, struct epoll_event *user_events,
-//                     int maxevents, int timeout)
-// {
-//     log_info("SYSCALL", "sys_epoll_wait..");
-
-//     (void)epfd; (void)user_events; (void)maxevents; (void)timeout;
-//     return -ENOSYS;
-// }
-
-
 /* Return 1 if addr is inside the user stack range */
 int is_user_stack_addr(uint64_t addr)
 {
@@ -106,7 +80,7 @@ ssize_t debug_copy_to_user(void *dst, const void *src, size_t n)
 long sys_epoll_create1(int flags)
 {
     // Add at the top of the handler
-    log_info("SYSCALL291", "entry sys_epoll_create1: flags=%#llx", (unsigned long long)flags);
+    log_info("SYSCALL291", "entry sys_epoll_create1: flags=%llx", (unsigned long long)flags);
 
 
     // if (!is_user_range_valid((void*)user_ptr, user_len)) {
@@ -287,13 +261,9 @@ long sys_epoll_wait(int epfd, struct epoll_event *user_events,
         maxevents = epi->nfds;
 
     struct pollfd pfds[MAX_EPOLL_FDS];
+    struct epoll_event kev[MAX_EPOLL_FDS];
 
-    for (int i = 0; i < epi->nfds; i++) {
-        pfds[i].fd     = epi->watches[i].fd;
-        pfds[i].events = 0;
-        if (epi->watches[i].events & EPOLLIN)  pfds[i].events |= POLLIN;
-        if (epi->watches[i].events & EPOLLOUT) pfds[i].events |= POLLOUT;
-    }
+    /* build pfds[] as you already do ... */
 
     int n = sys_poll((uint64_t)pfds, (uint64_t)epi->nfds, (uint64_t)timeout);
     if (n <= 0)
@@ -307,11 +277,18 @@ long sys_epoll_wait(int epfd, struct epoll_event *user_events,
         uint32_t ev = 0;
         if (pfds[i].revents & POLLIN)  ev |= EPOLLIN;
         if (pfds[i].revents & POLLOUT) ev |= EPOLLOUT;
-        // you can add more mappings later
 
-        user_events[out].events = ev;
-        user_events[out].data   = epi->watches[i].data;
+        kev[out].events = ev;
+        kev[out].data   = epi->watches[i].data;
         out++;
+    }
+
+    if (out > 0) {
+        if (!is_user_range_valid((uint64_t)user_events, out * sizeof(struct epoll_event)))
+            return -EFAULT;
+
+        if (copy_to_user(user_events, kev, out * sizeof(struct epoll_event)) != 0)
+            return -EFAULT;
     }
 
     return out;

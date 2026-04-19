@@ -6,8 +6,10 @@
 #include "debug.h"
 #include "arch/x86_64/cpu.h"
 
-uint64_t kernel_pml4_phys = 0;
-uint64_t *kernel_pml4_virt = 0;
+extern uint64_t pml4_table[];   // from paging_tables.asm
+
+uint64_t *kernel_pml4_virt = NULL;
+uint64_t  kernel_pml4_phys = 0;
 
 void paging_init_long_mode_globals(void)
 {

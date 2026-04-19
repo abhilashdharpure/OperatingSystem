@@ -31,6 +31,11 @@ typedef struct Process {
 
     uintptr_t kernel_stack_base;
     uintptr_t kernel_stack_top;
+
+    // NEW: user stack metadata
+    uint64_t    stack_base;             // lowest mapped stack VA
+    uint64_t    stack_guard_page;       // one page below stack_base
+    uint64_t    stack_soft_limit_bottom;// soft limit (like RLIMIT_STACK)
 } Process;
 
 

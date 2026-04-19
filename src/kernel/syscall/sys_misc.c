@@ -245,16 +245,15 @@ long sys_writev(int fd, const struct iovec *user_iov, int iovcnt)
 
     // Copy iovec array from user
     for (int i = 0; i < iovcnt; i++) {
-        // log_info("SYSCALL", " iov[%d].base=%p len=%zu",
-        //  i, user_iov[i].iov_base, user_iov[i].iov_len);
+        if (copy_from_user(&kiov[i], &user_iov[i], sizeof(struct iovec)) != 0) {
+            log_info("SYSCALL", "writev failed to copy iovec %d, returning -EFAULT", i);
+            return -EFAULT;
+        }
 
-         log_info("SYSCALL", " iov[%d].base=%p len=%llu",
-         i,
-         (void*)user_iov[i].iov_base,
-         (unsigned long long)user_iov[i].iov_len);
-
-
-        kiov[i] = user_iov[i];   // safe only because user and kernel share CR3
+        log_info("SYSCALL", " iov[%d].base=%p len=%llu",
+                 i,
+                 kiov[i].iov_base,
+                 (unsigned long long)kiov[i].iov_len);
     }
 
     long total = 0;

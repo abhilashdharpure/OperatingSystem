@@ -21,7 +21,7 @@ multiboot_entry:
     ; Enable long mode in IA32_EFER
     mov ecx, 0xC0000080
     rdmsr
-    or  eax, 1 << 8               ; LME
+    or eax, (1 << 8) | (1 << 11)
     wrmsr
 
     ; Enable paging

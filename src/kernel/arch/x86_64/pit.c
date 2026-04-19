@@ -14,8 +14,8 @@ void pit_irq_handler(ISRFrame64* regs)
 {
     (void)regs;
     pit_ticks++;
-    if ((pit_ticks & 0xFF) == 0)
-        log_info("PIT", "tick=%llu", pit_ticks);
+    // if ((pit_ticks & 0xFF) == 0)
+    //     log_info("PIT", "tick=%llu", pit_ticks);
 }
 
 // Initialize PIT

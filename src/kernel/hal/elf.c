@@ -9,7 +9,6 @@
 #include "paging.h"
 #include "syscall/sys_execve.h"
 
-// #define USER_STACK_SIZE   0x00200000ULL   // 2 MiB
 #define PT_LOAD           1
 
 #define PF_X  (1 << 0)
@@ -18,13 +17,17 @@
 
 extern Process *current_process;
 
-// // Must match linker script
-// static const uint64_t USER_BASE      = 0x0000000040000000ULL;
-// static const uint64_t USER_STACK_TOP = 0x0000000044000000ULL; // USER_BASE + 64 MiB
-
 extern uint64_t *kernel_pml4_virt;
 
 /* ---------- small helpers ---------- */
+
+void debug_check_va(Process *p, uint64_t va)
+{
+    uint64_t pa = get_mapped_phys(p->page_directory, va);
+    log_info("CHKVA", "VA=0x%llx -> PA=0x%llx", (unsigned long long)va, (unsigned long long)pa);
+    dump_pte_for_va(p->cr3, va);
+}
+
 
 static uint64_t compute_phdr_addr_from_mem(Elf64_Ehdr *eh, void *data)
 {
@@ -112,11 +115,48 @@ void dump_process_regs(Process *p)
 }
 
 /* ---------- stack + mapping helpers ---------- */
+// static int map_user_stack(Process *p)
+// {
+
+//     uint64_t top    = USER_STACK_TOP;              // e.g. 0x80000000
+//     uint64_t bottom = USER_STACK_TOP - USER_STACK_SIZE; // 32 MiB below
+//     log_info("STACK", "map_user_stack: top=0x%llx bottom=0x%llx", top, bottom);
+
+//     // Optional: one guard page at the very bottom
+//     uint64_t guard_page = bottom;
+//     uint64_t first_usable = guard_page + PAGE_SIZE;
+
+//     p->stack_guard_page        = guard_page;
+//     p->stack_base              = first_usable;
+//     p->stack_soft_limit_bottom = first_usable; // or some higher soft limit if you want
+
+//     const uint64_t flags = PAGE_PRESENT | PAGE_RW | PAGE_USER;
+
+//     for (uint64_t va = first_usable; va < top; va += PAGE_SIZE) {
+//         uint64_t pa = pmm_alloc_page();
+//         if (!pa)
+//             return -1;
+
+//         memset(phys_to_virt(pa), 0, PAGE_SIZE);
+
+//         if (map_page(p->page_directory, va, pa, flags) != 0)
+//             return -1;
+//     }
+
+//     // Start user RSP near the very top
+//     p->regs.rsp = top - 32;
+
+//     log_info("STACK", "Mapped user stack: [0x%llx, 0x%llx) guard=0x%llx",
+//              first_usable, top, guard_page);
+
+//     return 0;
+// }
+
 
 static int map_user_stack(Process *p)
 {
     uint64_t stack_bottom = USER_STACK_TOP - USER_STACK_SIZE;
-    const uint64_t flags = PAGE_PRESENT | PAGE_RW | PAGE_USER;
+    const uint64_t flags = PAGE_PRESENT | PAGE_RW | PAGE_USER | PAGE_NX;
 
     for (uint64_t va = stack_bottom; va < USER_STACK_TOP; va += PAGE_SIZE) {
         uint64_t pa = pmm_alloc_page();
@@ -169,10 +209,19 @@ static int map_elf_segments_from_mem(Process *p,
         uint64_t last_byte = vaddr + ph[i].p_memsz - 1;
         uint64_t seg_end   = (last_byte & ~(PAGE_SIZE - 1)) + PAGE_SIZE;
 
-        uint64_t seg_flags = user_rw_flags;
-        if ((ph[i].p_flags & PF_X) && !(ph[i].p_flags & PF_W)) {
-            // could later clear RW for RX segments
-        }
+        // uint64_t seg_flags = user_rw_flags;
+
+        uint64_t seg_flags = PAGE_PRESENT | PAGE_USER;
+
+        if (ph[i].p_flags & PF_W)
+            seg_flags |= PAGE_RW;
+
+        if (!(ph[i].p_flags & PF_X))
+            seg_flags |= PAGE_NX;
+
+        // if ((ph[i].p_flags & PF_X) && !(ph[i].p_flags & PF_W)) {
+        //     // could later clear RW for RX segments
+        // }
 
         for (uint64_t va = seg_start; va < seg_end; va += PAGE_SIZE) {
             uint64_t pa = pmm_alloc_page();
@@ -240,165 +289,142 @@ static void build_initial_stack(Process *p,
                                 char **envp)
 {
     uint64_t sp = USER_STACK_TOP;
+
     uint64_t arg_addrs[MAX_EXEC_ARGS];
     uint64_t env_addrs[MAX_EXEC_ARGS];
 
-    log_info("EXEC", "build_initial_stack: sp=0x%llx argc=%llu argv=%p envp=%p",
-             (unsigned long long)sp,
-             (unsigned long long)argc,
-             (void*)argv, (void*)envp);
-
+    /* -------------------------
+     * limit args
+     * ------------------------- */
     if (argc > MAX_EXEC_ARGS)
         argc = MAX_EXEC_ARGS;
 
-    // Count envp
     size_t envc = 0;
     if (envp) {
         while (envp[envc] && envc < MAX_EXEC_ARGS)
             envc++;
     }
-    log_info("EXEC", "build_initial_stack: envc=%llu",
-             (unsigned long long)envc);
 
-    // 1) Copy env strings (top‑down)
+    /* =========================================================
+     * 1. COPY STRINGS (env first, then argv)
+     * ========================================================= */
+
+    // ENV strings
     for (int64_t i = (int64_t)envc - 1; i >= 0; i--) {
-        const char *s = envp[i];
-        size_t len = strlen(s);
-        size_t total  = len + 1;
-        size_t padded = (total + 7) & ~7ULL;
+        size_t len = strlen(envp[i]) + 1;
+        size_t padded = (len + 7) & ~7ULL;
 
         sp -= padded;
-        uint64_t str_va = sp;
-        env_addrs[i] = str_va;
+        env_addrs[i] = sp;
 
-        log_info("EXEC", "ENV[%lld]=\"%s\" va=0x%llx total=%llu padded=%llu",
-                 (long long)i, s,
-                 (unsigned long long)str_va,
-                 (unsigned long long)total,
-                 (unsigned long long)padded);
-
-        size_t off = 0;
-        while (off < total) {
+        for (size_t off = 0; off < len; off += 8) {
             uint64_t word = 0;
-            for (int b = 0; b < 8 && off + b < total; b++) {
-                ((uint8_t *)&word)[b] = (uint8_t)s[off + b];
-            }
-            u64_store(p, str_va + off, word);
-            off += 8;
+            memcpy(&word, envp[i] + off, (len - off >= 8) ? 8 : (len - off));
+            u64_store(p, sp + off, word);
         }
     }
 
-    // 2) Copy arg strings (top‑down)
+    // ARGV strings
     for (int64_t i = (int64_t)argc - 1; i >= 0; i--) {
-        const char *s = argv[i];
-        size_t len = strlen(s);
-        size_t total  = len + 1;
-        size_t padded = (total + 7) & ~7ULL;
+        size_t len = strlen(argv[i]) + 1;
+        size_t padded = (len + 7) & ~7ULL;
 
         sp -= padded;
-        uint64_t str_va = sp;
-        arg_addrs[i] = str_va;
+        arg_addrs[i] = sp;
 
-        log_info("EXEC", "ARG[%lld]=\"%s\" va=0x%llx total=%llu padded=%llu",
-                 (long long)i, s,
-                 (unsigned long long)str_va,
-                 (unsigned long long)total,
-                 (unsigned long long)padded);
-
-        size_t off = 0;
-        while (off < total) {
+        for (size_t off = 0; off < len; off += 8) {
             uint64_t word = 0;
-            for (int b = 0; b < 8 && off + b < total; b++) {
-                ((uint8_t *)&word)[b] = (uint8_t)s[off + b];
-            }
-            u64_store(p, str_va + off, word);
-            off += 8;
+            memcpy(&word, argv[i] + off, (len - off >= 8) ? 8 : (len - off));
+            u64_store(p, sp + off, word);
         }
     }
 
-    // Align stack to 16 bytes before pushing pointers
-    sp &= ~0xFULL;
-    log_info("EXEC", "build_initial_stack: after strings, aligned sp=0x%llx",
-             (unsigned long long)sp);
+    /* =========================================================
+     * 2. AUXV EXTRA DATA
+     * ========================================================= */
 
-    // 3) Build auxv array in memory (we’ll push it last)
-    uint64_t auxv[32];
+    const char platform[] = "x86_64";
+
+    sp -= 16;
+    uint64_t random_va = sp;
+    u64_store(p, random_va + 0, 0x123456789ABCDEF0ULL);
+    u64_store(p, random_va + 8, 0x0FEDCBA987654321ULL);
+
+    sp -= ((sizeof(platform) + 7) & ~7ULL);
+    uint64_t platform_va = sp;
+    for (size_t i = 0; i < sizeof(platform); i += 8) {
+        uint64_t word = 0;
+        memcpy(&word, platform + i, sizeof(platform) - i >= 8 ? 8 : sizeof(platform) - i);
+        u64_store(p, sp + i, word);
+    }
+
+    /* =========================================================
+     * 3. ALIGNMENT (CRITICAL FIX)
+     * ========================================================= */
+
+    // MUST ensure (%rsp + 8) % 16 == 0 at entry
+    sp &= ~0xFULL;
+    sp -= 8;
+
+    /* =========================================================
+     * 4. BUILD AUXV
+     * ========================================================= */
+
+    uint64_t auxv[64];
     int ax = 0;
 
     if (phdr_addr) {
-        auxv[ax++] = 3;          // AT_PHDR
-        auxv[ax++] = phdr_addr;
+        auxv[ax++] = 3; auxv[ax++] = phdr_addr;   // AT_PHDR
     }
 
-    auxv[ax++] = 4;              // AT_PHENT
-    auxv[ax++] = eh->e_phentsize;
+    auxv[ax++] = 4;  auxv[ax++] = eh->e_phentsize;
+    auxv[ax++] = 5;  auxv[ax++] = eh->e_phnum;
+    auxv[ax++] = 6;  auxv[ax++] = 4096;
+    auxv[ax++] = 9;  auxv[ax++] = eh->e_entry;
 
-    auxv[ax++] = 5;              // AT_PHNUM
-    auxv[ax++] = eh->e_phnum;
+    auxv[ax++] = 15; auxv[ax++] = platform_va; // AT_PLATFORM
+    auxv[ax++] = 25; auxv[ax++] = random_va;   // AT_RANDOM
+    auxv[ax++] = 23; auxv[ax++] = 0;           // AT_SECURE
 
-    auxv[ax++] = 6;              // AT_PAGESZ
-    auxv[ax++] = 4096;
+    auxv[ax++] = 0;  auxv[ax++] = 0;           // AT_NULL
 
-    auxv[ax++] = 9;              // AT_ENTRY
-    auxv[ax++] = eh->e_entry;
+    /* =========================================================
+     * 5. PUSH STACK (Linux order)
+     * ========================================================= */
 
-    auxv[ax++] = 0;              // AT_NULL
-    auxv[ax++] = 0;
-
-    log_info("EXEC", "build_initial_stack: auxv entries=%d", ax / 2);
-
-    // 4) Push auxv (last element first)
+    // auxv (reverse)
     for (int i = ax - 1; i >= 0; i--) {
         sp -= 8;
         u64_store(p, sp, auxv[i]);
     }
 
-    // 5) envp NULL terminator
+    // envp NULL
     sp -= 8;
     u64_store(p, sp, 0);
 
-    // 6) envp pointers (envc-1 .. 0)
+    // envp pointers
     for (int64_t i = (int64_t)envc - 1; i >= 0; i--) {
         sp -= 8;
         u64_store(p, sp, env_addrs[i]);
     }
 
-    // 7) argv NULL terminator
+    // argv NULL
     sp -= 8;
     u64_store(p, sp, 0);
 
-    // 8) argv pointers (argc-1 .. 0)
+    // argv pointers
     for (int64_t i = (int64_t)argc - 1; i >= 0; i--) {
         sp -= 8;
         u64_store(p, sp, arg_addrs[i]);
     }
 
-    // --- ALIGNMENT FIX HERE ---
-
-    // SysV ABI: at entry, %rsp % 16 == 8 (so (%rsp + 8) is 16-byte aligned).
-    // We are about to push argc (8 bytes). We want the *final* %rsp to satisfy:
-    //     final_rsp % 16 == 8
-    //
-    // Let sp_now be current sp (pointing to argv[0]).
-    // After pushing argc: final_rsp = sp_now - 8.
-    // Condition: (sp_now - 8) % 16 == 8  =>  sp_now % 16 == 0.
-    //
-    // So we must ensure sp is 16-byte aligned *before* pushing argc.
-    if ((sp & 0xF) != 0) {
-        sp -= 8;
-        u64_store(p, sp, 0);   // padding word
-    }
-
-    // 9) argc
+    // argc
     sp -= 8;
     u64_store(p, sp, argc);
 
     p->regs.rsp = sp;
-    log_info("EXEC", "build_initial_stack: final RSP=0x%llx (entry=%llx)",
-             (unsigned long long)p->regs.rsp,
-             (unsigned long long)eh->e_entry);
-
 }
+
 
 /* ---------- exec from memory ---------- */
 
@@ -470,11 +496,20 @@ pid_t exec_elf_mem(void *data,
     log_info("ELF", "Selected User Region: start=0x%llx length=0x%llx type=%x",
              user_region->Begin, user_region->Length, user_region->Type);
 
-    if (map_elf_segments_from_mem(p, data, eh) != 0)
+    if (map_elf_segments_from_mem(p, data, eh) != 0) {
+        log_critical("EXEC", "map_elf_segments_from_mem failed");
         return -1;
+    }
+    log_info("EXEC", "map_elf_segments_from_mem done");
+
 
     if (map_user_stack(p) != 0)
+    {
+        log_critical("EXEC", "map_user_stack failed");
         return -1;
+    }
+    log_info("EXEC", "map_user_stack done");
+
 
     uint64_t phdr_addr = compute_phdr_addr_from_mem(eh, data);
     if (!phdr_addr)
@@ -718,10 +753,18 @@ pid_t exec_elf_from_fd(int fd,
 
     // Build initial stack (argc/argv + auxv)
     build_initial_stack(p, &eh, phdr_addr, argc, argv, envp);
+    debug_dump_user_stack(p, p->regs.rsp);
 
-    p->regs.rip = eh.e_entry;
+
+    p->regs.rip    = eh.e_entry;
+    p->regs.rflags = 0x202;              // IF=1
+    p->regs.cs     = USER_CODE_SELECTOR;
+    p->regs.ss     = USER_DATA_SELECTOR;
 
     log_info("EXEC", "ELF64 loaded entry=0x%llx", eh.e_entry);
+    dump_process_regs(p);
     enter_user_mode_from_process(p);
+
     return 0;
 }
+

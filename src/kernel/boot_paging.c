@@ -23,36 +23,20 @@ void boot_pmm_init(void)
     start = (start + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
     if (start < BOOT_PMM_START_PA)
         start = BOOT_PMM_START_PA;
+
+    // --- NEW: skip over kernel image in physical memory ---
+    uint64_t kernel_va_start = (uint64_t)&_kernel_start;
+    uint64_t kernel_va_end   = (uint64_t)&_kernel_end;
+    uint64_t kernel_size     = kernel_va_end - kernel_va_start;
+    uint64_t kernel_phys_end = KERNEL_LMA_BASE + kernel_size;
+
+    if (start < kernel_phys_end)
+        start = (kernel_phys_end + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+    // ------------------------------------------------------
+
     boot_next_page_pa = start;
 }
 
-// extern void test_serial_putc_asm(char c);
-
-
-// __attribute__((section(".boot64_stub")))
-// static inline void write_cr3_boot(uint64_t phys)
-// {
-//     test_serial_putc_asm('a');
-
-//     __asm__ volatile("mov %0, %%cr3" :: "r"(phys) : "memory");
-//     test_serial_putc_asm('b');
-
-// }
-
-// __attribute__((section(".boot64_stub")))
-// void switch_to_high_pml4(uint64_t *pml4)
-// {
-//     test_serial_putc_asm('A');
-
-//     uint64_t phys = (uint64_t)pml4;
-//     test_serial_putc_asm('[');
-//     print_hex64(phys);
-//     test_serial_putc_asm(']');
-
-//     test_serial_putc_asm('B');
-//     write_cr3_boot(phys);
-//     test_serial_putc_asm('C');
-// }
 
 
 __attribute__((section(".boot64_stub")))
@@ -72,7 +56,6 @@ void switch_to_high_pml4(uint64_t *pml4)
 
     test_serial_putc_asm('B');
 }
-
 
 
 __attribute__((section(".boot64_stub")))
@@ -182,13 +165,15 @@ int boot_map_page(uint64_t *pml4, uint64_t va, uint64_t pa, uint64_t flags)
 
 
 
+/* tiny boot allocator, identity-mapped ... (unchanged) */
+/* boot_pmm_init, boot_alloc_page, boot_get_or_alloc_* etc. unchanged */
+
 __attribute__((section(".boot64_stub")))
 void boot_setup_pml4(uint64_t *pml4)
 {
-    // clear PML4
     for (int i = 0; i < 512; i++) pml4[i] = 0;
 
-    // explicitly initialize PDPT[0] to 1 GiB identity mapping
+    // low 1 GiB identity via 1 GiB huge page
     boot_pdpt_identity[0] = 0x0000000000000083ULL; // P | RW | PS
     for (int i = 1; i < 512; i++)
         boot_pdpt_identity[i] = 0;
@@ -196,13 +181,12 @@ void boot_setup_pml4(uint64_t *pml4)
     uint64_t pdpt_pa = (uint64_t)boot_pdpt_identity; // identity
     pml4[0] = pdpt_pa | PAGE_PRESENT | PAGE_RW;
 }
-
-
 __attribute__((section(".boot64_stub")))
-void setup_high_mappings(uint64_t *pml4)
+void setup_high_mappings(uint64_t *pml4, BootParams *bp)
 {
-    boot_setup_pml4(pml4);
+    boot_setup_pml4(pml4);  // low 1 GiB identity
 
+    // 1) Map kernel higher-half
     uint64_t kernel_va_start = (uint64_t)&_kernel_start;
     uint64_t kernel_va_end   = (uint64_t)&_kernel_end;
     uint64_t kernel_pa_start = KERNEL_LMA_BASE;
@@ -213,4 +197,30 @@ void setup_high_mappings(uint64_t *pml4)
         uint64_t pa = kernel_pa_start + off;
         boot_map_page(pml4, va, pa, PAGE_PRESENT | PAGE_RW);
     }
+
+    // 2) Compute max physical address from BootParams (for later use if you want)
+    uint64_t max_phys = 0;
+    for (uint32_t i = 0; i < bp->Memory.RegionCount; i++) {
+        MemoryRegion *r = &bp->Memory.Regions[i];
+        if (r->Type != 1)  // usable RAM only
+            continue;
+        uint64_t end = r->Begin + r->Length;
+        if (end > max_phys)
+            max_phys = end;
+    }
+
+    // 3) Boot-time direct map: only up to BOOT_PMM_LIMIT_PA
+    uint64_t limit = max_phys;
+    if (limit > BOOT_PMM_LIMIT_PA)
+        limit = BOOT_PMM_LIMIT_PA;
+
+    for (uint64_t pa = 0; pa < limit; pa += PAGE_SIZE) {
+        uint64_t va = DIRECT_MAP_BASE + pa;
+        boot_map_page(pml4, va, pa, PAGE_PRESENT | PAGE_RW);
+    }
+}
+
+uint64_t boot_get_boot_alloc_end(void)
+{
+    return boot_next_page_pa;
 }

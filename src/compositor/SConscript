@@ -36,40 +36,34 @@ target_env = Environment(
         'ffi',
     ],
 
-    # -----------------------------
-    # DEBUG FLAGS (IMPORTANT)
-    # -----------------------------
     CCFLAGS = [
         '--sysroot=' + sysroot,
-        '-g',               # <--- ADD DEBUG SYMBOLS
-        '-O0',              # <--- DISABLE OPTIMIZATION
-        '-static',
+        '-g',
+        '-O0',
         '-fno-pie',
-        '-no-pie',
         '-fno-stack-protector',
         '-fno-exceptions',
         '-fno-rtti',
-        '-fno-threadsafe-statics',
     ],
 
     CXXFLAGS = [
         '--sysroot=' + sysroot,
         '-std=c++17',
-        '-g',               # <--- ADD DEBUG SYMBOLS
-        '-O0',              # <--- DISABLE OPTIMIZATION
-        '-static',
+        '-g',
+        '-O0',
         '-fno-pie',
-        '-no-pie',
     ],
 
     LINKFLAGS = [
         '--sysroot=' + sysroot,
-        '-static',
         '-fno-pie',
         '-no-pie',
         '-Wl,-Tlinker.ld',
-    ],
+    ]
+
+
 )
+
 
 # dirs
 target_env.Execute(Mkdir(build_dir))
@@ -116,6 +110,7 @@ program = target_env.Program(
     target=os.path.join(build_dir, project_name),
     source=sources,
 )
+
 
 # # Strip
 # target_env.AddPostAction(

@@ -32,6 +32,7 @@
 #include "hal/fat32.h"
 
 #include "boot_paging.h"
+// #include "arch/x86_64/paging_bootstrap.h"
 
 extern uint8_t _kernel_stack_top;
 
@@ -47,6 +48,11 @@ static VbeModeInfo  g_fbInfo;
 // extern uint64_t pml4_table[];
 __attribute__((section(".data.boot")))
 uint64_t pml4_table[512] __attribute__((aligned(4096))) = {0};
+
+// extern uint64_t pml4_table[];      // defined in paging_tables.asm
+extern uint64_t *kernel_pml4_virt; // defined in paging_bootstrap.c
+extern uint64_t  kernel_pml4_phys; // defined in paging_bootstrap.c
+
 
 
 // Data-only section
@@ -261,7 +267,6 @@ void parse_multiboot2_framebuffer(multiboot2_info_t* mbi, VbeModeInfo* fb)
     }
 }
 
-extern uint64_t *kernel_pml4_virt;
 
 void map_framebuffer(VbeModeInfo* fb)
 {
@@ -320,7 +325,7 @@ void kernel_main_entry(void* multiboot_info)
     parse_multiboot2_framebuffer(mbi, &fb_low);
     bootparams_low.BootDevice = 0;
 
-    setup_high_mappings(pml4);
+    setup_high_mappings(pml4, &bootparams_low);
 
     test_serial_putc_asm('K');
     print_hex64((uint64_t)&kernel_high_entry);
@@ -331,110 +336,11 @@ void kernel_main_entry(void* multiboot_info)
     for (;;) __asm__ volatile("hlt");
 }
 
-
-
-// __attribute__((section(".boot64_stub")))
-// void kernel_main_entry(void* multiboot_info)
-// {
-//     boot_pmm_init();
-//     test_serial_putc_asm('1');
-
-//     test_serial_putc_asm('{');
-//     print_hex64((uint64_t)&kernel_main_entry);
-//     test_serial_putc_asm('}');
-
-//     test_serial_putc_asm('(');
-//     print_hex64((uint64_t)&_boot_stub_end);
-//     test_serial_putc_asm(')');
-
-
-//     multiboot2_info_t* mbi = (multiboot2_info_t*)multiboot_info;
-//     test_serial_putc_asm('2');
-
-//     uint64_t *pml4 = pml4_table;
-//     test_serial_putc_asm('3');
-
-//     test_serial_putc_asm('<');
-//     print_hex64((uint64_t)pml4);
-//     test_serial_putc_asm('>');
-
-
-//     parse_multiboot2_memory_map(mbi, &bootparams_low);
-//     test_serial_putc_asm('4');
-
-//     parse_multiboot2_framebuffer(mbi, &fb_low); // fb struct can also be a low copy if needed
-//     test_serial_putc_asm('5');
-
-//     bootparams_low.BootDevice = 0;
-//     test_serial_putc_asm('6');
-
-//     setup_high_mappings(pml4);
-//     test_serial_putc_asm('7');
-
-//     test_serial_putc_asm('x');
-//     uint64_t e0 = pml4[0];
-//     uint64_t e256 = pml4[256];
-//     test_serial_putc_asm((e0 & PAGE_PRESENT) ? 'P' : 'p');
-//     test_serial_putc_asm((e256 & PAGE_PRESENT) ? 'K' : 'k');
-
-
-//     test_serial_putc_asm('{');
-//     print_hex64(pml4[0]);
-//     test_serial_putc_asm('}');
-
-//     test_serial_putc_asm('[');
-//     print_hex64((uint64_t)boot_pdpt_identity);
-//     test_serial_putc_asm(']');
-
-//     test_serial_putc_asm('(');
-//     print_hex64(boot_pdpt_identity[0]);
-//     test_serial_putc_asm(')');
-
-
-//     switch_to_high_pml4(pml4);
-//     test_serial_putc_asm('8');
-
-//     // hand off the low copy to higher-half
-//     kernel_high_entry(&bootparams_low);
-
-//     for (;;) __asm__ volatile("hlt");
-// }
-
-
-
-// __attribute__((section(".boot64_stub")))
-// void kernel_main_entry(void* multiboot_info)
-// {
-//     // log_info("Boot", "kernel_main_entry start");
-
-
-//     multiboot2_info_t* mbi = (multiboot2_info_t*)multiboot_info;
-//     // log_info("Boot", "mbi=%p total_size=%u", mbi, mbi->total_size);
-//     // log_info("Boot", "total_size=%u, reserved=%u, tags=%p", mbi->total_size, mbi->reserved, (void*)mbi->tags);
-
-//     // serial_putc_asm('1');
-//     serial_init();
-//     // serial_putc_asm('2');
-
-//     parse_multiboot2_memory_map(mbi, &g_bootParams);
-//     parse_multiboot2_framebuffer(mbi, &g_fbInfo);
-
-//     // log_info("Boot", "after parse_multiboot2_framebuffer");
-
-//     g_bootParams.BootDevice = 0; // GRUB does not provide this
-
-//     // log_info("Boot", "Handing off to start()");
-
-//     start(&g_bootParams, &g_fbInfo);
-
-//     for (;;) {
-//         __asm__ volatile("hlt");
-//     }
-// }
-
 void start(BootParams* bootParams, VbeModeInfo* fb_info)
 {   
     log_info("Main", "Kernel Started");
+
+    // paging_init_long_mode_globals();
 
     pmm_init(&bootParams->Memory);
 

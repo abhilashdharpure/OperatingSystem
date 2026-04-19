@@ -35,8 +35,8 @@ CompositorInput compositorInput;
 // SDL_Renderer* renderer;
 static std::vector<uint32_t> comp_framebuffer; // stored as ARGB8888 (32-bit words)
 static std::mutex comp_fb_mutex;
-static std::atomic<bool> sdl_thread_running{false};
-static std::thread sdl_thread;
+// static std::atomic<bool> sdl_thread_running{false};
+// static std::thread sdl_thread;
 
 using namespace std;
 
@@ -2549,7 +2549,7 @@ bool luma_init(LumaCompositor* comp)
           << " (expected " << (comp->output_width * comp->output_height) << ")\n";
     std::cout << "[LumaCompositor] fb_stride = " << comp->fb_stride << std::endl;
 
-    comp->display = wl_display_create();
+     wl_display* display = wl_display_create();
     std::cout << "[LumaCompositor]  wl_display_create.. " << std::endl;
 
     if (!comp->display)

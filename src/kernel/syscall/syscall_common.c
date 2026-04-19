@@ -1197,56 +1197,81 @@ uint64_t sys_socketpair(uint64_t domain,
 //     }
 // }
 
-
-int sys_arch_prctl(int code, uint64_t addr)
+long sys_arch_prctl(uint64_t code, uint64_t addr)
 {
-    log_info("SYSCALL", "sys_arch_prctl: code=%ld addr=%lx", code, addr);
-
     switch (code) {
-        case ARCH_SET_FS:
-            if (addr >= current_process->mmap_base) {
-                log_error("ARCH_PRCTL", "Invalid FS base addr: %lx", addr);
-                return -EINVAL;
-            }
-            current_process->fs_base = addr;
-            wrmsr(MSR_FS_BASE, addr);
-            return 0;
+    case ARCH_SET_GS:
+        current_process->gs_base = addr;
+        wrmsr(MSR_GS_BASE, addr);
+        return 0;
 
-        case ARCH_SET_GS:
-            if (addr >= current_process->mmap_base) {
-                log_error("ARCH_PRCTL", "Invalid GS base addr: %lx", addr);
-                return -EINVAL;
-            }
-            current_process->gs_base = addr;
-            wrmsr(MSR_GS_BASE, addr);
-            return 0;
+    case ARCH_SET_FS:
+        current_process->fs_base = addr;
+        wrmsr(MSR_FS_BASE, addr);
+        return 0;
 
-        case ARCH_GET_FS:
-            if (copy_to_user(addr, &current_process->fs_base, sizeof(uint64_t)) != 0)
-            {
-                log_error("ARCH_PRCTL", "ARCH_GET_FS return : %lx", -EFAULT);
+    case ARCH_GET_FS:
+        *(uint64_t *)addr = current_process->fs_base;
+        return 0;
 
-                return -EFAULT;
-            }
-            log_error("ARCH_PRCTL", "ARCH_GET_FS return current_process->fs_base : %lx", current_process->fs_base);
+    case ARCH_GET_GS:
+        *(uint64_t *)addr = current_process->gs_base;
+        return 0;
 
-            return current_process->fs_base;
-
-        case ARCH_GET_GS:
-            if (copy_to_user(addr, &current_process->gs_base, sizeof(uint64_t)) != 0)
-            {
-                log_error("ARCH_PRCTL", "ARCH_GET_GS return : %lx", -EFAULT);
-
-                return -EFAULT;
-            }
-
-            log_error("ARCH_PRCTL", "ARCH_GET_GS return current_process->gs_base : %lx", current_process->gs_base);
-            return current_process->gs_base;
-
-        default:
-            return -EINVAL;
+    default:
+        return -EINVAL;
     }
 }
+
+// int sys_arch_prctl(int code, uint64_t addr)
+// {
+//     log_info("SYSCALL", "sys_arch_prctl: code=%ld addr=%lx", code, addr);
+
+//     switch (code) {
+//         case ARCH_SET_FS:
+//             if (addr >= current_process->mmap_base) {
+//                 log_error("ARCH_PRCTL", "Invalid FS base addr: %lx", addr);
+//                 return -EINVAL;
+//             }
+//             current_process->fs_base = addr;
+//             wrmsr(MSR_FS_BASE, addr);
+//             return 0;
+
+//         case ARCH_SET_GS:
+//             if (addr >= current_process->mmap_base) {
+//                 log_error("ARCH_PRCTL", "Invalid GS base addr: %lx", addr);
+//                 return -EINVAL;
+//             }
+//             current_process->gs_base = addr;
+//             wrmsr(MSR_GS_BASE, addr);
+//             return 0;
+
+//         case ARCH_GET_FS:
+//             if (copy_to_user(addr, &current_process->fs_base, sizeof(uint64_t)) != 0)
+//             {
+//                 log_error("ARCH_PRCTL", "ARCH_GET_FS return : %lx", -EFAULT);
+
+//                 return -EFAULT;
+//             }
+//             log_error("ARCH_PRCTL", "ARCH_GET_FS return current_process->fs_base : %lx", current_process->fs_base);
+
+//             return current_process->fs_base;
+
+//         case ARCH_GET_GS:
+//             if (copy_to_user(addr, &current_process->gs_base, sizeof(uint64_t)) != 0)
+//             {
+//                 log_error("ARCH_PRCTL", "ARCH_GET_GS return : %lx", -EFAULT);
+
+//                 return -EFAULT;
+//             }
+
+//             log_error("ARCH_PRCTL", "ARCH_GET_GS return current_process->gs_base : %lx", current_process->gs_base);
+//             return current_process->gs_base;
+
+//         default:
+//             return -EINVAL;
+//     }
+// }
 
 long sys_getpriority(int which, int who)
 {
@@ -1631,3 +1656,32 @@ long sys_eventfd2(unsigned int initval, int flags)
 }
 
 
+// long sys_timerfd_create(int clockid, int flags)
+// {
+//     int fd = VFS_AllocFd();
+//     struct file *f = kmalloc(sizeof(*f));
+//     memset(f, 0, sizeof(*f));
+//     f->fops = &timerfd_fops;
+//     f->private_data = kmalloc(16); // store expiration time
+//     VFS_SetFd(fd, f);
+//     return fd;
+// }
+
+// long sys_timerfd_settime(int fd, int flags,
+//                          const struct itimerspec *new_value,
+//                          struct itimerspec *old_value)
+// {
+//     struct file *f = VFS_GetFile(fd);
+//     memcpy(f->private_data, new_value, sizeof(struct itimerspec));
+//     return 0;
+// }
+
+// long sys_signalfd4(int fd, const sigset_t *mask, size_t size, int flags)
+// {
+//     int newfd = VFS_AllocFd();
+//     struct file *f = kmalloc(sizeof(*f));
+//     memset(f, 0, sizeof(*f));
+//     f->fops = &signalfd_fops;
+//     VFS_SetFd(newfd, f);
+//     return newfd;
+// }

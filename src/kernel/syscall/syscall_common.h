@@ -93,3 +93,10 @@ uint64_t sys_mmap(uint64_t addr,
                   uint64_t fd,
                   uint64_t offset);
 uint64_t sys_munmap(uint64_t addr, uint64_t length);
+
+long sys_timerfd_create(int clockid, int flags);
+
+long sys_timerfd_settime(int fd, int flags,
+                         const struct itimerspec *new_value,
+                         struct itimerspec *old_value);
+long sys_signalfd4(int fd, const sigset_t *mask, size_t size, int flags);

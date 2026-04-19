@@ -23,14 +23,6 @@ extern int debug_copy_to_user(uint64_t user_va, const void *src, size_t n);
 #define COPY_TO_USER(dst, src, n) copy_to_user((uint64_t)(dst), (src), (n))
 #endif
 
-#ifndef USER_START
-// #define USER_START 0x000000007fe00000ULL
-// #define USER_END   0x0000000080000000ULL
-USER_START = USER_BASE
-USER_END   = USER_TOP
-
-#endif
-
 
 bool copy_from_user_byte(uint8_t *out, const uint8_t *user_ptr)
 {
@@ -64,42 +56,30 @@ bool copy_from_user_ptr(void *out, const void *user_ptr)
 
 int copy_from_user(void *dst, const void *src, size_t n)
 {
+    if (!is_canonical(dst))
+    {
+        log_critical("copy_from_user: non-canonical user VA=0x%llx", dst);
+        return -1;
+    }
     uint8_t *d = dst;
     const uint8_t *s = src;
 
     for (size_t i = 0; i < n; ++i) {
         uint64_t va = (uint64_t)(s + i);
-        uint64_t pa = get_mapped_phys(current_process->page_directory, va);
-        if (!pa)
-        {
+        uint64_t va_page = va & ~(PAGE_SIZE - 1);
+        uint64_t off     = va & (PAGE_SIZE - 1);
+
+        uint64_t pa_page = get_mapped_phys(current_process->page_directory, va_page);
+        if (!pa_page) {
             log_error("EXEC", "copy_from_user: unmapped user VA=0x%llx", va);
             return -1;
-        
         }
-        uint64_t off = va & (PAGE_SIZE - 1);
-        d[i] = *(volatile uint8_t *)phys_to_virt(pa + off);
-    }
 
-    log_error("EXEC", "copy_from_user: return 0");
+        d[i] = *(volatile uint8_t *)phys_to_virt(pa_page + off);
+    }
 
     return 0;
 }
-
-// // like Linux: to = user, from = kernel
-// int copy_to_user(uint64_t user_va, const void *src, size_t n)
-// {
-//     const uint8_t *s = src;
-//     for (size_t i = 0; i < n; i++) {
-//         uint64_t va = user_va + i;
-//         uint64_t pa = get_mapped_phys(current_process->page_directory, va);
-//         if (!pa)
-//             return -1;
-//         uint8_t *kptr = (uint8_t *)phys_to_virt(pa + (va & (PAGE_SIZE-1)));
-//         *kptr = s[i];
-//     }
-//     return 0;
-// }
-
 
 /* rename original to real_copy_to_user or keep a copy */
 int real_copy_to_user(uint64_t user_va, const void *src, size_t n)
@@ -127,6 +107,18 @@ static inline void byte_to_hex(uint8_t b, char *dst)
 /* Debug wrapper that replaces copy_to_user while debugging */
 int copy_to_user(uint64_t user_va, const void *src, size_t n)
 {
+
+    if (user_va >= 0x43e00000 && user_va < 0x44000000)
+    {
+        log_critical("STACK CORRUPTION: copy_to_user writing to stack dst=%llx", user_va);
+    }
+    
+    if (!is_canonical(user_va))
+    {
+        log_critical("copy_to_user: non-canonical user VA=0x%llx", user_va);
+        return -1;
+    }
+    return -1;
     const uint8_t *s = src;
 
     /* TEMP: log every copy_to_user call while debugging */

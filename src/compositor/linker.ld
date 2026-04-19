@@ -1,49 +1,52 @@
-/* linker.ld */
 ENTRY(_start)
 
-SECTIONS {
-    . = 0x40000000;   /* high user base, above 1GiB huge page */
+SECTIONS
+{
+  /* User text base */
+  . = 0x40000000;
 
-    .text : {
-        *(.text*)
-        *(.plt*)
-    }
+  /* Code */
+  .text : ALIGN(0x1000)
+  {
+    *(.text .text.*)
+    *(.plt .plt.*)
+  }
 
-    .rodata : {
-        *(.rodata*)
-        *(.rodata.*)
-    }
+  /* Read-only data */
+  .rodata : ALIGN(0x1000)
+  {
+    *(.rodata .rodata.*)
+    *(.gnu.linkonce.r.*)
+  }
 
-    .eh_frame_hdr : { *(.eh_frame_hdr) }
-    .eh_frame     : { KEEP(*(.eh_frame)) }
+  /* Writable data (no fancy relro/GOT/TLS yet) */
+  .data : ALIGN(0x1000)
+  {
+    *(.data .data.*)
+    *(.gnu.linkonce.d.*)
 
-    .preinit_array : {
-        __preinit_array_start = .;
-        KEEP(*(.preinit_array*))
-        __preinit_array_end = .;
-    }
+    /* C++ init/fini arrays */
+    . = ALIGN(8);
+    __preinit_array_start = .;
+    KEEP(*(.preinit_array*))
+    __preinit_array_end = .;
 
-    .init_array : {
-        __init_array_start = .;
-        KEEP(*(.init_array*))
-        __init_array_end = .;
-    }
+    __init_array_start = .;
+    KEEP(*(.init_array*))
+    __init_array_end = .;
 
-    .fini_array : {
-        __fini_array_start = .;
-        KEEP(*(.fini_array*))
-        __fini_array_end = .;
-    }
+    __fini_array_start = .;
+    KEEP(*(.fini_array*))
+    __fini_array_end = .;
+  }
 
-    .data.rel.ro : { *(.data.rel.ro*) }
+  .bss : ALIGN(0x1000)
+  {
+    __bss_start = .;
+    *(.bss .bss.*)
+    *(COMMON)
+    __bss_end = .;
+  }
 
-    .data : { *(.data*) }
-
-    .tdata : { *(.tdata*) }
-    .tbss  : { *(.tbss*) }
-
-    .bss : {
-        *(.bss*)
-        *(COMMON)
-    }
+  _end = .;
 }

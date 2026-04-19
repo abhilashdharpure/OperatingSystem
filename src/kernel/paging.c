@@ -7,6 +7,7 @@
 #include <debug.h>
 #include <arch/x86_64/cpu.h>
 #include <hal/process.h>
+#include <arch/x86_64/msr.h>
 
 
 #define PML4_INDEX(va)       (((uint64_t)(va) >> 39) & 0x1FF)
@@ -64,6 +65,11 @@ void dump_pte_for_va(uint64_t pml4_phys, uint64_t va)
     uint64_t *pt = (uint64_t *)phys_to_virt(pt_pa);
     uint64_t pte = pt[idx_pt];
     log_info("PGDBG", "   PT[%llu]=0x%llx", idx_pt, (unsigned long long)pte);
+
+    log_info("PGDBG", "PT[%llu]=0x%llx (present=%d user=%d rw=%d nx=%d)",
+         idx_pt, (unsigned long long)pte,
+         !!(pte & PAGE_PRESENT), !!(pte & PAGE_USER), !!(pte & PAGE_RW), !!(pte & (1ULL<<63)));
+
 }
 
 
@@ -79,7 +85,7 @@ void debug_dump_va_mapping(uint64_t *pml4, uint64_t va)
     log_info("PGDBG", "VA=%llx PML4[%llu]=%llx", va, pml4_i, pml4e);
     if (!(pml4e & PAGE_PRESENT)) return;
 
-    uint64_t *pdpt = (uint64_t*)(pml4e & ~0xFFFULL);
+    uint64_t *pdpt = (uint64_t*)phys_to_virt(pml4e & PTE_ADDR_MASK);
     uint64_t pdpte = pdpt[pdpt_i];
     log_info("PGDBG", "  PDPT[%llu]=%llx", pdpt_i, pdpte);
     if (!(pdpte & PAGE_PRESENT)) return;
@@ -88,7 +94,7 @@ void debug_dump_va_mapping(uint64_t *pml4, uint64_t va)
         return;
     }
 
-    uint64_t *pd = (uint64_t*)(pdpte & ~0xFFFULL);
+    uint64_t *pd   = (uint64_t*)phys_to_virt(pdpte & PTE_ADDR_MASK);
     uint64_t pde = pd[pd_i];
     log_info("PGDBG", "  PD[%llu]=%llx", pd_i, pde);
     if (!(pde & PAGE_PRESENT)) return;
@@ -97,10 +103,25 @@ void debug_dump_va_mapping(uint64_t *pml4, uint64_t va)
         return;
     }
 
-    uint64_t *pt = (uint64_t*)(pde & ~0xFFFULL);
+    uint64_t *pt   = (uint64_t*)phys_to_virt(pde & PTE_ADDR_MASK);
     uint64_t pte = pt[pt_i];
     log_info("PGDBG", "  PT[%llu]=%llx", pt_i, pte);
 }
+
+
+bool is_canonical(uint64_t va)
+{
+    uint64_t sign = (va >> 47) & 1ULL;
+
+    if (sign == 0) {
+        // upper bits must be 0
+        return (va >> 48) == 0;
+    } else {
+        // upper bits must be all 1s
+        return (va >> 48) == 0xFFFF;
+    }
+}
+
 
 // ----------------------------------------------------------------------
 // PML4 walking helpers
@@ -242,12 +263,31 @@ static uint64_t *get_pt(uint64_t *pd, uint64_t va)
     return (uint64_t *)phys_to_virt(e & PTE_ADDR_MASK);
 }
 
+int map_region(uint64_t *pml4, uint64_t start, uint64_t size, uint64_t flags)
+{
+    uint64_t end = start + size;
+    for (uint64_t va = start; va < end; va += PAGE_SIZE) {
+        uint64_t pa = pmm_alloc_page();
+        if (!pa) {
+            return -1;
+        }
+        memset(phys_to_virt(pa), 0, PAGE_SIZE);
+        if (map_page(pml4, va, pa, flags) != 0) {
+            return -1;
+        }
+    }
+    return 0;
+}
+
+
 // ----------------------------------------------------------------------
 // Low-level map / unmap / query
 // ----------------------------------------------------------------------
 
 int map_page(uint64_t *pml4, uint64_t va, uint64_t pa, uint64_t flags)
 {
+    // log_info("MAP", "map_page: pml4=%p va=0x%llx pa=0x%llx flags=0x%llx", pml4, (unsigned long long)va, (unsigned long long)pa, (unsigned long long)flags);
+
     if (!pml4) {
         log_info("Paging", "map_page: pml4 pointer is NULL va=0x%llx pa=0x%llx flags=0x%llx",
                 va, pa, flags);
@@ -279,9 +319,16 @@ int map_page(uint64_t *pml4, uint64_t va, uint64_t pa, uint64_t flags)
 
     uint64_t idx = PT_INDEX(va);
     // pt[idx] = (pa & ~0xFFFULL) | (flags & (PAGE_PRESENT | PAGE_RW | PAGE_USER));
-    pt[idx] = (pa & PTE_ADDR_MASK) | (flags & (PAGE_PRESENT | PAGE_RW | PAGE_USER));
+    // pt[idx] = (pa & PTE_ADDR_MASK) | (flags & (PAGE_PRESENT | PAGE_RW | PAGE_USER));
+    // pt[idx] = (pa & PTE_ADDR_MASK) | (flags & 0xFFFULL) | (flags & (1ULL<<63));
+
+    pt[idx] = (pa & PTE_ADDR_MASK) | (flags & (PAGE_PRESENT | PAGE_RW | PAGE_USER | PAGE_NX));
+
 
     __asm__ volatile("invlpg (%0)" :: "r"(va) : "memory");
+
+    // log_info("MAP", "map_page: mapped va=0x%llx -> pa=0x%llx flags=0x%llx", (unsigned long long)va, (unsigned long long)pa, (unsigned long long)flags);
+
     return 0;
 }
 
@@ -430,7 +477,9 @@ void clone_kernel_mappings_for_user(uint64_t *user_pml4)
     // Just ensure user region is marked PAGE_USER.
     // make_user_mapping(user_pml4, USER_START, USER_END);
 
-        // Example: clear user bit on all entries except user range [0 .. USER_PML4_END)
+    // user_pml4[0] = 0;
+
+    // Example: clear user bit on all entries except user range [0 .. USER_PML4_END)
     for (uint64_t i = USER_PML4_END; i < 512; i++) {
         uint64_t e = user_pml4[i];
         if (e & PAGE_PRESENT) {
@@ -442,10 +491,6 @@ void clone_kernel_mappings_for_user(uint64_t *user_pml4)
              "clone_kernel_mappings_for_user: no extra changes");
 }
 
-
-// ----------------------------------------------------------------------
-// Enter user mode (unchanged semantics – uses p->cr3 and enter_user_mode(p))
-// ----------------------------------------------------------------------
 void enter_user_mode_from_process(Process *p)
 {
     if (!p || !p->page_directory) {
@@ -462,32 +507,80 @@ void enter_user_mode_from_process(Process *p)
     uint64_t k_rsp;
     __asm__ volatile("mov %%rsp, %0" : "=r"(k_rsp));
 
-    log_info("EXEC", "Before dump: RSP=0x%llx, RIP(entry)=0x%llx, cr3=0x%llx",
-             (unsigned long long)k_rsp,
-             (unsigned long long)p->regs.rip,
-             (unsigned long long)pml4_pa);
-    // debug_dump_va_mapping(p->page_directory, p->regs.rip);
-    // debug_dump_va_mapping(p->page_directory, p->regs.rsp - 8);
-
-    //  debug_dump_user_bytes(p, p->regs.rsp, 0x80);
-
     log_info("EXEC", "Before write_cr3: RSP=0x%llx, RIP(entry)=0x%llx, cr3=0x%llx",
              (unsigned long long)k_rsp,
              (unsigned long long)p->regs.rip,
              (unsigned long long)pml4_pa);
 
-    // Dump PTE chain for entry RIP and stack pointer to help debug faults
     dump_pte_for_va(pml4_pa, p->regs.rip);
     dump_pte_for_va(pml4_pa, p->regs.rsp - 8);
 
 
+    log_info("EXEC", "enter_user_mode: final RIP=0x%llx RSP=0x%llx CS=0x%llx SS=0x%llx",
+         (unsigned long long)p->regs.rip,
+         (unsigned long long)p->regs.rsp,
+         (unsigned long long)p->regs.cs,
+         (unsigned long long)p->regs.ss);
+    debug_dump_va_mapping(p->page_directory, p->regs.rip);
+    debug_dump_va_mapping(p->page_directory, p->regs.rsp);
+
+    // before write_cr3 (already present) — add:
+    log_info("EXEC", "enter_user_mode: p=%p cr3=0x%llx regs.rip=0x%llx regs.rsp=0x%llx cs=0x%llx ss=0x%llx rflags=0x%llx",
+            p, (unsigned long long)pml4_pa,
+            (unsigned long long)p->regs.rip,
+            (unsigned long long)p->regs.rsp,
+            (unsigned long long)p->regs.cs,
+            (unsigned long long)p->regs.ss,
+            (unsigned long long)p->regs.rflags);
+
+    // dump PTE chain and first 64 bytes at RIP and RSP page-aligned
+    dump_pte_for_va(pml4_pa, p->regs.rip);
+    // debug_dump_user_bytes(p, p->regs.rip & ~(PAGE_SIZE-1), 64);
+    dump_pte_for_va(pml4_pa, p->regs.rsp - 8);
+    // debug_dump_user_bytes(p, p->regs.rsp & ~(PAGE_SIZE-1), 64);
+
+    // print canonicality checks
+    if ((p->regs.rsp & (1ULL<<63)) != 0) log_info("EXEC","RSP high bit set (non-canonical?) RSP=0x%llx", p->regs.rsp);
+    if ((p->regs.rip & (1ULL<<63)) != 0) log_info("EXEC","RIP high bit set (non-canonical?) RIP=0x%llx", p->regs.rip);
+
+
+
     write_cr3(pml4_pa);
-    log_info("EXEC", "enter_user_mode_from_process: after write_cr3, jumping to user");
+    log_info("EXEC", "enter_user_mode_from_process: after write_cr3");
+    if (p->regs.rsp < USER_STACK_TOP - USER_STACK_SIZE || p->regs.rsp >= USER_STACK_TOP) {
+        log_critical("EXEC", "RSP out of stack bounds: 0x%llx", p->regs.rsp);
+    }
 
-    // enter_user_mode(p);
-    enter_user_mode(&p->regs);
-    // enter_user_mode(&p->regs.rip);
 
+    // Restore FS/GS bases for user
+    wrmsr(MSR_FS_BASE, p->fs_base ? p->fs_base : 0);
+    wrmsr(MSR_GS_BASE, p->gs_base ? p->gs_base : 0);
+
+    log_info("EXEC", "enter_user_mode_from_process: after write_msr, jumping to user");
+
+    uint64_t cr3_now;
+    __asm__ volatile("mov %%cr3, %0" : "=r"(cr3_now));
+    log_info("EXEC", "enter_user_mode: CR3 about to switch to 0x%llx current_cr3=0x%llx", (unsigned long long)pml4_pa, (unsigned long long)cr3_now);
+
+    if ((p->regs.rsp & (1ULL << 63)) != 0) {
+        log_info("EXEC", "RSP looks canonical high bit set? RSP=0x%llx", (unsigned long long)p->regs.rsp);
+    }
+
+    log_info("EXEC", "Before jump to enter_user_mode");
+
+    // debug_dump_user_bytes(p, p->regs.rsp, 128);
+
+    if (!is_canonical(p->regs.rip) || !is_canonical(p->regs.rsp)) {
+        log_critical("EXEC", "Non-canonical RIP/RSP!");
+        for (;;);
+    }
+
+    log_info("EXEC", "dump_pte_for_va for start 0x7ffffe8a");
+
+    dump_pte_for_va(p->cr3, 0x7ffffe8a);
+    log_info("EXEC", "dump_pte_for_va for end 0x7ffffe8a");
+
+    enter_user_mode(p);
 
     log_critical("EXEC", "enter_user_mode: returned unexpectedly from user mode");
     for (;;);

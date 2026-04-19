@@ -63,6 +63,9 @@ void x86_enable_fpu_sse(void)
     cr4 |= (1ULL << 9);   // OSFXSR
     cr4 |= (1ULL << 10);  // OSXMMEXCPT
 
+    // CR4: allow RDTSC/RDTSCP in user mode (clear TSD)
+    cr4 &= ~(1ULL << 2);  // TSD = 0 → no #GP on RDTSC in CPL>0
+
     __asm__ volatile ("mov %0, %%cr0" :: "r"(cr0) : "memory");
     __asm__ volatile ("mov %0, %%cr4" :: "r"(cr4) : "memory");
 }

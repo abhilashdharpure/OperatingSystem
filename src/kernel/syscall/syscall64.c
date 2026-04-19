@@ -20,6 +20,7 @@ void x64_SYSCALL_Initialize(void)
 {
     uint64_t efer = rdmsr(IA32_EFER);
     efer |= (1ull << 0);              // SCE
+    efer |= (1ull << 11);  // NXE (enable NX bit support)
     wrmsr(IA32_EFER, efer);
 
     uint16_t kernel_cs = 0x08;
@@ -247,14 +248,24 @@ uint64_t syscall_dispatch(uint64_t nr,
 
     case SYS_arch_prctl:
     {
+        uint64_t fs_before = rdmsr(MSR_FS_BASE);
+
         int ret = sys_arch_prctl(a0, a1);
-        log_info("SYSCALL", "sys_arch_prctl returned %d", ret);
-        // uint64_t efer = rdmsr(MSR_FS_BASE);
-        // log_info("SYSCALL", "sys_arch_prctl: EFER=0x%llx", efer);
-        // log_info("SYSCALL", "FS_BASE now = 0x%lx", rdmsr(MSR_FS_BASE));
+
+        uint64_t fs_after = rdmsr(MSR_FS_BASE);
+
+
+        log_info("SYSCALLDBG",
+                "arch_prctl: code=%llu addr=%llu FS_BASE before=0x%llx after=0x%llx ret=%d",
+                (unsigned long long)a0,
+                (unsigned long long)a1,
+                (unsigned long long)fs_before,
+                (unsigned long long)fs_after,
+                ret);
 
         return ret;
     }
+
 
      case SYS_ioctl: 
         return sys_ioctl((int)a0, (unsigned long)a1, (unsigned long)a2);
@@ -361,6 +372,14 @@ uint64_t syscall_dispatch(uint64_t nr,
     case SYS_membarrier:
         return sys_membarrier((int)a0, (int)a1);
 
+    // case SYS_timerfd_create:
+    //     return sys_timerfd_create((int)a0, (int)a1);
+
+    // case SYS_timerfd_settime:
+    //     return sys_timerfd_settime((int)a0, (int)a1, (const struct itimerspec*)a2, (struct itimerspec*)a3);
+
+    // case SYS_signalfd4:
+    //     return sys_signalfd4((int)a0, (const sigset_t*)a1, (size_t)a2, (int)a3);
 
     case SYS_test:
         log_info("SYSCALL", "TEST: a0=%llx a1=%llx a2=%llx a3=%llx a4=%llx a5=%llx",

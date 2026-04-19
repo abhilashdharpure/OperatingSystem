@@ -1,6 +1,7 @@
 #include "pmm.h"
 #include "debug.h"
 #include "align.h"
+#include "paging.h"
 #include <stdint.h>
 #include <stddef.h>
 #define MEM_USABLE   1
@@ -10,9 +11,9 @@
 #define MEM_BAD      5
 
 
-#define PAGE_SIZE 4096
-#define PMM_FREE_START   0x00100000ULL   // 1 MiB
-#define PMM_MAX_IDENTITY 0x01000000ULL   // 16 MiB
+#define PAGE_SIZE        4096
+#define PMM_FREE_START   0x00100000ULL      // 1 MiB
+#define PMM_MAX_IDENTITY 0x20000000ULL      // 512 MiB
 
 #define KERNEL_VMA 0xffffffff80000000ULL
 
@@ -40,20 +41,23 @@ static size_t free_count = 0;
 static uint8_t bitmap[MAX_PAGES / 8];
 
 /* helpers */
+
 static inline uintptr_t align_up(uintptr_t v)
 {
     return (v + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
 }
 
-static inline uintptr_t align_down(uintptr_t v) 
+static inline uintptr_t align_down(uintptr_t v)
 {
     return v & ~(PAGE_SIZE - 1);
 }
 
+
 void pmm_init(MemoryInfo *mem)
 {
-    free_count = 0;  // ← reset completely
+    free_count = 0;
 
+    /* 1) Build freelist from usable regions in [PMM_FREE_START, PMM_MAX_IDENTITY) */
     for (uint32_t i = 0; i < mem->RegionCount; i++) {
         MemoryRegion *r = &mem->Regions[i];
         if (r->Type != MEM_USABLE)
@@ -74,42 +78,38 @@ void pmm_init(MemoryInfo *mem)
             pmm_free_page(pa);
     }
 
-    uintptr_t kernel_phys_start = (uintptr_t)&_kernel_phys_start;
-    uintptr_t kernel_phys_end   = (uintptr_t)&_kernel_phys_end;
+    /* 2) Reserve all pages used by the boot stub allocator (page tables, etc.) */
+    uintptr_t boot_end = boot_get_boot_alloc_end();
+    if (boot_end > PMM_FREE_START) {
+        pmm_reserve_region(PMM_FREE_START, boot_end - PMM_FREE_START);
+    }
+
+    /* 3) Compute kernel physical range from higher-half symbols */
+    uintptr_t kernel_phys_start = kernel_virt_to_phys(&_kernel_start);
+    uintptr_t kernel_phys_end   = kernel_virt_to_phys(&_kernel_end);
 
     log_info("PMM", "kernel_phys: [0x%llx, 0x%llx)",
-            (unsigned long long)kernel_phys_start,
-            (unsigned long long)kernel_phys_end);
+             (unsigned long long)kernel_phys_start,
+             (unsigned long long)kernel_phys_end);
 
-
+    /* 4) Reserve the kernel image itself */
     pmm_reserve_region(kernel_phys_start,
-                    kernel_phys_end - kernel_phys_start);
+                       kernel_phys_end - kernel_phys_start);
 
     log_info("PMM", "Reserving kernel region: [0x%llx, 0x%llx)",
-            (unsigned long long)kernel_phys_start,
-            (unsigned long long)kernel_phys_end);
+             (unsigned long long)kernel_phys_start,
+             (unsigned long long)kernel_phys_end);
 
-
-    log_info("PMM", "free_count=%u (pages), approx %u KiB",
+    /* 5) Debug + sanity check */
+    log_info("PMM", "free_count=%u pages (~%u KiB)",
              (unsigned)free_count,
              (unsigned)(free_count * 4));
 
-    log_info("PMM", "after init: free_count=%zu", free_count);
-    for (size_t i = 0; i < 16 && i < free_count; i++) {
-        log_info("PMM", "  freelist[%zu] = 0x%llx", i,
-                (unsigned long long)freelist[i]);
-    }
-    for (size_t i = 0; i < 16; i++) {
-        log_info("PMM", "  tail[%zu] = 0x%llx",
-                i,
-                (unsigned long long)freelist[free_count - 1 - i]);
-    }
     for (size_t i = 0; i < free_count; i++) {
-        if (freelist[i] < PMM_FREE_START || freelist[i] >= PMM_MAX_IDENTITY)
-            panic("freelist contains invalid entry");
+        if (freelist[i] < PMM_FREE_START ||
+            freelist[i] >= PMM_MAX_IDENTITY)
+            panic("PMM: freelist contains invalid entry");
     }
-
-
 }
 
 void pmm_mark_all_used(void)
@@ -134,7 +134,6 @@ int pmm_free_page(uintptr_t phys)
     freelist[free_count++] = phys;
     return 0;
 }
-
 
 uint64_t pmm_alloc_page(void)
 {
