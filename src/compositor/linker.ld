@@ -2,30 +2,26 @@ ENTRY(_start)
 
 SECTIONS
 {
-  /* User text base */
-  . = 0x40000000;
+  /* Move user text base above identity-mapped low 1GiB */
+  . = 0x40200000;   /* or 0x41000000, anything safely > 0x40000000 + 2MiB */
 
-  /* Code */
   .text : ALIGN(0x1000)
   {
     *(.text .text.*)
     *(.plt .plt.*)
   }
 
-  /* Read-only data */
   .rodata : ALIGN(0x1000)
   {
     *(.rodata .rodata.*)
     *(.gnu.linkonce.r.*)
   }
 
-  /* Writable data (no fancy relro/GOT/TLS yet) */
   .data : ALIGN(0x1000)
   {
     *(.data .data.*)
     *(.gnu.linkonce.d.*)
 
-    /* C++ init/fini arrays */
     . = ALIGN(8);
     __preinit_array_start = .;
     KEEP(*(.preinit_array*))

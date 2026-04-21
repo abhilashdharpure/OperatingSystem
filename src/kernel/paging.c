@@ -72,8 +72,6 @@ void dump_pte_for_va(uint64_t pml4_phys, uint64_t va)
 
 }
 
-
-
 void debug_dump_va_mapping(uint64_t *pml4, uint64_t va)
 {
     uint64_t pml4_i = PML4_INDEX(va);
@@ -313,10 +311,6 @@ int map_page(uint64_t *pml4, uint64_t va, uint64_t pa, uint64_t flags)
     }
 
     uint64_t idx = PT_INDEX(va);
-    // pt[idx] = (pa & ~0xFFFULL) | (flags & (PAGE_PRESENT | PAGE_RW | PAGE_USER));
-    // pt[idx] = (pa & PTE_ADDR_MASK) | (flags & (PAGE_PRESENT | PAGE_RW | PAGE_USER));
-    // pt[idx] = (pa & PTE_ADDR_MASK) | (flags & 0xFFFULL) | (flags & (1ULL<<63));
-
     pt[idx] = (pa & PTE_ADDR_MASK) | (flags & (PAGE_PRESENT | PAGE_RW | PAGE_USER | PAGE_NX));
 
     // if (!(flags & PAGE_USER) && PML4_INDEX(va) == 511 && pml4 == kernel_pml4_virt)
@@ -446,22 +440,6 @@ page_dir_t create_user_pd(void)
         .pd_virt = new_pml4
     };
 }
-
-
-// page_dir_t create_user_pd(void)
-// {
-//     uint64_t pa = pmm_alloc_page();
-//     uint64_t *new = phys_to_virt(pa);
-//     memset(new, 0, PAGE_SIZE);
-
-//     // copy kernel half
-//     for (int i = 256; i < 512; i++)
-//         new[i] = kernel_pml4_virt[i];
-
-//     return (page_dir_t){ pa, new };
-// }
-
-
 
 // recursively set PAGE_USER on all PT entries in a range
 static void make_user_mapping(uint64_t *pml4, uint64_t start, uint64_t end)

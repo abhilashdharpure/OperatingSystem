@@ -34,6 +34,9 @@ target_env = Environment(
         'wayland-server',
         'xkbcommon',
         'ffi',
+        'stdc++',
+        'm',
+        'c',
     ],
 
     CCFLAGS = [
@@ -44,6 +47,7 @@ target_env = Environment(
         '-fno-stack-protector',
         '-fno-exceptions',
         '-fno-rtti',
+        '-static',          # <--- important
     ],
 
     CXXFLAGS = [
@@ -52,18 +56,17 @@ target_env = Environment(
         '-g',
         '-O0',
         '-fno-pie',
+        '-static',          # <--- important
     ],
 
     LINKFLAGS = [
         '--sysroot=' + sysroot,
+        '-static',          # <--- important
         '-fno-pie',
         '-no-pie',
         '-Wl,-Tlinker.ld',
     ]
-
-
 )
-
 
 # dirs
 target_env.Execute(Mkdir(build_dir))
