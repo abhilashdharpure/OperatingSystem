@@ -181,10 +181,11 @@ void boot_setup_pml4(uint64_t *pml4)
     uint64_t pdpt_pa = (uint64_t)boot_pdpt_identity; // identity
     pml4[0] = pdpt_pa | PAGE_PRESENT | PAGE_RW;
 }
+
 __attribute__((section(".boot64_stub")))
 void setup_high_mappings(uint64_t *pml4, BootParams *bp)
 {
-    boot_setup_pml4(pml4);  // low 1 GiB identity
+    //boot_setup_pml4(pml4);  // low 1 GiB identity
 
     // 1) Map kernel higher-half
     uint64_t kernel_va_start = (uint64_t)&_kernel_start;
@@ -198,7 +199,7 @@ void setup_high_mappings(uint64_t *pml4, BootParams *bp)
         boot_map_page(pml4, va, pa, PAGE_PRESENT | PAGE_RW);
     }
 
-    // 2) Compute max physical address from BootParams (for later use if you want)
+    // 2) Compute max physical address from BootParams
     uint64_t max_phys = 0;
     for (uint32_t i = 0; i < bp->Memory.RegionCount; i++) {
         MemoryRegion *r = &bp->Memory.Regions[i];

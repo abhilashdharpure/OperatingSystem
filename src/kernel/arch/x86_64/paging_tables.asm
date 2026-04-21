@@ -2,19 +2,29 @@
 SECTION .data.boot
 align 4096
 
-%define PML4_FLAGS   0x003          ; Present | RW
-%define PDPTE_1G     0x083          ; Present | RW | PS (1 GiB page)
+%define PAGE_PRESENT  0x001
+%define PAGE_RW       0x002
+%define PAGE_PS       0x080
 
+%define PML4_FLAGS    (PAGE_PRESENT | PAGE_RW)
+
+global pml4_table
 global pml4_table_boot
 
-; PML4: only entry 0 used
+pml4_table:
 pml4_table_boot:
-    dq pdpt_identity + PML4_FLAGS   ; PML4[0]
+    dq pdpt_identity + PML4_FLAGS
     times 511 dq 0
 
 align 4096
-
-; PDPT: single 1GiB page mapping phys 0..1GiB at VA 0..1GiB
 pdpt_identity:
-    dq 0x0000000000000000 + PDPTE_1G
+    dq pd_identity + PML4_FLAGS
     times 511 dq 0
+
+align 4096
+pd_identity:
+%assign i 0
+%rep 512
+    dq (i * 0x200000) | PAGE_PRESENT | PAGE_RW | PAGE_PS
+%assign i i+1
+%endrep

@@ -216,8 +216,12 @@ static int map_elf_segments_from_mem(Process *p,
         if (ph[i].p_flags & PF_W)
             seg_flags |= PAGE_RW;
 
-        if (!(ph[i].p_flags & PF_X))
-            seg_flags |= PAGE_NX;
+        if (ph[i].p_flags & PF_X)
+            seg_flags &= ~PAGE_NX;   // executable
+        else
+            seg_flags |= PAGE_NX;    // non-executable
+
+        log_info("ELF", "Segment flags: %x", ph[i].p_flags);
 
         // if ((ph[i].p_flags & PF_X) && !(ph[i].p_flags & PF_W)) {
         //     // could later clear RW for RX segments

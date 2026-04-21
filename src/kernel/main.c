@@ -311,14 +311,26 @@ extern uint8_t _boot_stub_end;
 __attribute__((section(".boot64_stub")))
 void kernel_main_entry(void* multiboot_info)
 {
+    test_serial_putc_asm('A');
+
     boot_pmm_init();
+    test_serial_putc_asm('B');
+
 
     multiboot2_info_t* mbi = (multiboot2_info_t*)multiboot_info;
+
+    test_serial_putc_asm('C');
+
     uint64_t *pml4 = pml4_table;
+    test_serial_putc_asm('D');
+
 
     parse_multiboot2_memory_map(mbi, &bootparams_low);
     parse_multiboot2_framebuffer(mbi, &fb_low);
+    test_serial_putc_asm('E');
+
     bootparams_low.BootDevice = 0;
+    test_serial_putc_asm('F');
 
     setup_high_mappings(pml4, &bootparams_low);
 

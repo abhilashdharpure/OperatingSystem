@@ -126,50 +126,45 @@ bool is_canonical(uint64_t va)
 // ----------------------------------------------------------------------
 // PML4 walking helpers
 // ----------------------------------------------------------------------
-
-// static uint64_t *get_or_alloc_pdp(uint64_t *pml4, uint64_t va, uint64_t flags)
-// {
-//     uint64_t idx = PML4_INDEX(va);
-//     uint64_t e = pml4[idx];
-
-//     if (!(e & PAGE_PRESENT)) {
-//         uint64_t pa = pmm_alloc_page();
-//         if (!pa) return NULL;
-
-//         memset(phys_to_virt(pa), 0, PAGE_SIZE);
-//         pml4[idx] = pa | flags | PAGE_PRESENT;
-//         return (uint64_t *)phys_to_virt(pa);
-//     } else {
-//         uint64_t pa = e & ~0xFFFULL;
-//         return (uint64_t *)phys_to_virt(pa);
-//     }
-// }
-
 static uint64_t *get_or_alloc_pdp(uint64_t *pml4, uint64_t va, uint64_t flags)
 {
     uint64_t idx = PML4_INDEX(va);
     uint64_t e = pml4[idx];
 
+    // If this is a user mapping request
+    if (flags & PAGE_USER) {
+        if (e & PAGE_PRESENT) {
+            // Reuse existing PDPT (kernel or user), just upgrade flags
+            uint64_t pa        = e & PTE_ADDR_MASK;
+            uint64_t old_flags = e & 0xFFFULL;
+            pml4[idx] = pa | old_flags | PAGE_USER | (flags & PAGE_RW);
+            return (uint64_t *)phys_to_virt(pa);
+        }
+
+        // No entry → allocate new user PDPT
+        uint64_t pa = pmm_alloc_page();
+        if (!pa) return NULL;
+        memset(phys_to_virt(pa), 0, PAGE_SIZE);
+        pml4[idx] = pa | PAGE_PRESENT | PAGE_RW | PAGE_USER;
+        return (uint64_t *)phys_to_virt(pa);
+    }
+
+
+    // Kernel mapping path: never replace existing PDPT, just reuse and upgrade flags
     if (!(e & PAGE_PRESENT)) {
         uint64_t pa = pmm_alloc_page();
-        if (!pa)
-        {
-            log_info("Paging", "get_or_alloc_pdp: returning null for VA=0x%llx because pmm_alloc_page failed", va);
-            return NULL;
-        }
+        if (!pa) return NULL;
         memset(phys_to_virt(pa), 0, PAGE_SIZE);
-        pml4[idx] = pa | flags | PAGE_PRESENT;
-        return (uint64_t *)phys_to_virt(pa);
-    }
-    else 
-    {
+        pml4[idx] = pa | (flags & (PAGE_RW)) | PAGE_PRESENT; // no PAGE_USER
+        return phys_to_virt(pa);
+    } else {
         uint64_t pa = e & PTE_ADDR_MASK;
-        // Upgrade flags on existing entry (drop any high bits such as NX)
         uint64_t old_flags = e & 0xFFFULL;
-        pml4[idx] = pa | old_flags | (flags & (PAGE_USER | PAGE_RW));
-        return (uint64_t *)phys_to_virt(pa);
+        pml4[idx] = pa | old_flags | (flags & PAGE_RW); // still supervisor
+        return phys_to_virt(pa);
     }
 }
+
 
 static uint64_t *get_or_alloc_pd(uint64_t *pdp, uint64_t va, uint64_t flags)
 {
@@ -324,6 +319,11 @@ int map_page(uint64_t *pml4, uint64_t va, uint64_t pa, uint64_t flags)
 
     pt[idx] = (pa & PTE_ADDR_MASK) | (flags & (PAGE_PRESENT | PAGE_RW | PAGE_USER | PAGE_NX));
 
+    // if (!(flags & PAGE_USER) && PML4_INDEX(va) == 511 && pml4 == kernel_pml4_virt)
+    // {
+    //     log_info("Paging", "Kernel map_page into high-half: va=0x%llx", va);
+    // }
+
 
     __asm__ volatile("invlpg (%0)" :: "r"(va) : "memory");
 
@@ -414,7 +414,6 @@ int set_page_flags(uint64_t *pml4, uint64_t va, uint64_t flags)
 // ----------------------------------------------------------------------
 // User page table creation
 // ----------------------------------------------------------------------
-
 page_dir_t create_user_pd(void)
 {
     log_info("Paging", "create_user_pd (64-bit) start");
@@ -426,20 +425,41 @@ page_dir_t create_user_pd(void)
     }
 
     uint64_t *new_pml4 = (uint64_t *)phys_to_virt(new_pml4_pa);
+    memset(new_pml4, 0, PAGE_SIZE);
 
-    uint64_t cur_pml4_pa = read_cr3() & ~0xFFFULL;
-    uint64_t *cur_pml4   = (uint64_t *)phys_to_virt(cur_pml4_pa);
+    // kernel_pml4_virt is set in paging_init_long_mode_globals()
+    uint64_t k_idx  = PML4_INDEX(KERNEL_VMA_BASE);   // should be 511
+    uint64_t dm_idx = PML4_INDEX(DIRECT_MAP_BASE);   // direct map slot
+    uint64_t id_idx = 0;                             // identity-mapped low half
 
-    memcpy(new_pml4, cur_pml4, PAGE_SIZE);
+    // Keep identity mapping (for current kernel stack at 0x107960)
+    new_pml4[id_idx] = kernel_pml4_virt[id_idx];
 
-    log_info("Paging", "create_user_pd done: new_pml4_pa=0x%llx new_pml4=%p",
-             (unsigned long long)new_pml4_pa, new_pml4);
+    // Keep direct map (for phys_to_virt / DIRECT_MAP_BASE)
+    new_pml4[dm_idx] = kernel_pml4_virt[dm_idx];
+
+    // Keep higher-half kernel mapping
+    new_pml4[k_idx]  = kernel_pml4_virt[k_idx];
 
     return (page_dir_t){
         .pd_phys = new_pml4_pa,
         .pd_virt = new_pml4
     };
 }
+
+
+// page_dir_t create_user_pd(void)
+// {
+//     uint64_t pa = pmm_alloc_page();
+//     uint64_t *new = phys_to_virt(pa);
+//     memset(new, 0, PAGE_SIZE);
+
+//     // copy kernel half
+//     for (int i = 256; i < 512; i++)
+//         new[i] = kernel_pml4_virt[i];
+
+//     return (page_dir_t){ pa, new };
+// }
 
 
 
@@ -471,24 +491,22 @@ static void make_user_mapping(uint64_t *pml4, uint64_t start, uint64_t end)
 
 void clone_kernel_mappings_for_user(uint64_t *user_pml4)
 {
-    // PML4 already cloned from kernel CR3 in create_user_pd().
-    // DO NOT clear PML4[0] — user mappings live there.
-
-    // Just ensure user region is marked PAGE_USER.
-    // make_user_mapping(user_pml4, USER_START, USER_END);
-
-    // user_pml4[0] = 0;
-
-    // Example: clear user bit on all entries except user range [0 .. USER_PML4_END)
-    for (uint64_t i = USER_PML4_END; i < 512; i++) {
-        uint64_t e = user_pml4[i];
-        if (e & PAGE_PRESENT) {
-            e &= ~PAGE_USER;
-            user_pml4[i] = e;
-        }
+    // Keep PML4[0] as copied from kernel (identity + any other low mappings)
+    for (uint64_t i = USER_PML4_START + 1; i < USER_PML4_END; i++) {
+        user_pml4[i] = 0;
     }
-    log_info("Paging",
-             "clone_kernel_mappings_for_user: no extra changes");
+
+
+    // // memset(user_pml4, 0, 256 * sizeof(uint64_t));
+
+    log_info("Paging", "clone_kernel_mappings_for_user: low half (except index 0) cleared, kernel high-half kept");
+}
+
+static inline uint64_t read_cr2(void)
+{
+    uint64_t v; 
+    __asm__ volatile("mov %%cr2, %0" : "=r"(v));
+    return v;
 }
 
 void enter_user_mode_from_process(Process *p)
@@ -533,17 +551,24 @@ void enter_user_mode_from_process(Process *p)
             (unsigned long long)p->regs.ss,
             (unsigned long long)p->regs.rflags);
 
-    // dump PTE chain and first 64 bytes at RIP and RSP page-aligned
-    dump_pte_for_va(pml4_pa, p->regs.rip);
-    // debug_dump_user_bytes(p, p->regs.rip & ~(PAGE_SIZE-1), 64);
-    dump_pte_for_va(pml4_pa, p->regs.rsp - 8);
-    // debug_dump_user_bytes(p, p->regs.rsp & ~(PAGE_SIZE-1), 64);
+    // // dump PTE chain and first 64 bytes at RIP and RSP page-aligned
+    // dump_pte_for_va(pml4_pa, p->regs.rip);
+    // // debug_dump_user_bytes(p, p->regs.rip & ~(PAGE_SIZE-1), 64);
+    // dump_pte_for_va(pml4_pa, p->regs.rsp - 8);
+    // // debug_dump_user_bytes(p, p->regs.rsp & ~(PAGE_SIZE-1), 64);
 
-    // print canonicality checks
-    if ((p->regs.rsp & (1ULL<<63)) != 0) log_info("EXEC","RSP high bit set (non-canonical?) RSP=0x%llx", p->regs.rsp);
-    if ((p->regs.rip & (1ULL<<63)) != 0) log_info("EXEC","RIP high bit set (non-canonical?) RIP=0x%llx", p->regs.rip);
+    // // print canonicality checks
+    // if ((p->regs.rsp & (1ULL<<63)) != 0) log_info("EXEC","RSP high bit set (non-canonical?) RSP=0x%llx", p->regs.rsp);
+    // if ((p->regs.rip & (1ULL<<63)) != 0) log_info("EXEC","RIP high bit set (non-canonical?) RIP=0x%llx", p->regs.rip);
 
 
+    dump_pte_for_va(pml4_pa, 0xffffffff80000000);
+    
+
+    log_info("PGDBG", "user PML4[0]=0x%llx", (unsigned long long)p->page_directory[0]);
+
+
+    log_info("EXEC", "enter_user_mode_from_process: before write_cr3");
 
     write_cr3(pml4_pa);
     log_info("EXEC", "enter_user_mode_from_process: after write_cr3");
@@ -566,19 +591,20 @@ void enter_user_mode_from_process(Process *p)
         log_info("EXEC", "RSP looks canonical high bit set? RSP=0x%llx", (unsigned long long)p->regs.rsp);
     }
 
+
+    // // debug_dump_user_bytes(p, p->regs.rsp, 128);
+
+    // if (!is_canonical(p->regs.rip) || !is_canonical(p->regs.rsp)) {
+    //     log_critical("EXEC", "Non-canonical RIP/RSP!");
+    //     for (;;);
+    // }
+
+    // log_info("EXEC", "dump_pte_for_va for start 0x7ffffe8a");
+
+    // dump_pte_for_va(p->cr3, 0x7ffffe8a);
+    // log_info("EXEC", "dump_pte_for_va for end 0x7ffffe8a");
+
     log_info("EXEC", "Before jump to enter_user_mode");
-
-    // debug_dump_user_bytes(p, p->regs.rsp, 128);
-
-    if (!is_canonical(p->regs.rip) || !is_canonical(p->regs.rsp)) {
-        log_critical("EXEC", "Non-canonical RIP/RSP!");
-        for (;;);
-    }
-
-    log_info("EXEC", "dump_pte_for_va for start 0x7ffffe8a");
-
-    dump_pte_for_va(p->cr3, 0x7ffffe8a);
-    log_info("EXEC", "dump_pte_for_va for end 0x7ffffe8a");
 
     enter_user_mode(p);
 

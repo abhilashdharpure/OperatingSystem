@@ -29,5 +29,12 @@ void paging_init_long_mode_globals(void)
         uint64_t pdpte0 = pdpt[0];
         log_info("Paging", "PDPT[0]=0x%llx", (unsigned long long)pdpte0);
     }
+
+    uint64_t k_idx  = PML4_INDEX(KERNEL_VMA_BASE);
+    uint64_t dm_idx = PML4_INDEX(DIRECT_MAP_BASE);
+
+    log_info("Paging", "kernel PML4[k_idx]=0x%llx", (unsigned long long)kernel_pml4_virt[k_idx]);
+    log_info("Paging", "kernel PML4[dm_idx]=0x%llx", (unsigned long long)kernel_pml4_virt[dm_idx]);
+
 }
 
