@@ -11,15 +11,15 @@ host_env = Environment(
 )
 
 cross_prefix = '../../toolchain/bin/x86_64-linux-musl-'
-sysroot      = os.path.expanduser('~/Project/OperatingSystem/sysroot')
+sysroot = os.path.expanduser('~/sysroot')
 
 # -----------------------------
 # TARGET ENVIRONMENT (DEBUG)
 # -----------------------------
 target_env = Environment(
     CC   = cross_prefix + 'gcc',
-    CXX  = cross_prefix + 'g++',
-    LINK = cross_prefix + 'g++',
+    CXX  = cross_prefix + 'gcc',
+    LINK = cross_prefix + 'gcc',
 
     CPPPATH = [
         '.', 'src', generated_dir,

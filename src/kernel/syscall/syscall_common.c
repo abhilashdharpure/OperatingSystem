@@ -1197,31 +1197,49 @@ uint64_t sys_socketpair(uint64_t domain,
 //     }
 // }
 
+
 long sys_arch_prctl(uint64_t code, uint64_t addr)
 {
     switch (code) {
-    case ARCH_SET_GS:
-        current_process->gs_base = addr;
-        wrmsr(MSR_GS_BASE, addr);
-        return 0;
-
     case ARCH_SET_FS:
         current_process->fs_base = addr;
         wrmsr(MSR_FS_BASE, addr);
         return 0;
 
-    case ARCH_GET_FS:
-        *(uint64_t *)addr = current_process->fs_base;
+    case ARCH_GET_FS: {
+        uint64_t fs = current_process->fs_base;
+        if (!is_user_range_valid(addr, sizeof(fs)))
+        {
+            log_error("ARCH_PRCTL", "sys_arch_prctl: ARCH_GET_FS invalid user addr: %lx", addr);
+            return -EFAULT;
+        }
+        if (copy_to_user((void*)addr, &fs, sizeof(fs)) != 0)
+        {            
+            log_error("ARCH_PRCTL", "sys_arch_prctl: ARCH_GET_FS copy_to_user failed for addr: %lx", addr);
+            return -EFAULT;
+        }
+        return 0;
+    }
+
+    case ARCH_SET_GS:
+        current_process->gs_base = addr;
+        wrmsr(MSR_GS_BASE, addr);
         return 0;
 
-    case ARCH_GET_GS:
-        *(uint64_t *)addr = current_process->gs_base;
+    case ARCH_GET_GS: {
+        uint64_t gs = current_process->gs_base;
+        if (!is_user_range_valid(addr, sizeof(gs)))
+            return -EFAULT;
+        if (copy_to_user((void*)addr, &gs, sizeof(gs)) != 0)
+            return -EFAULT;
         return 0;
+    }
 
     default:
         return -EINVAL;
     }
 }
+
 
 // int sys_arch_prctl(int code, uint64_t addr)
 // {

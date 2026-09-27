@@ -1,0 +1,171 @@
+
+
+
+mv ~/Project/OperatingSystem/sysroot/include/bits/syscall.h \
+   ~/Project/OperatingSystem/sysroot/include/bits/syscall.h.broken
+
+
+
+
+cd ~/Project/OperatingSystem/toolchain/musl-1.2.5
+
+make clean
+CC=../bin/x86_64-linux-musl-gcc \
+./configure --prefix=$HOME/Project/OperatingSystem/sysroot \
+            --target=x86_64-linux-musl
+
+make -j$(nproc)
+make install
+
+
+export SYSROOT=$HOME/Project/OperatingSystem/sysroot
+export CC="$HOME/Project/OperatingSystem/toolchain/bin/x86_64-linux-musl-gcc --sysroot=$SYSROOT"
+export CXX="$HOME/Project/OperatingSystem/toolchain/bin/x86_64-linux-musl-g++ --sysroot=$SYSROOT"
+
+
+
+Issue detected with this:
+abhilash@Abhilash:~/Project/OperatingSystem$ readelf -p .comment iso_root/bin/comp
+
+String dump of section '.comment':
+  [     0]  GCC: (GNU) 9.4.0
+  [    11]  GCC: (GNU) 11.2.0
+
+abhilash@Abhilash:~/Project/OperatingSystem$ 
+
+
+
+sudo apt update
+sudo apt install libgmp-dev libmpfr-dev libmpc-dev
+
+
+
+cd ~/Project/OperatingSystem/toolchain
+wget https://ftp.gnu.org/gnu/gmp/gmp-6.2.1.tar.xz
+wget https://ftp.gnu.org/gnu/mpfr/mpfr-4.1.0.tar.xz
+wget https://ftp.gnu.org/gnu/mpc/mpc-1.2.1.tar.gz
+
+
+# GMP
+rm -rf gmp-6.2.1
+tar xf gmp-6.2.1.tar.xz
+cd gmp-6.2.1
+./configure --prefix=$HOME/Project/OperatingSystem/toolchain --disable-assembly CC=gcc
+make -j$(nproc)
+make install
+cd ..
+
+# MPFR
+rm -rf mpfr-4.1.0
+tar xf mpfr-4.1.0.tar.xz
+cd mpfr-4.1.0
+./configure --prefix=$HOME/Project/OperatingSystem/toolchain --with-gmp=$HOME/Project/OperatingSystem/toolchain CC=gcc
+make -j$(nproc)
+make install
+cd ..
+
+# MPC
+rm -rf mpc-1.2.1
+tar xf mpc-1.2.1.tar.gz
+cd mpc-1.2.1
+./configure --prefix=$HOME/Project/OperatingSystem/toolchain --with-gmp=$HOME/Project/OperatingSystem/toolchain --with-mpfr=$HOME/Project/OperatingSystem/toolchain CC=gcc
+make -j$(nproc)
+make install
+cd ..
+
+
+# GMP
+cd ~/Project/OperatingSystem/toolchain/gmp-6.2.1
+./configure --prefix=$HOME/Project/OperatingSystem/toolchain --disable-shared --enable-static CC=gcc
+make -j$(nproc)
+make install
+
+# MPFR
+cd ~/Project/OperatingSystem/toolchain/mpfr-4.1.0
+./configure --prefix=$HOME/Project/OperatingSystem/toolchain --disable-shared --enable-static --with-gmp=$HOME/Project/OperatingSystem/toolchain CC=gcc
+make -j$(nproc)
+make install
+
+# MPC
+cd ~/Project/OperatingSystem/toolchain/mpc-1.2.1
+./configure --prefix=$HOME/Project/OperatingSystem/toolchain --disable-shared --enable-static --with-gmp=$HOME/Project/OperatingSystem/toolchain --with-mpfr=$HOME/Project/OperatingSystem/toolchain CC=gcc
+make -j$(nproc)
+make install
+
+
+cd ~/Project/OperatingSystem/toolchain/gcc-build
+rm -rf *
+
+cd ~/Project/OperatingSystem/toolchain
+cat > gmp_mpfr_mpc.cache <<EOF
+ac_cv_lib_gmp___gmpz_init_set=yes
+ac_cv_lib_mpfr_mpfr_init2=yes
+ac_cv_lib_mpc_mpc_init2=yes
+ac_cv_func_malloc_usable_size=yes
+ac_cv_func_memset=yes
+ac_cv_func_strnlen=yes
+EOF
+
+
+cd ~/Project/OperatingSystem/toolchain
+rm -rf gmp-6.2.1 mpfr-4.1.0 mpc-1.2.1
+tar xf gmp-6.2.1.tar.xz
+tar xf mpfr-4.1.0.tar.xz
+tar xf mpc-1.2.1.tar.gz
+
+
+cd ~/Project/OperatingSystem/toolchain/gcc-11.2.0
+rm -rf gmp mpfr mpc
+ln -sf ../gmp-6.2.1 gmp
+ln -sf ../mpfr-4.1.0 mpfr
+ln -sf ../mpc-1.2.1 mpc
+
+cd ~/Project/OperatingSystem/toolchain/gcc-build
+rm -rf *
+
+
+../gcc-11.2.0/configure \
+  --build=x86_64-pc-linux-gnu \
+  --host=x86_64-linux-musl \
+  --target=x86_64-linux-musl \
+  --prefix=$HOME/Project/OperatingSystem/toolchain \
+  --with-sysroot=$HOME/Project/OperatingSystem/sysroot \
+  --disable-nls \
+  --enable-languages=c,c++ \
+  --disable-multilib \
+  --disable-bootstrap \
+  --disable-fixincludes \
+  --disable-lto
+
+
+make all-gcc -j$(nproc)
+make install-gcc
+
+make all-target-libgcc -j$(nproc)
+make install-target-libgcc
+
+make all-target-libstdc++-v3 -j$(nproc)
+make install-target-libstdc++-v3
+
+
+
+rm -rf *
+../gcc-11.2.0/configure \
+  --build=x86_64-pc-linux-gnu \
+  --host=x86_64-linux-musl \
+  --target=x86_64-linux-musl \
+  --prefix=$HOME/Project/OperatingSystem/toolchain \
+  --with-sysroot=$HOME/Project/OperatingSystem/sysroot \
+  --disable-nls \
+  --enable-languages=c,c++ \
+  --disable-multilib \
+  --disable-bootstrap \
+  --disable-fixincludes \
+  --disable-lto \
+  CXX=g++
+
+
+make all-gcc -j$(nproc)
+make install-gcc
+
+ls $HOME/Project/OperatingSystem/toolchain/bin/x86_64-linux-musl-g++

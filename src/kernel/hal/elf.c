@@ -8,6 +8,10 @@
 #include "debug.h"
 #include "paging.h"
 #include "syscall/sys_execve.h"
+#include "auxv.h"
+#include "errno.h"
+
+
 
 #define PT_LOAD           1
 
@@ -113,50 +117,190 @@ void dump_process_regs(Process *p)
 {
     log_info("PROC", "RIP=%llx RSP=%llx", p->regs.rip, p->regs.rsp);
 }
+static int apply_elf_relocations(Process *p, void *data, Elf64_Ehdr *eh) {
+    Elf64_Phdr *ph = (Elf64_Phdr *)((uint8_t *)data + eh->e_phoff);
+    Elf64_Dyn *dyn = NULL;
+    size_t dyn_size = 0;
 
-/* ---------- stack + mapping helpers ---------- */
-// static int map_user_stack(Process *p)
-// {
+    for (int i = 0; i < eh->e_phnum; i++) {
+        if (ph[i].p_type == PT_DYNAMIC) {
+            dyn = (Elf64_Dyn *)((uint8_t *)data + ph[i].p_offset);
+            dyn_size = ph[i].p_filesz / sizeof(Elf64_Dyn);
+            break;
+        }
+    }
+    if (!dyn) return 0;
 
-//     uint64_t top    = USER_STACK_TOP;              // e.g. 0x80000000
-//     uint64_t bottom = USER_STACK_TOP - USER_STACK_SIZE; // 32 MiB below
-//     log_info("STACK", "map_user_stack: top=0x%llx bottom=0x%llx", top, bottom);
+    Elf64_Rela *rela = NULL;
+    size_t rela_count = 0;
+    for (size_t i = 0; i < dyn_size; i++) {
+        if (dyn[i].d_tag == DT_RELA)
+            rela = (Elf64_Rela *)((uint8_t *)data + dyn[i].d_un.d_ptr);
+        else if (dyn[i].d_tag == DT_RELASZ)
+            rela_count = dyn[i].d_un.d_val / sizeof(Elf64_Rela);
+    }
+    if (!rela || rela_count == 0) return 0;
 
-//     // Optional: one guard page at the very bottom
-//     uint64_t guard_page = bottom;
-//     uint64_t first_usable = guard_page + PAGE_SIZE;
+    // Compute base
+    uint64_t base_addr = 0;
+    if (eh->e_type == ET_DYN) {
+        base_addr = UINT64_MAX;
+        for (int i = 0; i < eh->e_phnum; i++) {
+            if (ph[i].p_type == PT_LOAD && ph[i].p_vaddr < base_addr)
+                base_addr = ph[i].p_vaddr;
+        }
+        base_addr &= ~0xFFFULL;
+    }
 
-//     p->stack_guard_page        = guard_page;
-//     p->stack_base              = first_usable;
-//     p->stack_soft_limit_bottom = first_usable; // or some higher soft limit if you want
+    // Apply relocations
+    for (size_t i = 0; i < rela_count; i++) {
+        Elf64_Rela *r = &rela[i];
+        if (ELF64_R_TYPE(r->r_info) == R_X86_64_RELATIVE) {
+            uint64_t target_va = r->r_offset;
+            uint64_t value     = (eh->e_type == ET_DYN) ? base_addr + r->r_addend
+                                                       : r->r_addend;
 
-//     const uint64_t flags = PAGE_PRESENT | PAGE_RW | PAGE_USER;
+            uint64_t pa = get_mapped_phys(p->page_directory, target_va);
+            if (pa) {
+                uint64_t *kva = (uint64_t *)phys_to_virt((pa & ~(PAGE_SIZE-1)) +
+                                                         (target_va & (PAGE_SIZE-1)));
+                *kva = value;
+                log_info("RELOC", "VA=0x%llx patched to 0x%llx", target_va, value);
+            }
+        }
+    }
+    return 0;
+}
 
-//     for (uint64_t va = first_usable; va < top; va += PAGE_SIZE) {
-//         uint64_t pa = pmm_alloc_page();
-//         if (!pa)
-//             return -1;
 
-//         memset(phys_to_virt(pa), 0, PAGE_SIZE);
+/* Translate a virtual address inside a PT_LOAD segment into a file offset */
+static off_t va_to_file_offset(Elf64_Phdr *phdrs, int phnum, uint64_t va) {
+    for (int i = 0; i < phnum; i++) {
+        if (phdrs[i].p_type != PT_LOAD) continue;
 
-//         if (map_page(p->page_directory, va, pa, flags) != 0)
-//             return -1;
-//     }
+        uint64_t start = phdrs[i].p_vaddr;
+        uint64_t end   = phdrs[i].p_vaddr + phdrs[i].p_filesz;
 
-//     // Start user RSP near the very top
-//     p->regs.rsp = top - 32;
+        if (va >= start && va < end) {
+            return (off_t)(phdrs[i].p_offset + (va - start));
+        }
+    }
+    return -1; /* not found */
+}
+static int apply_elf_relocations_fd(Process *p, int fd, Elf64_Ehdr *eh, Elf64_Phdr *phdrs)
+{
+    Elf64_Dyn *dyn = NULL;
+    size_t dyn_count = 0;
 
-//     log_info("STACK", "Mapped user stack: [0x%llx, 0x%llx) guard=0x%llx",
-//              first_usable, top, guard_page);
+    /* 1. Read PT_DYNAMIC */
+    for (int i = 0; i < eh->e_phnum; i++) {
+        if (phdrs[i].p_type == PT_DYNAMIC) {
+            size_t bytes = phdrs[i].p_filesz;
+            dyn_count = bytes / sizeof(Elf64_Dyn);
 
-//     return 0;
-// }
+            dyn = (Elf64_Dyn *)kmalloc(bytes);
+            if (!dyn) return -ENOMEM;
+
+            if (VFS_Lseek(fd, (off_t)phdrs[i].p_offset, SEEK_SET) < 0) { kfree(dyn); return -EFAULT; }
+            if (VFS_Read(fd, dyn, bytes) != (int)bytes) { kfree(dyn); return -EFAULT; }
+            break;
+        }
+    }
+    if (!dyn) return 0;
+
+    /* 2. Find relocation info */
+    uint64_t rela_va = 0, rel_va = 0;
+    size_t rela_count = 0, rel_count = 0;
+    for (size_t i = 0; i < dyn_count; i++) {
+        switch (dyn[i].d_tag) {
+        case DT_RELA:    rela_va    = dyn[i].d_un.d_ptr; break;
+        case DT_RELASZ:  rela_count = dyn[i].d_un.d_val / sizeof(Elf64_Rela); break;
+        case DT_REL:     rel_va     = dyn[i].d_un.d_ptr; break;
+        case DT_RELSZ:   rel_count  = dyn[i].d_un.d_val / sizeof(Elf64_Rel); break;
+        }
+    }
+
+    /* 3. Compute base address */
+    uint64_t base_addr = 0;
+    if (eh->e_type == ET_DYN) {
+        base_addr = UINT64_MAX;
+        for (int i = 0; i < eh->e_phnum; i++) {
+            if (phdrs[i].p_type == PT_LOAD && phdrs[i].p_vaddr < base_addr)
+                base_addr = phdrs[i].p_vaddr;
+        }
+        base_addr &= ~0xFFFULL;
+    }
+
+    /* 4. Handle RELA */
+    if (rela_va && rela_count) {
+        off_t rela_off = va_to_file_offset(phdrs, eh->e_phnum, rela_va);
+        if (rela_off >= 0) {
+            Elf64_Rela *rela = (Elf64_Rela *)kmalloc(rela_count * sizeof(Elf64_Rela));
+            if (rela) {
+                if (VFS_Lseek(fd, rela_off, SEEK_SET) >= 0 &&
+                    VFS_Read(fd, rela, rela_count * sizeof(Elf64_Rela)) == (int)(rela_count * sizeof(Elf64_Rela))) {
+                    for (size_t i = 0; i < rela_count; i++) {
+                        Elf64_Rela *r = &rela[i];
+                        if (ELF64_R_TYPE(r->r_info) == R_X86_64_RELATIVE) {
+                            uint64_t target_va = r->r_offset;
+                            uint64_t pa = get_mapped_phys(p->page_directory, target_va);
+                            if (pa) {
+                                uint64_t *kva = (uint64_t *)phys_to_virt((pa & ~(PAGE_SIZE-1)) +
+                                                                         (target_va & (PAGE_SIZE-1)));
+                                uint64_t newval = (eh->e_type == ET_DYN) ? base_addr + r->r_addend
+                                                                         : r->r_addend;
+                                log_info("RELOC", "RELA VA=0x%llx old=0x%llx new=0x%llx",
+                                         target_va, *kva, newval);
+                                *kva = newval;
+                            }
+                        }
+                    }
+                }
+                kfree(rela);
+            }
+        }
+    }
+
+    /* 5. Handle REL */
+    if (rel_va && rel_count) {
+        off_t rel_off = va_to_file_offset(phdrs, eh->e_phnum, rel_va);
+        if (rel_off >= 0) {
+            Elf64_Rel *rel = (Elf64_Rel *)kmalloc(rel_count * sizeof(Elf64_Rel));
+            if (rel) {
+                if (VFS_Lseek(fd, rel_off, SEEK_SET) >= 0 &&
+                    VFS_Read(fd, rel, rel_count * sizeof(Elf64_Rel)) == (int)(rel_count * sizeof(Elf64_Rel))) {
+                    for (size_t i = 0; i < rel_count; i++) {
+                        Elf64_Rel *r = &rel[i];
+                        if (ELF64_R_TYPE(r->r_info) == R_X86_64_RELATIVE) {
+                            uint64_t target_va = r->r_offset;
+                            uint64_t pa = get_mapped_phys(p->page_directory, target_va);
+                            if (pa) {
+                                uint64_t *kva = (uint64_t *)phys_to_virt((pa & ~(PAGE_SIZE-1)) +
+                                                                         (target_va & (PAGE_SIZE-1)));
+                                uint64_t old = *kva;
+                                uint64_t newval = (eh->e_type == ET_DYN) ? base_addr + old : old;
+                                log_info("RELOC", "REL VA=0x%llx old=0x%llx new=0x%llx",
+                                         target_va, old, newval);
+                                *kva = newval;
+                            }
+                        }
+                    }
+                }
+                kfree(rel);
+            }
+        }
+    }
+
+    kfree(dyn);
+    return 0;
+}
 
 
 static int map_user_stack(Process *p)
 {
     uint64_t stack_bottom = USER_STACK_TOP - USER_STACK_SIZE;
-    const uint64_t flags = PAGE_PRESENT | PAGE_RW | PAGE_USER | PAGE_NX;
+    // const uint64_t flags = PAGE_PRESENT | PAGE_RW | PAGE_USER | PAGE_NX;
+    const uint64_t flags = PAGE_PRESENT | PAGE_RW | PAGE_USER;
 
     for (uint64_t va = stack_bottom; va < USER_STACK_TOP; va += PAGE_SIZE) {
         uint64_t pa = pmm_alloc_page();
@@ -203,44 +347,24 @@ static int map_elf_segments_from_mem(Process *p,
         if (ph[i].p_type != PT_LOAD)
             continue;
 
-        uint64_t vaddr = ph[i].p_vaddr;
-
-        uint64_t seg_start = vaddr & ~(PAGE_SIZE - 1);
-        uint64_t last_byte = vaddr + ph[i].p_memsz - 1;
-        uint64_t seg_end   = (last_byte & ~(PAGE_SIZE - 1)) + PAGE_SIZE;
-
-        // uint64_t seg_flags = user_rw_flags;
-
         uint64_t seg_flags = PAGE_PRESENT | PAGE_USER;
-
         if (ph[i].p_flags & PF_W)
             seg_flags |= PAGE_RW;
+        if (!(ph[i].p_flags & PF_X))
+            seg_flags |= PAGE_NX;
 
-        if (ph[i].p_flags & PF_X)
-            seg_flags &= ~PAGE_NX;   // executable
-        else
-            seg_flags |= PAGE_NX;    // non-executable
-
-        log_info("ELF", "Segment flags: %x", ph[i].p_flags);
-
-        // if ((ph[i].p_flags & PF_X) && !(ph[i].p_flags & PF_W)) {
-        //     // could later clear RW for RX segments
-        // }
+        uint64_t seg_start = ph[i].p_vaddr & ~(PAGE_SIZE - 1);
+        uint64_t last_byte = ph[i].p_vaddr + ph[i].p_memsz - 1;
+        uint64_t seg_end   = (last_byte & ~(PAGE_SIZE - 1)) + PAGE_SIZE;
 
         for (uint64_t va = seg_start; va < seg_end; va += PAGE_SIZE) {
             uint64_t pa = pmm_alloc_page();
-            if (!pa) {
-                log_critical("EXEC", "Out of pages while mapping ELF segment");
-                return -1;
-            }
+            if (!pa) return -ENOMEM;
 
-            uint8_t *kva = (uint8_t *)phys_to_virt(pa);
-            memset(kva, 0, PAGE_SIZE);
+            memset(phys_to_virt(pa), 0, PAGE_SIZE);
 
-            if (map_page(p->page_directory, va, pa, seg_flags) != 0) {
-                log_critical("EXEC", "map_page failed for ELF VA=0x%llx", va);
-                return -1;
-            }
+            if (map_page(p->page_directory, va, pa, seg_flags) != 0)
+                return -EFAULT;
 
             uint64_t offset_in_segment = va - seg_start;
             if (offset_in_segment < ph[i].p_filesz) {
@@ -248,17 +372,13 @@ static int map_elf_segments_from_mem(Process *p,
                 if (offset_in_segment + to_copy > ph[i].p_filesz)
                     to_copy = ph[i].p_filesz - offset_in_segment;
 
-                memcpy(kva,
-                       (uint8_t *)data + ph[i].p_offset + offset_in_segment,
-                       to_copy);
-
-                //debug_dump_user_bytes(p, va, 32);
+                memcpy(phys_to_virt(pa),
+                    (uint8_t*)data + ph[i].p_offset + offset_in_segment,
+                    to_copy);
             }
         }
-
-        log_info("ELF", "Mapped PT_LOAD segment %d: VA [0x%llx, 0x%llx)",
-                 i, seg_start, seg_end);
     }
+
 
     return 0;
 }
@@ -268,6 +388,7 @@ static int map_elf_segments_from_mem(Process *p,
 
 static uint64_t compute_phdr_addr_from_fd(Elf64_Ehdr *eh, Elf64_Phdr *ph)
 {
+    // Try normal case first
     for (int i = 0; i < eh->e_phnum; i++) {
         if (ph[i].p_type != PT_LOAD)
             continue;
@@ -282,8 +403,10 @@ static uint64_t compute_phdr_addr_from_fd(Elf64_Ehdr *eh, Elf64_Phdr *ph)
         }
     }
 
-    return 0;
+    // Fallback: if headers are outside PT_LOAD, assume they were mapped at 0x40000000
+    return 0x40000000 + eh->e_phoff;
 }
+
 
 static void build_initial_stack(Process *p,
                                 Elf64_Ehdr *eh,
@@ -378,19 +501,16 @@ static void build_initial_stack(Process *p,
     int ax = 0;
 
     if (phdr_addr) {
-        auxv[ax++] = 3; auxv[ax++] = phdr_addr;   // AT_PHDR
+        auxv[ax++] = AT_PHDR; auxv[ax++] = phdr_addr;
     }
-
-    auxv[ax++] = 4;  auxv[ax++] = eh->e_phentsize;
-    auxv[ax++] = 5;  auxv[ax++] = eh->e_phnum;
-    auxv[ax++] = 6;  auxv[ax++] = 4096;
-    auxv[ax++] = 9;  auxv[ax++] = eh->e_entry;
-
-    auxv[ax++] = 15; auxv[ax++] = platform_va; // AT_PLATFORM
-    auxv[ax++] = 25; auxv[ax++] = random_va;   // AT_RANDOM
-    auxv[ax++] = 23; auxv[ax++] = 0;           // AT_SECURE
-
-    auxv[ax++] = 0;  auxv[ax++] = 0;           // AT_NULL
+    auxv[ax++] = AT_PHENT; auxv[ax++] = eh->e_phentsize;
+    auxv[ax++] = AT_PHNUM; auxv[ax++] = eh->e_phnum;
+    auxv[ax++] = AT_PAGESZ; auxv[ax++] = 4096;
+    auxv[ax++] = AT_ENTRY; auxv[ax++] = eh->e_entry;
+    auxv[ax++] = AT_PLATFORM; auxv[ax++] = platform_va;
+    auxv[ax++] = AT_RANDOM; auxv[ax++] = random_va;
+    auxv[ax++] = AT_SECURE; auxv[ax++] = 0;
+    auxv[ax++] = AT_NULL; auxv[ax++] = 0;
 
     /* =========================================================
      * 5. PUSH STACK (Linux order)
@@ -771,6 +891,42 @@ pid_t exec_elf_from_fd(int fd,
                  i, (unsigned long long)seg_start, (unsigned long long)seg_end);
     }
 
+    /* >>> ADD PATCH HERE <<< */
+    /* Explicitly map the ELF header page (offset 0–0x1000) */
+    {
+        uint64_t va = 0x40000000;        // start of user text
+        uint64_t pa = pmm_alloc_page();
+        if (!pa) {
+            log_critical("EXEC", "Failed to allocate page for ELF header");
+            kfree(ph);
+            return -1;
+        }
+
+        uint8_t *kva = (uint8_t *)phys_to_virt(pa);
+        memset(kva, 0, PAGE_SIZE);
+
+        if (VFS_Lseek(fd, 0, SEEK_SET) < 0) {
+            log_critical("EXEC", "lseek to ELF start failed");
+            kfree(ph);
+            return -1;
+        }
+        int r = VFS_Read(fd, kva, PAGE_SIZE);
+        if (r < 0) {
+            log_critical("EXEC", "read ELF header page failed");
+            kfree(ph);
+            return -1;
+        }
+
+        const uint64_t flags = PAGE_PRESENT | PAGE_USER | PAGE_RW;
+        if (map_page(p->page_directory, va, pa, flags) != 0) {
+            log_critical("EXEC", "map_page failed for ELF header VA=0x%llx", va);
+            kfree(ph);
+            return -1;
+        }
+
+        log_info("EXEC", "Mapped ELF header page at VA=0x%llx", va);
+    }
+
     /* -----------------------------
      * 5. Map user stack
      * ----------------------------- */
@@ -783,9 +939,14 @@ pid_t exec_elf_from_fd(int fd,
     /* -----------------------------
      * 6. Build initial stack (argc/argv/envp/auxv)
      * ----------------------------- */
+    // uint64_t phdr_addr = compute_phdr_addr_from_fd(&eh, ph);
+    // if (!phdr_addr)
+    //     phdr_addr = USER_START + eh.e_phoff; // fallback
+
     uint64_t phdr_addr = compute_phdr_addr_from_fd(&eh, ph);
-    if (!phdr_addr)
-        phdr_addr = USER_START + eh.e_phoff; // fallback
+    log_info("EXEC", "Using phdr_addr=0x%llx", phdr_addr);
+    build_initial_stack(p, &eh, phdr_addr, argc, argv, envp);
+
 
     log_info("EXEC", "exec_elf_from_fd: argc=%llu argv=%p envp=%p",
              (unsigned long long)argc, (void*)argv, (void*)envp);
@@ -823,6 +984,14 @@ pid_t exec_elf_from_fd(int fd,
 
     if (!rip_pa || !rsp_pa) {
         log_critical("EXEC", "exec_elf_from_fd: ELF pages not mapped!");
+    }
+
+    /* 8. Apply relocations */
+    if (apply_elf_relocations_fd(p, fd, &eh, ph) != 0) 
+    {
+        log_critical("EXEC", "apply_elf_relocations_fd failed");
+        kfree(ph);
+        return -1;
     }
 
     p->regs.rip    = eh.e_entry;

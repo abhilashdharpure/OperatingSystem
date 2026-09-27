@@ -28,18 +28,31 @@ int main()
 {
     printf("Hello from Compositor!\n");
 
-    // int array[1000000];
-    // printf("Checking stack page size. int array[1000000] Okay\n");
-
-    // int* arrayPtr =new int[1000000];
-    // printf("Checking heap page size.new int[1000000], Okay\n");
-
+    int fd = epoll_create1(0);
+    printf("epoll_create1 returned fd=%d\n", fd);
 
     wl_display* display = wl_display_create();
     std::cout << "[LumaCompositor] after wl_display_create.. " << std::endl;
 
     return 0;
 }
+
+// int main()
+// {
+//     printf("Hello from Compositor!\n");
+
+//     // int array[1000000];
+//     // printf("Checking stack page size. int array[1000000] Okay\n");
+
+//     // int* arrayPtr =new int[1000000];
+//     // printf("Checking heap page size.new int[1000000], Okay\n");
+
+
+//     wl_display* display = wl_display_create();
+//     std::cout << "[LumaCompositor] after wl_display_create.. " << std::endl;
+
+//     return 0;
+// }
 // int main() {
 //     printf("Hello from Compositor!\n");
 
