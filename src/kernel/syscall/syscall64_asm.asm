@@ -4,120 +4,79 @@ global x64_syscall_entry
 
 extern syscall_dispatch
 extern g_syscall_rsp0
+extern dbg_saved_rip
+extern dbg_saved_rsp
+extern dbg_saved_rflags
+
+section .bss
+align 8
+g_user_rsp_tmp: resq 1
 
 section .text
 
 x64_syscall_entry:
-    ; ------------------------------------------------------------
-    ; CPU state on entry from user mode:
-    ;
-    ; RCX    = user RIP
-    ; R11    = user RFLAGS
-    ; RSP    = user RSP
-    ; RAX    = syscall number
-    ; RDI..R9 = syscall arguments
-    ;
-    ; SYSCALL does NOT save user RSP.
-    ; ------------------------------------------------------------
-
     swapgs
 
-    ; Save user RSP before changing RSP.
-    mov     r12, rsp
+    mov     [rel g_user_rsp_tmp], rsp
+    mov     rsp, [rel g_syscall_rsp0]       ; must be 16-byte aligned
 
-    ; Switch to kernel syscall stack.
-    mov     rsp, [rel g_syscall_rsp0]
+    ; ---- build iretq frame (SS, RSP, RFLAGS, CS, RIP) ----
+    push    qword 0x23
+    push    qword [rel g_user_rsp_tmp]
+    push    r11                             ; user RFLAGS
+    push    qword 0x1B
+    push    rcx                             ; user RIP
 
-    ; ------------------------------------------------------------
-    ; Save registers that we will modify.
-    ; ------------------------------------------------------------
+    ; debug (r11 is already saved in the frame, so it is free as scratch)
+    mov     r11, [rsp]
+    mov     [rel dbg_saved_rip], r11
+    mov     r11, [rsp + 16]
+    mov     [rel dbg_saved_rflags], r11
+    mov     r11, [rsp + 24]
+    mov     [rel dbg_saved_rsp], r11
 
-    push    r12             ; user RSP
-
-    push    rcx             ; user RIP
-    push    r11             ; user RFLAGS
-
+    ; ---- save every register the user expects preserved ----
     push    rbx
     push    rbp
+    push    r12
     push    r13
     push    r14
     push    r15
+    push    rdi
+    push    rsi
+    push    rdx
+    push    r10
+    push    r8
+    push    r9
 
-    ; ------------------------------------------------------------
-    ; syscall_dispatch(nr, a0, a1, a2, a3, a4, a5)
-    ;
-    ; C ABI:
-    ;   RDI = nr
-    ;   RSI = a0
-    ;   RDX = a1
-    ;   RCX = a2
-    ;   R8  = a3
-    ;   R9  = a4
-    ;
-    ; a5 is passed on the stack if the C function really needs it.
-    ;
-    ; Linux-style syscall register mapping:
-    ;   RAX = nr
-    ;   RDI = a0
-    ;   RSI = a1
-    ;   RDX = a2
-    ;   R10 = a3
-    ;   R8  = a4
-    ;   R9  = a5
-    ; ------------------------------------------------------------
-
-    mov     r15, r10        ; save a3
-    mov     rbx, r8         ; save a4
-    mov     rbp, r9         ; save a5
-
-    mov     r9,  rbx        ; C arg4 = a4
-    mov     r8,  r15        ; C arg3 = a3
-    mov     rcx, rdx        ; C arg2 = a2
-    mov     rdx, rsi        ; C arg1 = a1
-    mov     rsi, rdi        ; C arg0 = a0
-    mov     rdi, rax        ; C arg0 = syscall number
-
-    ; C function has 7 arguments.
-    ; The 7th argument (a5) is passed on the stack.
-    sub     rsp, 8
-    mov     [rsp], rbp
+    ; Linux regs: rax=nr rdi=a0 rsi=a1 rdx=a2 r10=a3 r8=a4 r9=a5
+    ; C ABI:      rdi=nr rsi=a0 rdx=a1 rcx=a2 r8=a3  r9=a4 [rsp]=a5
+    ; 17 pushes so far = 136 bytes -> RSP is 8 mod 16; pushing a5 aligns it.
+    push    r9              ; a5 (7th arg, on stack)
+    mov     r9,  r8         ; a4
+    mov     r8,  r10        ; a3
+    mov     rcx, rdx        ; a2
+    mov     rdx, rsi        ; a1
+    mov     rsi, rdi        ; a0
+    mov     rdi, rax        ; nr
 
     call    syscall_dispatch
 
-    add     rsp, 8
+    add     rsp, 8          ; drop a5
 
-    ; ------------------------------------------------------------
-    ; Return value:
-    ;
-    ; RAX = syscall return value
-    ; ------------------------------------------------------------
-
+    ; rax = return value, do NOT touch it
+    pop     r9
+    pop     r8
+    pop     r10
+    pop     rdx
+    pop     rsi
+    pop     rdi
     pop     r15
     pop     r14
     pop     r13
+    pop     r12
     pop     rbp
     pop     rbx
 
-    pop     r11             ; user RFLAGS
-    pop     rcx             ; user RIP
-    pop     r12             ; user RSP
-
-    ; ------------------------------------------------------------
-    ; Build IRETQ frame:
-    ;
-    ;   SS
-    ;   RSP
-    ;   RFLAGS
-    ;   CS
-    ;   RIP
-    ; ------------------------------------------------------------
-
-    push    qword 0x23      ; USER_SS
-    push    r12             ; user RSP
-    push    r11             ; user RFLAGS
-    push    qword 0x1B      ; USER_CS
-    push    rcx             ; user RIP
-
     swapgs
-
-    iretq
+    iretq                   ; pops RIP, CS, RFLAGS, RSP, SS

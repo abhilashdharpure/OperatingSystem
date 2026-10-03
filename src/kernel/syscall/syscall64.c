@@ -41,6 +41,10 @@ volatile uint64_t dbg_saved_rip = 0;
 volatile uint64_t dbg_saved_rsp = 0;
 volatile uint64_t dbg_saved_rflags = 0;
 
+volatile uint64_t dbg_return_rip = 0;
+volatile uint64_t dbg_return_rsp = 0;
+volatile uint64_t dbg_return_rflags = 0;
+
 /* small hex conversion: writes "0x" + up to 16 hex digits, returns pointer to buffer end */
 static char *u64_to_hex(char *buf, uint64_t v)
 {
