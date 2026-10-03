@@ -36,6 +36,7 @@ enum {
     SYS_exit            = 60,
     SYS_uname           = 63,
     SYS_fcntl           = 72,  // or fcntl64 = 72 on x86_64
+    SYS_flock           = 73,
     SYS_ftruncate       = 77,
     SYS_getdents        = 217,  // or getdents64 = 217 or 78?
     SYS_getcwd          = 79,

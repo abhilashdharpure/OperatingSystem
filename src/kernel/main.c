@@ -120,6 +120,10 @@ void init_filesystem(void)
 
     VFS_Mount("/", get_fat32_fops(), fs);
     log_info("MAIN", "FAT32 mounted at / from sda1");
+
+    tmpfs_init();
+    log_info("MAIN", "tmpfs_init");
+
 }
 
 void start_userspace(BootParams* bootParams)

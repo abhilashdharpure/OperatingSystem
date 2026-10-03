@@ -376,6 +376,9 @@ uint64_t syscall_dispatch(uint64_t nr,
     case SYS_membarrier:
         return sys_membarrier((int)a0, (int)a1);
 
+    case SYS_flock:
+        return 0;
+
     // case SYS_timerfd_create:
     //     return sys_timerfd_create((int)a0, (int)a1);
 

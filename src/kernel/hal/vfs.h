@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include "file.h"
 #include "string.h"
+#include "fcntl.h"
 
 typedef int fd_t;
 typedef long off_t;
@@ -14,10 +15,10 @@ typedef long off_t;
 #define VFS_FD_DEBUG    3
 #define VFS_FD_USER_BASE 4
 
-/* Open flags (minimal set) */
-#define O_RDONLY 0x1
-#define O_WRONLY 0x2
-#define O_RDWR   0x3
+// /* Open flags (minimal set) */
+// #define O_RDONLY 0x1
+// #define O_WRONLY 0x2
+// #define O_RDWR   0x3
 
 #define MAX_VFS_ENTRIES 64
 #define MAX_OPEN_FILES  32
