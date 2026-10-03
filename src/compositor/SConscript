@@ -86,10 +86,15 @@ target_env = Environment(
     LINKFLAGS = [
         '--sysroot=' + sysroot,
         '-static',
-        '-fno-pie',
         '-no-pie',
-        '-Wl,-Tlinker.ld',
-    ]
+        '-Wl,-T,' + os.path.abspath('linker.ld'),   # absolute path, doesn't depend on cwd
+        '-Wl,--eh-frame-hdr',
+        '-Wl,-z,max-page-size=0x1000',
+        '-Wl,-z,common-page-size=0x1000',
+        '-Wl,-z,norelro',
+        '-Wl,-z,noseparate-code',
+        '-Wl,--build-id=none',
+    ],
 )
 
 # dirs

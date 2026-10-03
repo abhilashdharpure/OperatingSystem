@@ -428,35 +428,29 @@ int set_page_flags(uint64_t *pml4, uint64_t va, uint64_t flags)
 // ----------------------------------------------------------------------
 page_dir_t create_user_pd(void)
 {
-    log_info("Paging", "create_user_pd (64-bit) start");
-
     uint64_t new_pml4_pa = pmm_alloc_page();
-    if (!new_pml4_pa) {
-        log_critical("Paging", "create_user_pd: no memory for PML4");
-        return (page_dir_t){ .pd_phys = 0, .pd_virt = NULL };
-    }
-
-    uint64_t *new_pml4 = (uint64_t *)phys_to_virt(new_pml4_pa);
+    if (!new_pml4_pa) return (page_dir_t){0};
+    uint64_t *new_pml4 = phys_to_virt(new_pml4_pa);
     memset(new_pml4, 0, PAGE_SIZE);
 
-    // kernel_pml4_virt is set in paging_init_long_mode_globals()
-    uint64_t k_idx  = PML4_INDEX(KERNEL_VMA_BASE);   // should be 511
-    uint64_t dm_idx = PML4_INDEX(DIRECT_MAP_BASE);   // direct map slot
-    uint64_t id_idx = 0;                             // identity-mapped low half
+    /* private PDPT for the low half */
+    uint64_t pdpt_pa = pmm_alloc_page();
+    if (!pdpt_pa) return (page_dir_t){0};
+    uint64_t *pdpt = phys_to_virt(pdpt_pa);
+    memset(pdpt, 0, PAGE_SIZE);
 
-    // Keep identity mapping (for current kernel stack at 0x107960)
-    new_pml4[id_idx] = kernel_pml4_virt[id_idx];
+    /* share only the kernel identity 1GiB (supervisor-only, 2MiB pages) */
+    uint64_t *k_pdpt = phys_to_virt(kernel_pml4_virt[0] & PTE_ADDR_MASK);
+    pdpt[0] = k_pdpt[0];
 
-    // Keep direct map (for phys_to_virt / DIRECT_MAP_BASE)
+    new_pml4[0] = pdpt_pa | PAGE_PRESENT | PAGE_RW;   /* USER added by map_page */
+
+    uint64_t k_idx  = PML4_INDEX(KERNEL_VMA_BASE);
+    uint64_t dm_idx = PML4_INDEX(DIRECT_MAP_BASE);
     new_pml4[dm_idx] = kernel_pml4_virt[dm_idx];
-
-    // Keep higher-half kernel mapping
     new_pml4[k_idx]  = kernel_pml4_virt[k_idx];
 
-    return (page_dir_t){
-        .pd_phys = new_pml4_pa,
-        .pd_virt = new_pml4
-    };
+    return (page_dir_t){ .pd_phys = new_pml4_pa, .pd_virt = new_pml4 };
 }
 
 // recursively set PAGE_USER on all PT entries in a range

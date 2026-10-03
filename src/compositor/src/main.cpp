@@ -31,8 +31,12 @@ int main()
     int fd = epoll_create1(0);
     printf("epoll_create1 returned fd=%d\n", fd);
 
+    //std::cout << "[LumaCompositor] before wl_display_create.. " << std::endl;
+
     wl_display* display = wl_display_create();
-    std::cout << "[LumaCompositor] after wl_display_create.. " << std::endl;
+    printf("After wl_display crete");
+
+    //std::cout << "[LumaCompositor] after wl_display_create.. " << std::endl;
 
     return 0;
 }
