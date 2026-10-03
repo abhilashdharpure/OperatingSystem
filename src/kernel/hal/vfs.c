@@ -3,6 +3,9 @@
 #include <arch/x86_64/e9.h>
 #include <debug.h>
 #include "pipe.h"
+#include "fcntl.h"
+#include "errno.h"
+
 
 static int vfs_count = 0;
 static struct file file_table[MAX_OPEN_FILES]; // actual file objects
@@ -113,60 +116,41 @@ struct file *VFS_AllocFile(void)
 int VFS_Open(const char *path, int flags)
 {
     int mnt = find_mount_for(path);
-    if (mnt < 0) {
-        log_error("VFS", "Not found (no mount): %s", path);
-        return -1;
-    }
+    if (mnt < 0) return -ENOENT;
 
     char subpath[256];
     compute_subpath(path, vfs_table[mnt].path, subpath, sizeof(subpath));
 
     int fd = VFS_AllocFd();
-    if (fd < 0) {
-        log_error("VFS", "Too many open files");
-        return -1;
-    }
+    if (fd < 0) return -EMFILE;
 
     struct file *f = VFS_AllocFile();
-    if (!f) {
-        log_error("VFS", "No free file objects");
-        return -1;
-    }
+    if (!f) return -ENFILE;
 
-    // Allocate persistent strings
     char *saved_path = kstrdup_safe(path);
     char *saved_sub  = kstrdup_safe(subpath);
     if (!saved_path || !saved_sub) {
-        log_error("VFS", "Out of memory storing paths");
         if (saved_path) kfree(saved_path);
         if (saved_sub)  kfree(saved_sub);
-        return -1;
+        f->in_use = false;
+        return -ENOMEM;
     }
 
-    // Fill file object
-    f->path = saved_path;
-    f->subpath = saved_sub;
+    f->path = saved_path;  f->subpath = saved_sub;
     f->fops = vfs_table[mnt].fops;
     f->private_data = vfs_table[mnt].private_data;
-    f->position = 0;
-    f->refcount = 1;
-    f->flags = flags;   // store initial open flags
+    f->position = 0;  f->refcount = 1;  f->flags = flags;
 
-    // Call filesystem open()
     if (f->fops && f->fops->open) {
         int r = f->fops->open(f, flags);
         if (r < 0) {
-            kfree(saved_path);
-            kfree(saved_sub);
-            f->path = NULL;
-            f->subpath = NULL;
-            f->fops = NULL;
-            f->private_data = NULL;
-            return -1;
+            kfree(saved_path); kfree(saved_sub);
+            f->path = f->subpath = NULL;
+            f->fops = NULL;  f->private_data = NULL;
+            f->in_use = false;                 /* <- was missing */
+            return r;                          /* real errno, not -1 */
         }
     }
-
-    // Install into FD table
     open_files[fd] = f;
     return fd;
 }
@@ -321,13 +305,21 @@ static int find_mount_for(const char *path)
         const char *mp = vfs_table[i].path;
         size_t mlen = strlen(mp);
         if (mlen == 0) continue;
-        if (strncmp(path, mp, mlen) == 0) {
+        if (strncmp(path, mp, mlen) == 0 &&
+         (mlen == 1 || path[mlen] == '\0' || path[mlen] == '/'))
+        {
             // exact or prefix match, prefer longest
-            if (mlen > best_len) { best = i; best_len = mlen; }
-        } else if (strcmp(mp, "/") == 0) {
+            if (mlen > best_len) { best = i; best_len = mlen;
+        }
+        }
+        else if (strcmp(mp, "/") == 0)
+        {
             // root always matches anything; fallback length 1
             if (best_len == 0) { best = i; best_len = 1; }
         }
+
+
+        
     }
     return best;
 }
@@ -585,8 +577,8 @@ int VFS_CreatePipe(fd_t fds[2])
 
 void VFS_SetFd(int fd, struct file *file)
 {
-    if (fd < 0 || fd >= MAX_OPEN_FILES)
-        return;
-
+    if (fd < 0 || fd >= MAX_OPEN_FILES) return;
+    if (file && file != (struct file *)1 && file->refcount == 0)
+        file->refcount = 1;
     open_files[fd] = file;
 }

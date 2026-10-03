@@ -2516,26 +2516,26 @@ bool luma_init(LumaCompositor* comp)
     std::cout << "[LumaCompositor] init: output_width=" << comp->output_width
           << " output_height=" << comp->output_height << std::endl;
 
-    // comp->xkb_ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
-    // if (!comp->xkb_ctx) {
-    //     std::cerr << "[LumaCompositor] xkb_context_new failed\n";
-    //     exit(1);
-    //     return false;
-    // }
+    comp->xkb_ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+    if (!comp->xkb_ctx) {
+        std::cerr << "[LumaCompositor] xkb_context_new failed\n";
+        exit(1);
+        return false;
+    }
 
-    // comp->keymap = xkb_keymap_new_from_names(
-    //     comp->xkb_ctx, nullptr, XKB_KEYMAP_COMPILE_NO_FLAGS);
-    // if (!comp->keymap) {
-    //     std::cerr << "[LumaCompositor] xkb_keymap_new_from_names failed\n";
-    //     // For now: disable keyboard instead of crashing
-    //     return false;
-    // }
+    comp->keymap = xkb_keymap_new_from_names(
+        comp->xkb_ctx, nullptr, XKB_KEYMAP_COMPILE_NO_FLAGS);
+    if (!comp->keymap) {
+        std::cerr << "[LumaCompositor] xkb_keymap_new_from_names failed\n";
+        // For now: disable keyboard instead of crashing
+        return false;
+    }
 
-    // comp->xkb_state = xkb_state_new(comp->keymap);
-    // if (!comp->xkb_state) {
-    //     std::cerr << "[LumaCompositor] xkb_state_new failed\n";
-    //     return false;
-    // }
+    comp->xkb_state = xkb_state_new(comp->keymap);
+    if (!comp->xkb_state) {
+        std::cerr << "[LumaCompositor] xkb_state_new failed\n";
+        return false;
+    }
 
     std::cout << "[LumaCompositor] comp_framebuffer size = "<<comp_framebuffer.size()<< std::endl;
 
@@ -2549,7 +2549,7 @@ bool luma_init(LumaCompositor* comp)
           << " (expected " << (comp->output_width * comp->output_height) << ")\n";
     std::cout << "[LumaCompositor] fb_stride = " << comp->fb_stride << std::endl;
 
-     wl_display* display = wl_display_create();
+    comp->display = wl_display_create();
     std::cout << "[LumaCompositor]  wl_display_create.. " << std::endl;
 
     if (!comp->display)

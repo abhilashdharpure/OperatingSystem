@@ -20,7 +20,6 @@
 #include "syscall/sys_linux_dirent.h"
 #include <syscall/sys_execve.h>
 #include "syscall/eventfd.h"
-#include "fcntl.h"
 #include "arch/x86_64/cpu.h"
 
 #define MEMBARRIER_CMD_QUERY                     0
@@ -997,17 +996,34 @@ uint64_t sys_fcntl(uint64_t fd, uint64_t cmd, uint64_t arg)
     }
 
     struct file *f = VFS_GetFile(fd);
+    if (!f) return (uint64_t)-EBADF;
 
     switch (cmd) {
     case F_GETFL:
         return (uint64_t)f->flags;
 
     case F_SETFL: {
-        int new_flags = (int)arg;
         int preserved = f->flags & ~O_NONBLOCK;
-        int updated   = new_flags & O_NONBLOCK;
-        f->flags = preserved | updated;
+        f->flags = preserved | ((int)arg & O_NONBLOCK);
         return 0;
+    }
+
+    case F_GETFD:
+        return 0;                 /* no per-fd CLOEXEC tracking yet */
+    case F_SETFD:
+        return 0;
+
+    case F_DUPFD:
+    case F_DUPFD_CLOEXEC: {
+        int nfd = VFS_Dup((fd_t)fd);          /* must share the struct file + bump refcount */
+        if (nfd < 0) return (uint64_t)-EMFILE;
+        if ((uint64_t)nfd < arg) {            /* honour the "minimum fd" argument */
+            int hi = VFS_Dup2((fd_t)fd, (fd_t)arg);
+            VFS_Close(nfd);
+            if (hi < 0) return (uint64_t)-EMFILE;
+            nfd = hi;
+        }
+        return (uint64_t)nfd;
     }
 
     default:

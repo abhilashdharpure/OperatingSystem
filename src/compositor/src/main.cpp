@@ -4,7 +4,7 @@
 #include <unistd.h>
 #include <sys/mman.h>
 #include <stdint.h>
-// #include "compositor.h"
+#include "compositor.h"
 #include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <dirent.h>
@@ -13,104 +13,72 @@
 #include <sys/syscall.h>
 #include <wayland-server.h>
 
-
-    struct fb_device {
-        uint32_t width;
-        uint32_t height;
-        uint32_t pitch;
-        uint32_t bpp;
-        uint64_t framebuffer;
-    } info;
-
+struct fb_device {
+    uint32_t width;
+    uint32_t height;
+    uint32_t pitch;
+    uint32_t bpp;
+    uint64_t framebuffer;
+} info;
 
 
-int main()
-{
+int main() {
     printf("Hello from Compositor!\n");
 
-    int fd = epoll_create1(0);
-    printf("epoll_create1 returned fd=%d\n", fd);
+    // wl_display* display = wl_display_create();
+    std::cout << "[LumaCompositor] Hello from Cout" << std::endl;
 
-    //std::cout << "[LumaCompositor] before wl_display_create.. " << std::endl;
 
-    wl_display* display = wl_display_create();
-    printf("After wl_display crete");
+    setenv("XKB_CONFIG_ROOT", "/usr/share/X11/xkb", 1);
+    setenv("XKB_LOG_LEVEL", "debug", 1);
+    setenv("XDG_RUNTIME_DIR", "/tmp", 1);
 
-    //std::cout << "[LumaCompositor] after wl_display_create.. " << std::endl;
+    printf("XDG_RUNTIME_DIR=%s\n", getenv("XDG_RUNTIME_DIR"));
+
+    int fb_fd = open("/dev/fb0", O_RDWR);
+    if (fb_fd < 0) {
+        perror("open /dev/fb0");
+        exit(1);
+    }
+
+    if (ioctl(fb_fd, 0x4602, &info) < 0) {
+        perror("ioctl FBIOGET_VSCREENINFO");
+        exit(1);
+    }
+
+    size_t fb_size = (size_t)info.pitch * info.height;
+    printf("fb_size is %zu (pitch=%u, height=%u)\n", fb_size, info.pitch, info.height);
+
+    if (fb_size == 0) {
+        fprintf(stderr, "fb_size is 0 (pitch=%u, height=%u)\n", info.pitch, info.height);
+        exit(1);
+    }
+    void *fb = mmap(NULL,
+                fb_size,
+                PROT_READ | PROT_WRITE,
+                MAP_SHARED,
+                fb_fd,
+                0);
+    if (fb == MAP_FAILED) {
+        perror("ERROR: mmap fb Failed \0");
+        exit(1);
+    }
+
+    close(fb_fd);
+
+    printf("User-space test complete. Ready to launch compositor!\n");
+
+    LumaCompositor comp{};
+    if (!luma_init(&comp))
+    {
+        fprintf(stderr, "LumaCompositor init failed, not running event loop\n");
+        return 1;
+    }
+    
+    luma_run(&comp);
 
     return 0;
 }
-
-// int main()
-// {
-//     printf("Hello from Compositor!\n");
-
-//     // int array[1000000];
-//     // printf("Checking stack page size. int array[1000000] Okay\n");
-
-//     // int* arrayPtr =new int[1000000];
-//     // printf("Checking heap page size.new int[1000000], Okay\n");
-
-
-//     wl_display* display = wl_display_create();
-//     std::cout << "[LumaCompositor] after wl_display_create.. " << std::endl;
-
-//     return 0;
-// }
-// int main() {
-//     printf("Hello from Compositor!\n");
-
-//     wl_display* display = wl_display_create();
-//     std::cout << "[LumaCompositor] after wl_display_create.. " << std::endl;
-
-
-//     setenv("XKB_CONFIG_ROOT", "/usr/share/X11/xkb", 1);
-//     setenv("XKB_LOG_LEVEL", "debug", 1);
-
-//     int fb_fd = open("/dev/fb0", O_RDWR);
-//     if (fb_fd < 0) {
-//         perror("open /dev/fb0");
-//         exit(1);
-//     }
-
-//     if (ioctl(fb_fd, 0x4602, &info) < 0) {
-//         perror("ioctl FBIOGET_VSCREENINFO");
-//         exit(1);
-//     }
-
-//     size_t fb_size = (size_t)info.pitch * info.height;
-//     printf("fb_size is %zu (pitch=%u, height=%u)\n", fb_size, info.pitch, info.height);
-
-//     if (fb_size == 0) {
-//         fprintf(stderr, "fb_size is 0 (pitch=%u, height=%u)\n", info.pitch, info.height);
-//         exit(1);
-//     }
-//     void *fb = mmap(NULL,
-//                 fb_size,
-//                 PROT_READ | PROT_WRITE,
-//                 MAP_SHARED,
-//                 fb_fd,
-//                 0);
-//     if (fb == MAP_FAILED) {
-//         perror("ERROR: mmap fb Failed \0");
-//         exit(1);
-//     }
-
-//     close(fb_fd);
-
-//     printf("User-space test complete. Ready to launch compositor!\n");
-
-//     // LumaCompositor comp{};
-//     // if (!luma_init(&comp))
-//     // {
-//     //     fprintf(stderr, "LumaCompositor init failed, not running event loop\n");
-//     //     return 1;
-//     // }
-    
-//     // luma_run(&comp);
-
-//     return 0;
-// }
 
 
     // struct stat st;

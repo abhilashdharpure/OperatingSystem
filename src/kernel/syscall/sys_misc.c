@@ -46,7 +46,7 @@ int sys_madvise(void *addr, size_t len, int advice) {
 long sys_set_tid_address(int *tidptr)
 {
     (void)tidptr;  // unused for now
-    return current_process->pid;
+    return current_process->pid ? current_process->pid : 1;
 }
 
 
