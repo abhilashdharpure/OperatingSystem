@@ -9,6 +9,11 @@
 ISR64Handler g_ISR64Handlers[256];
 extern Process *current_process;
 
+extern volatile uint64_t dbg_saved_rip;
+extern volatile uint64_t dbg_saved_rsp;
+extern volatile uint64_t dbg_saved_rflags;
+
+
 void x64_ISR_InitializeGates();
 
 void x64_ISR_Initialize()
@@ -207,6 +212,25 @@ void x64_ISR_Handler(ISRFrame64* r)
             uint64_t err = r->error;
 
             log_critical("PF", "Page fault: cr2=%p error=%llx", (void*)cr2, err);
+            uint64_t cr3;
+            __asm__ volatile ("mov %%cr3, %0" : "=r"(cr3));
+
+            log_critical("PF",
+                "RIP=0x%llx RSP=0x%llx RBP=0x%llx CS=0x%llx CR3=0x%llx",
+                (unsigned long long)r->cpu.rip,
+                (unsigned long long)r->cpu.rsp,
+                (unsigned long long)r->rbp,
+                (unsigned long long)r->cpu.cs,
+                (unsigned long long)cr3);
+
+            log_critical("PF",
+                "CR2 indices: PML4=%llu PDPT=%llu PD=%llu PT=%llu",
+                (unsigned long long)((cr2 >> 39) & 0x1ff),
+                (unsigned long long)((cr2 >> 30) & 0x1ff),
+                (unsigned long long)((cr2 >> 21) & 0x1ff),
+                (unsigned long long)((cr2 >> 12) & 0x1ff));
+
+            dump_pte_for_va(cr3 & PTE_ADDR_MASK, cr2);
 
             // user vs kernel
             bool from_user = (r->cpu.cs & 3) == 3;
@@ -266,6 +290,31 @@ void x64_ISR_Handler(ISRFrame64* r)
                 r->cpu.cs,
                 r->cpu.rflags
             );
+
+            // Dump the user stack around the faulting instruction.
+            if (from_user && current_process) {
+                uint64_t fault_rip = r->cpu.rip;
+
+                log_critical("PF",
+                    "Dumping user memory around fault RIP=0x%llx",
+                    (unsigned long long)fault_rip);
+
+                uint64_t dump_start = fault_rip & ~(PAGE_SIZE - 1);
+
+                debug_dump_user_bytes(
+                    current_process,
+                    dump_start,
+                    256
+                );
+            }
+
+            log_error("PF",
+            "LAST SYSCALL: RIP=0x%llx RSP=0x%llx RFLAGS=0x%llx",
+            dbg_saved_rip,
+            dbg_saved_rsp,
+            dbg_saved_rflags);
+
+
             panic();
         }
 
@@ -278,6 +327,7 @@ void x64_ISR_Handler(ISRFrame64* r)
             r->cpu.cs,
             r->cpu.rflags
         );
+
 
         panic();
     }

@@ -47,12 +47,30 @@ void dump_pte_for_va(uint64_t pml4_phys, uint64_t va)
 
     uint64_t pml4e = pml4[idx_pml4];
     log_info("PGDBG", "PML4[%llu]=0x%llx", idx_pml4, (unsigned long long)pml4e);
+    log_info("PGDBG",
+    "PML4[%llu]=0x%llx P=%d U=%d RW=%d NX=%d",
+    idx_pml4,
+    (unsigned long long)pml4e,
+    !!(pml4e & PAGE_PRESENT),
+    !!(pml4e & PAGE_USER),
+    !!(pml4e & PAGE_RW),
+    !!(pml4e & (1ULL << 63)));
+
     if (!(pml4e & 1)) return;
 
     uint64_t pdpt_pa = pml4e & PTE_ADDR_MASK;
     uint64_t *pdpt = (uint64_t *)phys_to_virt(pdpt_pa);
     uint64_t pdpte = pdpt[idx_pdpt];
     log_info("PGDBG", " PDPT[%llu]=0x%llx", idx_pdpt, (unsigned long long)pdpte);
+    log_info("PGDBG",
+    " PDPT[%llu]=0x%llx P=%d U=%d RW=%d NX=%d",
+    idx_pdpt,
+    (unsigned long long)pdpte,
+    !!(pdpte & PAGE_PRESENT),
+    !!(pdpte & PAGE_USER),
+    !!(pdpte & PAGE_RW),
+    !!(pdpte & (1ULL << 63)));
+    
     if (!(pdpte & 1)) return;
 
     uint64_t pd_pa = pdpte & PTE_ADDR_MASK;
@@ -558,6 +576,13 @@ void enter_user_mode_from_process(Process *p)
     // Restore FS/GS bases for user
     wrmsr(MSR_FS_BASE, p->fs_base ? p->fs_base : 0);
     wrmsr(MSR_GS_BASE, p->gs_base ? p->gs_base : 0);
+
+    uint64_t fs_verify = rdmsr(MSR_FS_BASE);
+
+    log_info("TLS",
+        "p->fs_base=0x%llx msr_fs_base=0x%llx",
+        p->fs_base,
+        fs_verify);
 
     log_info("EXEC", "enter_user_mode_from_process: after write_msr, jumping to user");
 

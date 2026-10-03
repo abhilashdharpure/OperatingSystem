@@ -76,7 +76,12 @@ static inline void *phys_to_virt(uint64_t pa)
 
 static inline uint64_t virt_to_phys(void *va)
 {
-    return (uint64_t)va - DIRECT_MAP_BASE;
+    uint64_t v = (uint64_t)(uintptr_t)va;
+
+    if (v < DIRECT_MAP_BASE)
+        return 0;
+
+    return v - DIRECT_MAP_BASE;
 }
 
 static inline void* kernel_phys_to_virt(uint64_t pa)

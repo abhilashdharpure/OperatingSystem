@@ -37,9 +37,9 @@ void x64_SYSCALL_Initialize(void)
     wrmsr(IA32_FMASK, fmask);
 }
 // kernel/syscall/syscall_dbg.c
-volatile uint64_t dbg_saved_rip;
-volatile uint64_t dbg_saved_rsp;
-volatile uint64_t dbg_saved_rflags;
+volatile uint64_t dbg_saved_rip = 0;
+volatile uint64_t dbg_saved_rsp = 0;
+volatile uint64_t dbg_saved_rflags = 0;
 
 /* small hex conversion: writes "0x" + up to 16 hex digits, returns pointer to buffer end */
 static char *u64_to_hex(char *buf, uint64_t v)

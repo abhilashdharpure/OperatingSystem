@@ -704,46 +704,101 @@ static int fat32_readdir(struct file *f, dirent_t *e)
 
     return -1;
 }
-
 static int fat32_read(struct file *f, void *buf, size_t size)
 {
     fat32_node_t *node = (fat32_node_t*)f->private_data;
-    if (!node || node->is_dir) return -1;
+
+    if (!node || node->is_dir || !buf)
+        return -1;
+
+    /*
+     * EOF check.
+     *
+     * FAT32 files are sector/cluster backed, but the directory entry
+     * contains the exact byte size of the file. Never read past it.
+     */
+    if (f->position >= node->size)
+        return 0;
+
+    /*
+     * Limit the requested read to the actual bytes remaining in
+     * the file.
+     */
+    size_t file_pos = f->position;
+    size_t file_remaining = (size_t)node->size - file_pos;
+
+    if (size > file_remaining)
+        size = file_remaining;
+
+    if (size == 0)
+        return 0;
 
     size_t remaining  = size;
     size_t read_total = 0;
-    size_t file_pos   = f->position;
 
-    uint32_t cluster_size = node->fs->bytes_per_sector *
-                            node->fs->sectors_per_cluster;
+    uint32_t cluster_size =
+        node->fs->bytes_per_sector *
+        node->fs->sectors_per_cluster;
+
+    if (cluster_size == 0 || cluster_size > MAX_CLUSTER_BYTES)
+        return -1;
+
+    /*
+     * Find the cluster containing file_pos.
+     */
     uint32_t cluster = node->first_cluster;
 
     size_t skip = file_pos;
-    while (skip >= cluster_size && !is_eoc(cluster)) {
+
+    while (skip >= cluster_size) {
+        if (is_eoc(cluster))
+            return 0;
+
         cluster = fat_next_cluster(node->fs, cluster);
-        skip   -= cluster_size;
+
+        if (is_eoc(cluster))
+            return 0;
+
+        skip -= cluster_size;
     }
-    if (is_eoc(cluster))
-        return 0;
 
     uint8_t clbuf[MAX_CLUSTER_BYTES];
 
-    while (remaining > 0 && !is_eoc(cluster)) {
+    /*
+     * Read only the requested number of bytes.
+     * The request has already been clipped to node->size above.
+     */
+    while (remaining > 0 && !is_eoc(cluster))
+    {
         if (read_cluster(node->fs, cluster, clbuf) != 0)
             break;
 
         size_t chunk = cluster_size - skip;
-        if (chunk > remaining) chunk = remaining;
 
-        memcpy((uint8_t*)buf + read_total, clbuf + skip, chunk);
+        if (chunk > remaining)
+            chunk = remaining;
+
+        memcpy(
+            (uint8_t*)buf + read_total,
+            clbuf + skip,
+            chunk
+        );
+
         read_total += chunk;
         remaining  -= chunk;
-        skip        = 0;
 
-        cluster = fat_next_cluster(node->fs, cluster);
+        skip = 0;
+
+        if (remaining > 0)
+            cluster = fat_next_cluster(node->fs, cluster);
     }
 
     f->position += read_total;
+
+    /*
+     * Defensive clamp. f->position must never exceed the FAT32
+     * file size.
+     */
     if (f->position > node->size)
         f->position = node->size;
 

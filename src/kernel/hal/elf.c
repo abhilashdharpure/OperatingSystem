@@ -66,11 +66,11 @@ void debug_dump_user_bytes(Process *p, uint64_t va, size_t n)
     uint8_t *kva = (uint8_t *)phys_to_virt(page_base);
     kva += offset;
 
-    for (size_t i = 0; i < n; ++i) {
-        log_info("DBG", "  %llx: %d",
-                 (unsigned long long)(va + i),
-                 kva[i]);
-    }
+    // for (size_t i = 0; i < n; ++i) {
+    //     log_info("DBG", "  %llx: %d",
+    //              (unsigned long long)(va + i),
+    //              kva[i]);
+    // }
 }
 
 static inline void u64_store(Process *p, uint64_t va, uint64_t val)
@@ -332,6 +332,7 @@ static int map_elf_segments_from_mem(Process *p,
 
     log_info("ELF", "map_elf_segments_from_mem: e_phnum=%u e_phoff=0x%llx",
              eh->e_phnum, (unsigned long long)eh->e_phoff);
+
     for (int _i = 0; _i < eh->e_phnum; _i++) {
         log_info("ELF", " PHDR[%d]: type=%u off=0x%llx vaddr=0x%llx filesz=0x%llx memsz=0x%llx flags=0x%x",
                  _i,
@@ -378,6 +379,13 @@ static int map_elf_segments_from_mem(Process *p,
             }
         }
     }
+
+    uint64_t tls_pa =
+    get_mapped_phys(p->page_directory, 0x400059b8);
+
+    log_info("TLSCHK",
+            "0x400059b8 -> PA=0x%llx",
+            tls_pa);
 
 
     return 0;
@@ -659,6 +667,7 @@ pid_t exec_elf_mem(void *data,
     log_info("EXEC", "Before build_initial_stack: phdr_addr=0x%llx", phdr_addr);
     build_initial_stack(p, eh, phdr_addr, argc, argv, envp);
     log_info("EXEC", "After build_initial_stack: RSP=0x%llx", p->regs.rsp);
+    debug_dump_user_stack(p, p->regs.rsp);
 
     uint64_t rip_pa = get_mapped_phys(p->page_directory, eh->e_entry);
     uint64_t rsp_pa = get_mapped_phys(p->page_directory, p->regs.rsp);
@@ -944,9 +953,8 @@ pid_t exec_elf_from_fd(int fd,
     //     phdr_addr = USER_START + eh.e_phoff; // fallback
 
     uint64_t phdr_addr = compute_phdr_addr_from_fd(&eh, ph);
-    log_info("EXEC", "Using phdr_addr=0x%llx", phdr_addr);
-    build_initial_stack(p, &eh, phdr_addr, argc, argv, envp);
 
+    log_info("EXEC", "Using phdr_addr=0x%llx", phdr_addr);
 
     log_info("EXEC", "exec_elf_from_fd: argc=%llu argv=%p envp=%p",
              (unsigned long long)argc, (void*)argv, (void*)envp);
