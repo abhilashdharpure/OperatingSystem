@@ -4,9 +4,8 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/env.sh"
 
-
 # ------------------------------------------------------------
-# Target pkg-config
+# Target pkg-config environment
 # ------------------------------------------------------------
 
 export PKG_CONFIG_SYSROOT_DIR="$SYSROOT"
@@ -18,18 +17,22 @@ unset PKG_CONFIG_PATH
 # Paths
 # ------------------------------------------------------------
 
-LIBXKBCOMMON_SRC="$SOURCES/libxkbcommon-xkbcommon-$LIBXKBCOMMON_VER"
-BUILD_DIR="$TOP/build-libxkbcommon"
+LIBXML2_SRC="$SOURCES/libxml2-$LIBXML2_VER"
+BUILD_DIR="$TOP/build-libxml2"
 
 
+# ------------------------------------------------------------
+# Information
+# ------------------------------------------------------------
+
 echo "========================================"
-echo "Building libxkbcommon $LIBXKBCOMMON_VER"
+echo "Building libxml2 $LIBXML2_VER"
 echo "========================================"
-echo "Target  : $TARGET"
-echo "Sysroot : $SYSROOT"
-echo "Prefix  : $PREFIX"
-echo "Source  : $LIBXKBCOMMON_SRC"
-echo "Build   : $BUILD_DIR"
+echo "Target       : $TARGET"
+echo "Sysroot      : $SYSROOT"
+echo "Prefix       : $PREFIX"
+echo "Source       : $LIBXML2_SRC"
+echo "Build        : $BUILD_DIR"
 echo
 
 
@@ -37,18 +40,18 @@ echo
 # Check source
 # ------------------------------------------------------------
 
-if [ ! -d "$LIBXKBCOMMON_SRC" ]; then
-    echo "ERROR: libxkbcommon source not found:"
-    echo "$LIBXKBCOMMON_SRC"
+if [ ! -d "$LIBXML2_SRC" ]; then
+    echo "ERROR: libxml2 source not found:"
+    echo "$LIBXML2_SRC"
     echo
     echo "Run:"
-    echo "  $SCRIPT_DIR/download_libxkbcommon.sh"
+    echo "  $SCRIPT_DIR/download_libxml2.sh"
     exit 1
 fi
 
 
 # ------------------------------------------------------------
-# Check compiler
+# Check cross compiler
 # ------------------------------------------------------------
 
 if [ ! -x "$PREFIX/bin/$TARGET-gcc" ]; then
@@ -59,53 +62,60 @@ fi
 
 
 # ------------------------------------------------------------
-# Check Meson
+# Check target sysroot
 # ------------------------------------------------------------
 
-if ! command -v meson >/dev/null 2>&1; then
-    echo "ERROR: Meson is not installed."
+if [ ! -f "$SYSROOT/usr/lib/libc.a" ]; then
+    echo "ERROR: musl libc not found:"
+    echo "$SYSROOT/usr/lib/libc.a"
+    echo
+    echo "Build/install musl before building libxml2."
     exit 1
 fi
 
 
 # ------------------------------------------------------------
-# Check Meson cross file
+# Check pkg-config
 # ------------------------------------------------------------
 
-if [ ! -f "$MESON_CROSS_FILE" ]; then
-    echo "ERROR: Meson cross file not found:"
-    echo "$MESON_CROSS_FILE"
+if ! command -v pkg-config >/dev/null 2>&1; then
+    echo "ERROR: pkg-config not found."
     exit 1
 fi
 
 
 # ------------------------------------------------------------
-# Clean build
+# Clean build directory
 # ------------------------------------------------------------
 
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
 
+cd "$BUILD_DIR"
+
 
 # ------------------------------------------------------------
-# Meson cross build
+# Configure
 # ------------------------------------------------------------
 
 echo "========================================"
-echo "Configuring libxkbcommon"
+echo "Configuring libxml2"
 echo "========================================"
 
-
-meson setup "$BUILD_DIR" \
-    "$LIBXKBCOMMON_SRC" \
-    --cross-file "$MESON_CROSS_FILE" \
+CFLAGS="-fPIC" \
+"$LIBXML2_SRC/configure" \
+    --build="$(gcc -dumpmachine)" \
+    --host="$TARGET" \
     --prefix=/usr \
-    --buildtype=release \
-    -Ddefault_library=both \
-    -Denable-x11=false \
-    -Denable-docs=false \
-    -Denable-wayland=false
-
+    --disable-shared \
+    --enable-static \
+    --without-python \
+    --without-zlib \
+    --without-lzma \
+    --without-readline \
+    --without-debug \
+    --without-ftp \
+    --without-http
 
 # ------------------------------------------------------------
 # Build
@@ -113,10 +123,10 @@ meson setup "$BUILD_DIR" \
 
 echo
 echo "========================================"
-echo "Building libxkbcommon"
+echo "Building libxml2"
 echo "========================================"
 
-ninja -C "$BUILD_DIR"
+make -j"$(nproc)"
 
 
 # ------------------------------------------------------------
@@ -125,54 +135,39 @@ ninja -C "$BUILD_DIR"
 
 echo
 echo "========================================"
-echo "Installing libxkbcommon"
+echo "Installing libxml2 into target sysroot"
 echo "========================================"
 
-DESTDIR="$SYSROOT" ninja -C "$BUILD_DIR" install
+make DESTDIR="$SYSROOT" install
 
 
 # ------------------------------------------------------------
-# Verify
+# Verify installation
 # ------------------------------------------------------------
 
 echo
 echo "========================================"
-echo "Verifying libxkbcommon"
+echo "Verifying libxml2 installation"
 echo "========================================"
 
-if [ ! -f "$SYSROOT/usr/lib/libxkbcommon.a" ]; then
-    echo "ERROR: libxkbcommon.a was not installed."
+if [ ! -f "$SYSROOT/usr/include/libxml2/libxml/parser.h" ]; then
+    echo "ERROR: libxml2 headers were not installed."
     exit 1
 fi
 
-if [ ! -f "$SYSROOT/usr/lib/libxkbcommon.so" ]; then
-    echo "ERROR: libxkbcommon.so was not installed."
+if [ ! -f "$SYSROOT/usr/lib/libxml2.a" ]; then
+    echo "ERROR: libxml2 static library was not installed."
     exit 1
 fi
 
-if [ ! -f "$SYSROOT/usr/lib/libxkbregistry.a" ]; then
-    echo "ERROR: libxkbregistry.a was not installed."
-    exit 1
-fi
-
-if [ ! -f "$SYSROOT/usr/lib/libxkbregistry.so" ]; then
-    echo "ERROR: libxkbregistry.so was not installed."
-    exit 1
-fi
-
-if [ ! -f "$SYSROOT/usr/lib/pkgconfig/xkbcommon.pc" ]; then
-    echo "ERROR: xkbcommon.pc was not installed."
-    exit 1
-fi
-
-if [ ! -f "$SYSROOT/usr/include/xkbcommon/xkbcommon.h" ]; then
-    echo "ERROR: xkbcommon headers were not installed."
+if [ ! -f "$SYSROOT/usr/lib/pkgconfig/libxml-2.0.pc" ]; then
+    echo "ERROR: libxml-2.0.pc was not installed."
     exit 1
 fi
 
 
 # ------------------------------------------------------------
-# Verify with target pkg-config
+# Verify pkg-config
 # ------------------------------------------------------------
 
 echo
@@ -180,17 +175,35 @@ echo "========================================"
 echo "Checking target pkg-config"
 echo "========================================"
 
-echo
 echo "Version:"
-pkg-config --modversion xkbcommon
+pkg-config --modversion libxml-2.0
 
 echo
 echo "CFLAGS:"
-pkg-config --cflags xkbcommon
+pkg-config --cflags libxml-2.0
 
 echo
 echo "LIBS:"
-pkg-config --libs xkbcommon
+pkg-config --libs libxml-2.0
+
+
+# ------------------------------------------------------------
+# Show installed files
+# ------------------------------------------------------------
+
+echo
+echo "========================================"
+echo "Installed libxml2 files"
+echo "========================================"
+
+find "$SYSROOT/usr" \
+    \( \
+        -name 'libxml2.a' \
+        -o -name 'libxml-2.0.pc' \
+        -o -name 'parser.h' \
+        -o -name 'xmlversion.h' \
+    \) \
+    -print
 
 
 # ------------------------------------------------------------
@@ -199,5 +212,5 @@ pkg-config --libs xkbcommon
 
 echo
 echo "========================================"
-echo "libxkbcommon installation completed"
+echo "libxml2 installation completed"
 echo "========================================"

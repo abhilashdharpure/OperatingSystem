@@ -1,15 +1,47 @@
-source ./env.sh
-export WLD_PREFIX=/home/abhilash/Project/OperatingSystem/sysroot/usr
+#!/bin/bash
+set -e
 
-cd ~/Project/OperatingSystem/src
-wget https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.10.tar.xz
-tar -xf linux-6.10.tar.xz
-cd linux-6.10
-make headers_install ARCH=x86_64 INSTALL_HDR_PATH=$SYSROOT/usr
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/env.sh"
 
+LIBFFI_SRC="$SOURCES/libffi-$LIBFFI_VER"
+BUILD_DIR="$TOP/build-libffi"
 
-cd ~/Project/OperatingSystem/src/libffi-3.4.4
-make distclean
-./configure --prefix=/usr --host=x86_64-linux-musl --disable-shared --enable-static --disable-trampolines
-make
-make install DESTDIR=$SYSROOT
+echo "========================================"
+echo "Building libffi $LIBFFI_VER"
+echo "========================================"
+
+rm -rf "$BUILD_DIR"
+mkdir -p "$BUILD_DIR"
+cd "$BUILD_DIR"
+
+CFLAGS="-fPIC" \
+CXXFLAGS="-fPIC" \
+"$LIBFFI_SRC/configure" \
+    --build="$(gcc -dumpmachine)" \
+    --host="$TARGET" \
+    --prefix=/usr \
+    --disable-shared \
+    --enable-static \
+    --disable-docs
+
+make -j"$(nproc)"
+
+make DESTDIR="$SYSROOT" install
+
+echo
+echo "========================================"
+echo "Verifying libffi"
+echo "========================================"
+
+if [ ! -f "$SYSROOT/usr/lib64/libffi.a" ]; then
+    echo "ERROR: libffi.a was not installed:"
+    echo "$SYSROOT/usr/lib64/libffi.a"
+    exit 1
+fi
+
+echo "libffi installed:"
+ls -lh "$SYSROOT/usr/lib64/libffi.a"
+
+echo
+echo "libffi build completed successfully."

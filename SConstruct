@@ -29,13 +29,17 @@ VARS.Add("imageSize",
          help="The size of the image, rounded to nearest 512 bytes.",
          default="250m",
          converter=ParseSize)
-VARS.Add("toolchain",
-         help="Path to toolchain directory.",
-         default="toolchain")
+VARS.Add(
+    "toolchain",
+    help="Path to toolchain installation directory.",
+    default=os.path.expanduser(
+        "~/Project/OSDev/ToolchainWorkspace/Install"
+    )
+)
 
 DEPS = {
-    'binutils': '2.37',
-    'gcc': '11.2.0'
+    'binutils': '2.42',
+    'gcc': '13.3.0'
 }
 
 #
@@ -92,7 +96,9 @@ project_root = Path(HOST_ENVIRONMENT['PROJECTDIR'].abspath)
 # Your actual toolchain layout:
 # toolchain/bin/x86_64-linux-musl-gcc
 # toolchain/lib/gcc/x86_64-linux-musl/11.2.0/
-toolchainDir = (project_root / HOST_ENVIRONMENT['toolchain']).resolve()
+toolchainDir = Path(
+    os.path.expanduser(HOST_ENVIRONMENT['toolchain'])
+).resolve()
 toolchainBin = toolchainDir / 'bin'
 toolchainGccLibs = toolchainDir / 'lib' / 'gcc' / triplet / DEPS['gcc']
 
@@ -155,7 +161,7 @@ if TARGET_ENVIRONMENT['arch'] == 'i686':
     SConscript('src/bootloader/stage2/SConscript', variant_dir=variantDir + '/stage2', duplicate=0)
 
 SConscript('src/kernel/SConscript', variant_dir=variantDir + '/kernel', duplicate=0)
-SConscript('src/luma-compositor/SConscript', variant_dir=variantDir + '/user', duplicate=0)
+# SConscript('src/luma-compositor/SConscript', variant_dir=variantDir + '/user', duplicate=0)
 SConscript('image/SConscript', variant_dir=variantDir, duplicate=1)
 
 Import('image')

@@ -1,12 +1,27 @@
+#!/bin/bash
+set -e
+
 source ./Scripts/env.sh
-cd $TOP/build
-mkdir -p build-binutils && cd build-binutils
-$TOP/src/binutils-$BINUTILS_VER/configure \
-  --prefix=$PREFIX \
-  --target=x86_64-linux-musl \
-  --disable-multilib \
-  --with-sysroot=$SYSROOT
+
+echo "Building Binutils..."
+
+# Clean build directory if re-running
+rm -rf "$TOP/binutils"
+
+mkdir -p "$TOP/binutils"
+cd "$TOP/binutils"
+
+"$SOURCES/binutils-$BINUTILS_VER/configure" \
+    --prefix="$PREFIX" \
+    --target="$TARGET" \
+    --disable-multilib \
+    --disable-gprofng \
+    --with-sysroot="$SYSROOT"
+
 make -j$(nproc)
+
 make install
-# Ensure toolchain bin is in PATH for the rest of the build
-export PATH=$PREFIX/bin:$PATH
+
+export PATH="$PREFIX/bin:$PATH"
+
+echo "Binutils installation completed."

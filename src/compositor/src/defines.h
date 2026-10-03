@@ -5,6 +5,7 @@
 #include <vector>
 #include <mutex>
 #include <atomic>
+#include <string>
 
 // Forward declarations
 struct my_output;

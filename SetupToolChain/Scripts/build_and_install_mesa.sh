@@ -6,7 +6,7 @@ export WLD_PREFIX=$SYSROOT/usr
 export PATH=$SYSROOT/usr/bin:$PATH
 export PKG_CONFIG_PATH=$SYSROOT/usr/lib/x86_64-linux-gnu/pkgconfig
 
-cd $TOP/src
+cd $SOURCES
 rm -rf mesa
 git clone https://gitlab.freedesktop.org/mesa/mesa.git
 cd mesa

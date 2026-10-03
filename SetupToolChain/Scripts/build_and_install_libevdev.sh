@@ -4,26 +4,26 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/env.sh"
 
-SRC_DIR="$SOURCES/libinput-$LIBINPUT_VER"
-BUILD_DIR="$TOP/build-libinput"
+SRC_DIR="$SOURCES/libevdev-$LIBEVDEV_VER"
+BUILD_DIR="$TOP/build-libevdev"
 
 export PKG_CONFIG_SYSROOT_DIR="$SYSROOT"
 export PKG_CONFIG_LIBDIR="$SYSROOT/usr/lib/pkgconfig:$SYSROOT/usr/share/pkgconfig:$SYSROOT/usr/lib64/pkgconfig"
 unset PKG_CONFIG_PATH
 
 if [ ! -d "$SRC_DIR" ]; then
-    echo "ERROR: libinput source directory not found:"
+    echo "ERROR: libevdev source directory not found:"
     echo "  $SRC_DIR"
     echo
     echo "Run:"
-    echo "  $SCRIPT_DIR/download_libinput.sh"
+    echo "  $SCRIPT_DIR/download_libevdev.sh"
     exit 1
 fi
 
 rm -rf "$BUILD_DIR"
 
 echo "========================================"
-echo "Building libinput $LIBINPUT_VER"
+echo "Building libevdev $LIBEVDEV_VER"
 echo "========================================"
 echo
 echo "Source:"
@@ -32,24 +32,8 @@ echo
 echo "Build:"
 echo "  $BUILD_DIR"
 echo
-echo "Target:"
-echo "  $TARGET"
-echo
 echo "Sysroot:"
 echo "  $SYSROOT"
-echo
-
-echo "Checking dependencies..."
-echo
-
-pkg-config --modversion libevdev
-pkg-config --cflags libevdev
-pkg-config --libs libevdev
-
-echo
-echo "========================================"
-echo "Configuring"
-echo "========================================"
 echo
 
 meson setup \
@@ -58,8 +42,9 @@ meson setup \
     --cross-file "$MESON_CROSS_FILE" \
     --prefix=/usr \
     --buildtype=release \
-    -Dtests=false \
-    -Ddocumentation=false
+    -Dtests=disabled \
+    -Ddocumentation=disabled \
+    -Dtools=enabled
 
 echo
 echo "========================================"
@@ -79,13 +64,13 @@ DESTDIR="$SYSROOT" ninja -C "$BUILD_DIR" install
 
 echo
 echo "========================================"
-echo "libinput installation complete"
+echo "libevdev installation complete"
 echo "========================================"
 echo
 
-echo "Installed libinput files:"
+echo "Installed files:"
 echo
 
 find "$SYSROOT/usr" \
-    \( -name 'libinput*' -o -name 'libinput.pc' \) \
+    \( -name 'libevdev*' -o -name 'libevdev.pc' \) \
     -print | sort

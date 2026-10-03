@@ -19,11 +19,12 @@ unset PKG_CONFIG_PATH
 # ------------------------------------------------------------
 
 LIBXKBCOMMON_SRC="$SOURCES/libxkbcommon-xkbcommon-$LIBXKBCOMMON_VER"
-BUILD_DIR="$TOP/build-libxkbcommon"
+BUILD_DIR="$TOP/build-libxkbcommon-wayland"
 
 
 echo "========================================"
 echo "Building libxkbcommon $LIBXKBCOMMON_VER"
+echo "with Wayland support"
 echo "========================================"
 echo "Target  : $TARGET"
 echo "Sysroot : $SYSROOT"
@@ -80,7 +81,28 @@ fi
 
 
 # ------------------------------------------------------------
-# Clean build
+# Check Wayland dependencies
+# ------------------------------------------------------------
+
+echo "========================================"
+echo "Checking Wayland dependencies"
+echo "========================================"
+
+echo
+echo "Wayland client:"
+pkg-config --modversion wayland-client
+
+echo
+echo "Wayland server:"
+pkg-config --modversion wayland-server
+
+echo
+echo "Wayland protocols:"
+pkg-config --modversion wayland-protocols
+
+
+# ------------------------------------------------------------
+# Clean Wayland-enabled build
 # ------------------------------------------------------------
 
 rm -rf "$BUILD_DIR"
@@ -88,23 +110,25 @@ mkdir -p "$BUILD_DIR"
 
 
 # ------------------------------------------------------------
-# Meson cross build
+# Meson configuration
 # ------------------------------------------------------------
 
+echo
 echo "========================================"
 echo "Configuring libxkbcommon"
+echo "Wayland support: ENABLED"
 echo "========================================"
-
 
 meson setup "$BUILD_DIR" \
     "$LIBXKBCOMMON_SRC" \
     --cross-file "$MESON_CROSS_FILE" \
+    --native-file "$SCRIPT_DIR/meson/native-wayland.ini" \
     --prefix=/usr \
     --buildtype=release \
     -Ddefault_library=both \
     -Denable-x11=false \
     -Denable-docs=false \
-    -Denable-wayland=false
+    -Denable-wayland=true
 
 
 # ------------------------------------------------------------
@@ -132,7 +156,7 @@ DESTDIR="$SYSROOT" ninja -C "$BUILD_DIR" install
 
 
 # ------------------------------------------------------------
-# Verify
+# Verify installed files
 # ------------------------------------------------------------
 
 echo
@@ -172,7 +196,7 @@ fi
 
 
 # ------------------------------------------------------------
-# Verify with target pkg-config
+# Verify target pkg-config
 # ------------------------------------------------------------
 
 echo
@@ -181,16 +205,34 @@ echo "Checking target pkg-config"
 echo "========================================"
 
 echo
-echo "Version:"
+echo "xkbcommon version:"
 pkg-config --modversion xkbcommon
 
 echo
-echo "CFLAGS:"
+echo "xkbcommon CFLAGS:"
 pkg-config --cflags xkbcommon
 
 echo
-echo "LIBS:"
+echo "xkbcommon LIBS:"
 pkg-config --libs xkbcommon
+
+
+# ------------------------------------------------------------
+# Verify Wayland integration
+# ------------------------------------------------------------
+
+echo
+echo "========================================"
+echo "Checking Wayland integration"
+echo "========================================"
+
+echo
+echo "xkbcommon pkg-config requirements:"
+pkg-config --print-requires xkbcommon || true
+
+echo
+echo "xkbcommon pkg-config file:"
+cat "$SYSROOT/usr/lib/pkgconfig/xkbcommon.pc"
 
 
 # ------------------------------------------------------------
@@ -199,5 +241,10 @@ pkg-config --libs xkbcommon
 
 echo
 echo "========================================"
-echo "libxkbcommon installation completed"
+echo "libxkbcommon Wayland build completed"
+echo "========================================"
+echo "Version         : $LIBXKBCOMMON_VER"
+echo "Wayland support : ENABLED"
+echo "X11 support     : DISABLED"
+echo "Libraries       : STATIC + SHARED"
 echo "========================================"

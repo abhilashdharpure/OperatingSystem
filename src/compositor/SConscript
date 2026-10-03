@@ -4,17 +4,41 @@ project_name   = 'luma-compositor'
 build_dir      = 'build'
 generated_dir  = os.path.join(build_dir, 'generated')
 
-# Host env for wayland-scanner
+# -----------------------------
+# HOST ENVIRONMENT
+# -----------------------------
 host_env = Environment(
-    CC  = 'gcc',
-    CXX = 'g++',
+    CC='gcc',
+    CXX='g++',
 )
 
-cross_prefix = '../../toolchain/bin/x86_64-linux-musl-'
-sysroot = os.path.expanduser('~/sysroot')
-
 # -----------------------------
-# TARGET ENVIRONMENT (DEBUG)
+# TOOLCHAIN / SYSROOT
+# -----------------------------
+
+# Current toolchain:
+# ~/Project/OSDev/ToolchainWorkspace/Install/bin
+#
+# Current sysroot:
+# ~/Project/OSDev/ToolchainWorkspace/Sysroot
+
+workspace = os.path.expanduser(
+    '~/Project/OSDev/ToolchainWorkspace'
+)
+
+prefix  = os.path.join(workspace, 'Install')
+sysroot = os.path.join(workspace, 'Sysroot')
+
+cross_prefix = os.path.join(prefix, 'bin', 'x86_64-linux-musl-')
+
+wayland_scanner = os.path.join(
+    prefix,
+    'native',
+    'bin',
+    'wayland-scanner'
+)
+# -----------------------------
+# TARGET ENVIRONMENT
 # -----------------------------
 target_env = Environment(
     CC   = cross_prefix + 'gcc',
@@ -47,7 +71,7 @@ target_env = Environment(
         '-fno-stack-protector',
         '-fno-exceptions',
         '-fno-rtti',
-        '-static',          # <--- important
+        '-static',
     ],
 
     CXXFLAGS = [
@@ -56,12 +80,12 @@ target_env = Environment(
         '-g',
         '-O0',
         '-fno-pie',
-        '-static',          # <--- important
+        '-static',
     ],
 
     LINKFLAGS = [
         '--sysroot=' + sysroot,
-        '-static',          # <--- important
+        '-static',
         '-fno-pie',
         '-no-pie',
         '-Wl,-Tlinker.ld',
@@ -93,8 +117,8 @@ for xml_file in protocols:
         [c_out, h_out],
         xml_file,
         [
-            f'wayland-scanner private-code {xml_file.path} {c_out.path}',
-            f'wayland-scanner server-header {xml_file.path} {h_out.path}',
+            f'{wayland_scanner} private-code {xml_file.path} {c_out.path}',
+            f'{wayland_scanner} server-header {xml_file.path} {h_out.path}',
         ]
     )
 
@@ -113,13 +137,6 @@ program = target_env.Program(
     target=os.path.join(build_dir, project_name),
     source=sources,
 )
-
-
-# # Strip
-# target_env.AddPostAction(
-#     program,
-#     f"{cross_prefix}strip -s $TARGET"
-# )
 
 Default(program)
 Export('program')

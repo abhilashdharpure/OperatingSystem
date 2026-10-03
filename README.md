@@ -1,6 +1,62 @@
-# nanobyte_os
-This repository contains the code from the ["Building an OS"](https://www.youtube.com/watch?v=9t-SPC7Tczc&list=PLFjM7v6KGMpiH2G-kT781ByCNC_0pKpPN) series on the ["Nanobyte"](https://www.youtube.com/channel/UCSPIuWADJIMIf9Erf--XAsA) YouTube channel.
+# Project Layouyt
+~/Project/OSDev/
+├── OperatingSystem/
+│   ├── Kernel/
+│   ├── Userland/
+│   ├── SetupToolChain/
+│   └── ...
+│
+└── ToolchainWorkspace/
+    ├── Sources/
+    ├── Build/
+    ├── Install/
+    ├── Sysroot/
+    └── Logs/
 
+
+# Dependency Flow
+                    ┌── binutils
+                    │
+                    └── stage-1 GCC
+                           │
+                           ▼
+                    Linux UAPI headers
+                           │
+                           ▼
+                         musl
+                           │
+                           ▼
+                      Full GCC
+                       C + C++
+                           │
+             ┌─────────────┼─────────────┐
+             ▼             ▼             ▼
+           libffi        Expat        libxml2
+             │             │             │
+             └─────────────┴──────┬──────┘
+                                  ▼
+                           libxkbcommon
+                                  │
+                                  ▼
+                              Wayland
+                                  │
+                                  ▼
+                        Wayland protocols
+                                  │
+                    ┌─────────────┴─────────────┐
+                    ▼                           ▼
+                 libinput                     Mesa
+                    │                           │
+                    └─────────────┬─────────────┘
+                                  ▼
+                           other dependencies
+                                  │
+                                  ▼
+                                Lua
+                                  │
+                                  ▼
+                                Weston
+    
 ## Building
 
 First, install the following dependencies:

@@ -7,7 +7,7 @@ export PATH=$SYSROOT/usr/bin:$PATH
 export PKG_CONFIG_PATH=$SYSROOT/usr/share/pkgconfig:$SYSROOT/usr/lib/x86_64-linux-gnu/pkgconfig
 
 # Build seatd/libseat only if not already cloned
-cd $TOP/src
+cd $SOURCES
 if [ ! -d "seatd" ]; then
   git clone https://git.sr.ht/~kennylevinsen/seatd
 fi
@@ -18,7 +18,7 @@ ninja -C build
 ninja -C build install
 
 
-cd $TOP/src
+cd $SOURCES
 git clone https://github.com/mm2/Little-CMS.git lcms2
 cd lcms2
 rm -rf build
