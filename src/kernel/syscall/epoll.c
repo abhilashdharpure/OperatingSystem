@@ -246,7 +246,13 @@ long sys_epoll_wait(int epfd, struct epoll_event *user_events,
     struct pollfd pfds[MAX_EPOLL_FDS];
     struct epoll_event kev[MAX_EPOLL_FDS];
 
-    /* build pfds[] as you already do ... */
+    for (int i = 0; i < epi->nfds; i++) {
+        pfds[i].fd = epi->watches[i].fd;
+        pfds[i].events = 0;
+        if (epi->watches[i].events & EPOLLIN)  pfds[i].events |= POLLIN;
+        if (epi->watches[i].events & EPOLLOUT) pfds[i].events |= POLLOUT;
+        pfds[i].revents = 0;
+    }
 
     int n = sys_poll((uint64_t)pfds, (uint64_t)epi->nfds, (uint64_t)timeout);
     if (n <= 0)

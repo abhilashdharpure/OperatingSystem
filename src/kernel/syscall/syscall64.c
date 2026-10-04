@@ -175,6 +175,7 @@ uint64_t syscall_dispatch(uint64_t nr,
         return sys_poll(a0, a1, a2);
 
     case SYS_stat:
+    case SYS_lstat:
         return sys_stat(a0, a1);
 
     case SYS_fstat:
@@ -352,8 +353,8 @@ uint64_t syscall_dispatch(uint64_t nr,
         return sys_epoll_ctl(a0, a1, a2, a3);  // epfd, op, fd, event*
 
     case SYS_epoll_wait:
+    case SYS_epoll_pwait:
         return sys_epoll_wait(a0, a1, a2, a3); // epfd, events*, maxevents, timeout
-
 
     case SYS_preadv:
         // preadv(fd, iov, vlen, offset)
@@ -378,6 +379,13 @@ uint64_t syscall_dispatch(uint64_t nr,
 
     case SYS_flock:
         return 0;
+            
+    case SYS_unlink:
+        return sys_unlink((const char *)a0);
+
+    case SYS_accept4:
+        return sys_accept4(a0, a1, a2, a3);
+
 
     // case SYS_timerfd_create:
     //     return sys_timerfd_create((int)a0, (int)a1);

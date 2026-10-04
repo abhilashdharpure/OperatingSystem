@@ -7,6 +7,7 @@ enum {
     SYS_close           = 3,
     SYS_stat            = 4,   // or newfstatat/fstatat6~4 depending on what you wire
     SYS_fstat           = 5,
+    SYS_lstat           = 6,
     SYS_poll            = 7,
     SYS_lseek           = 8,
     SYS_mmap            = 9,
@@ -38,6 +39,7 @@ enum {
     SYS_fcntl           = 72,  // or fcntl64 = 72 on x86_64
     SYS_flock           = 73,
     SYS_ftruncate       = 77,
+    SYS_unlink          = 87,
     SYS_getdents        = 217,  // or getdents64 = 217 or 78?
     SYS_getcwd          = 79,
     SYS_getpriority     = 96,
@@ -54,8 +56,10 @@ enum {
     SYS_epoll_wait      = 232,
     SYS_epoll_ctl       = 233,
     SYS_faccessat       = 269,
+    SYS_epoll_pwait     = 281,
     SYS_timerfd_create  = 283,
     SYS_timerfd_settime = 286,
+    SYS_accept4         = 288,
     SYS_signalfd4       = 289,
     SYS_eventfd2        = 290,
     SYS_epoll_create1   = 291,

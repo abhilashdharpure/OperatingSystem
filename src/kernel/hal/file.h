@@ -41,4 +41,6 @@ struct file_operations {
                 uint64_t flags,
                 uint64_t offset,
                 uint64_t *out_user_va);
+    int  (*unlink)(struct file *f, const char *subpath);   /* NEW */
+
 };

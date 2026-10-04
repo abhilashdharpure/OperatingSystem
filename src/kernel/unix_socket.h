@@ -16,7 +16,7 @@ typedef struct unix_socket
     int pending_tail;
 
     // SCM_RIGHTS queue (simple ring)
-    int  fdq[16];
+    struct file *fdq[16];
     int  fdq_head;
     int  fdq_tail;
 

@@ -102,8 +102,9 @@ static int tmpfs_stat(struct file *f, struct kstat *st) {
     return 0;
 }
 
-int tmpfs_unlink(void *ctx, const char *sub) {
-    (void)ctx;
+static int tmpfs_unlink(struct file *f, const char *sub)
+{
+    (void)f;
     tnode_t *n = t_find(sub);
     if (!n) return -ENOENT;
     n->unlinked = 1;
@@ -113,7 +114,9 @@ int tmpfs_unlink(void *ctx, const char *sub) {
 
 struct file_operations tmpfs_fops = {
     .open = tmpfs_open, .close = tmpfs_close,
-    .read = tmpfs_read, .write = tmpfs_write, .stat = tmpfs_stat,
+    .read = tmpfs_read, .write = tmpfs_write,
+    .stat = tmpfs_stat, .unlink = tmpfs_unlink,
 };
+
 
 void tmpfs_init(void) { VFS_Mount("/tmp", &tmpfs_fops, NULL); }

@@ -5,7 +5,7 @@
 #include "pipe.h"
 #include "fcntl.h"
 #include "errno.h"
-
+#include "kmalloc.h"
 
 static int vfs_count = 0;
 static struct file file_table[MAX_OPEN_FILES]; // actual file objects
@@ -191,43 +191,32 @@ int VFS_Read(fd_t fd, void *buf, size_t size)
 }
 
 
-int VFS_Close(fd_t fd)
+void VFS_PutFile(struct file *f)
 {
-    if (!VFS_IsValidFd(fd))
-        return -1;
+    if (!f) return;
+    if (--f->refcount > 0) return;
 
-    struct file *f = open_files[fd];
-    if (!f)
-        return -1;
+    if (f->fops && f->fops->close) f->fops->close(f);
+    if (f->path)    kfree((void *)f->path);
+    if (f->subpath) kfree((void *)f->subpath);
 
-    // Remove FD entry
-    open_files[fd] = NULL;
-
-    // Decrement refcount
-    f->refcount--;
-    if (f->refcount > 0)
-        return 0;
-
-    // Last reference → close underlying FS object
-    if (f->fops && f->fops->close)
-        f->fops->close(f);
-
-    // Free strings
-    if (f->path)    kfree(f->path);
-    if (f->subpath) kfree(f->subpath);
-
-    // Clear file object
-    f->path = NULL;
-    f->subpath = NULL;
+    f->path = f->subpath = NULL;
     f->fops = NULL;
     f->private_data = NULL;
     f->position = 0;
     f->refcount = 0;
     f->in_use = false;
-
-    return 0;
 }
 
+int VFS_Close(fd_t fd)
+{
+    if (fd < 0 || fd >= MAX_OPEN_FILES) return -EBADF;
+    struct file *f = open_files[fd];
+    if (!f) return -EBADF;
+    open_files[fd] = NULL;
+    VFS_PutFile(f);
+    return 0;
+}
 
 // mount a filesystem or register a device at a mount point
 int VFS_Mount(const char *mount_path, struct file_operations *fops, void *ctx)
@@ -581,4 +570,15 @@ void VFS_SetFd(int fd, struct file *file)
     if (file && file != (struct file *)1 && file->refcount == 0)
         file->refcount = 1;
     open_files[fd] = file;
+}
+
+int VFS_Unlink(const char *path)
+{
+    int mnt = find_mount_for(path);
+    if (mnt < 0) return -ENOENT;
+    char sub[256];
+    compute_subpath(path, vfs_table[mnt].path, sub, sizeof(sub));
+    if (!vfs_table[mnt].fops || !vfs_table[mnt].fops->unlink)
+        return -EPERM;
+    return vfs_table[mnt].fops->unlink(NULL, sub);
 }

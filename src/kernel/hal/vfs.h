@@ -35,6 +35,7 @@ struct file *VFS_AllocFile(void);
 int VFS_Open(const char *path, int flags);
 int VFS_Read(fd_t fd, void *buf, size_t size);
 int VFS_Write(fd_t file, uint8_t* data, size_t size);
+void VFS_PutFile(struct file *f);
 int VFS_Close(fd_t fd);
 
 int VFS_List(const char *path, void (*callback)(const dirent_t *));
@@ -50,3 +51,5 @@ int VFS_Dup2(fd_t oldfd, fd_t newfd);
 
 int VFS_CreatePipe(fd_t fds[2]);
 void VFS_SetFd(int fd, struct file *file);
+
+int VFS_Unlink(const char *path);

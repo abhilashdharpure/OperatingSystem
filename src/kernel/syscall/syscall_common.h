@@ -100,3 +100,4 @@ long sys_timerfd_settime(int fd, int flags,
                          const struct itimerspec *new_value,
                          struct itimerspec *old_value);
 long sys_signalfd4(int fd, const sigset_t *mask, size_t size, int flags);
+uint64_t sys_unlink(const char *path);

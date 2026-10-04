@@ -2568,13 +2568,13 @@ bool luma_init(LumaCompositor* comp)
 
 
 
-    std::string displayName = "0";
+    std::string displayName = "wayland-0";
 
     if (wl_display_add_socket(comp->display, displayName.c_str()))
     {
-        std::cerr << "[LumaCompositor] Socket luma-0 in use, trying luma-1...\n";
+        std::cerr << "[LumaCompositor] Socket wayland-0 in use, trying wayland-1..\n";
 
-        displayName = "1";
+        displayName = "wayland-1";
 
         if (wl_display_add_socket(comp->display, displayName.c_str())) {
             std::cerr << "[LumaCompositor] Failed to add any Wayland socket.\n";

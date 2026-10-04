@@ -798,24 +798,21 @@ uint64_t sys_stat(uint64_t user_path_ptr, uint64_t user_buf_ptr)
     const char *path = (const char *)user_path_ptr;
     struct stat *ust = (struct stat *)user_buf_ptr;
 
-    // 1. Open the file or directory
     int fd = VFS_Open(path, 0);
     if (fd < 0)
-        return -ENOSYS;
+        return (uint64_t)(int64_t)(fd < -1 ? fd : -ENOENT);
 
     struct file *f = VFS_GetFile(fd);
     if (!f || !f->fops || !f->fops->stat) {
         VFS_Close(fd);
-        return -ENOSYS;
+        return (uint64_t)-ENOSYS;
     }
 
-    // 2. Kernel-side stat
     struct kstat kst;
     int r = f->fops->stat(f, &kst);
     VFS_Close(fd);
-
     if (r < 0)
-        return -ENOSYS;
+        return (uint64_t)(int64_t)(r < -1 ? r : -EIO);
 
     // 3. Translate kstat → userspace struct stat
     memset(ust, 0, sizeof(struct stat));
@@ -1689,6 +1686,14 @@ long sys_eventfd2(unsigned int initval, int flags)
     return fd;
 }
 
+uint64_t sys_unlink(const char *path)
+{
+    if (!path) return (uint64_t)-EFAULT;
+    int r = unix_unbind_path(path);          /* socket names live in the unix registry */
+    if (r == 0) return 0;
+    r = VFS_Unlink(path);                    /* tmpfs files */
+    return (uint64_t)(int64_t)(r < 0 ? r : 0);
+}
 
 // long sys_timerfd_create(int clockid, int flags)
 // {

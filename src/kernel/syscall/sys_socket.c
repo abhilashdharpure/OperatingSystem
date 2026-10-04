@@ -47,22 +47,18 @@ int unix_sock_write(struct file *f, const void *buf, size_t size)
 int unix_sock_read(struct file *f, void *buf, size_t size)
 {
     unix_socket_t *us = (unix_socket_t *)f->private_data;
-    if (!us || !buf)
-        return -EINVAL;
+    if (!us || !buf) return -EINVAL;
+    if (us->listening) return -EINVAL;
+    if (size == 0) return 0;
 
     if (us->buf_len == 0)
-        return 0;   // EOF / no data yet (for now, non-blocking)
+        return us->peer ? -EAGAIN : 0;      /* alive: try later; closed: EOF */
 
-    if (size > us->buf_len)
-        size = us->buf_len;
-
+    if (size > us->buf_len) size = us->buf_len;
     memcpy(buf, us->buf, size);
 
-    // shift remaining data to front
     size_t remaining = us->buf_len - size;
-    if (remaining > 0)
-        memmove(us->buf, us->buf + size, remaining);
-
+    if (remaining) memmove(us->buf, us->buf + size, remaining);
     us->buf_len = remaining;
     return (int)size;
 }
@@ -76,8 +72,15 @@ int unix_sock_ioctl(struct file *f, unsigned long req, void *arg)
 int unix_sock_close(struct file *f)
 {
     unix_socket_t *us = (unix_socket_t *)f->private_data;
-    // TODO: free peers, pending, etc. For now just free self.
+
+    struct file *pf;
+    while (unix_fdq_pop(us, &pf) == 0)
+    {
+        VFS_PutFile(pf);
+    }
+
     if (us) {
+        unix_unbind_path(us->path);
         kfree(us);
         f->private_data = NULL;
     }
@@ -112,25 +115,22 @@ static int unix_can_write(struct file *f)
     return us->buf_len < sizeof(us->buf);
 }
 
-static int unix_fdq_push(unix_socket_t *s, int fd)
+static int unix_fdq_push(unix_socket_t *s, struct file *f)
 {
     int next = (s->fdq_tail + 1) % 16;
-    if (next == s->fdq_head)
-        return -1; // full
-    s->fdq[s->fdq_tail] = fd;
+    if (next == s->fdq_head) return -1;
+    s->fdq[s->fdq_tail] = f;
     s->fdq_tail = next;
     return 0;
 }
 
-static int unix_fdq_pop(unix_socket_t *s, int *out_fd)
+int unix_fdq_pop(unix_socket_t *s, struct file **out)
 {
-    if (s->fdq_head == s->fdq_tail)
-        return -1; // empty
-    *out_fd = s->fdq[s->fdq_head];
+    if (s->fdq_head == s->fdq_tail) return -1;
+    *out = s->fdq[s->fdq_head];
     s->fdq_head = (s->fdq_head + 1) % 16;
     return 0;
 }
-
 
 uint64_t sys_unix_sendmsg(uint64_t fd_arg, uint64_t msg_ptr_arg, uint64_t flags_arg)
 {
@@ -185,19 +185,14 @@ uint64_t sys_unix_sendmsg(uint64_t fd_arg, uint64_t msg_ptr_arg, uint64_t flags_
             int nfds = (int)(data_len / sizeof(int));
 
             for (int i = 0; i < nfds; ++i) {
-                int pass_fd = fds[i];
+                struct file *pf = VFS_GetFile(fds[i]);
+                if (!pf) return (uint64_t)-EBADF;
 
-                if (!VFS_IsValidFd(pass_fd))
-                    return (uint64_t)-EBADF;
-
-                struct file *pf = VFS_GetFile(pass_fd);
-                if (!pf)
-                    return (uint64_t)-EBADF;
-
-                pf->refcount++;
-
-                if (unix_fdq_push(peer, pass_fd) < 0)
+                pf->refcount++;                          /* the in-flight message owns a ref */
+                if (unix_fdq_push(peer, pf) < 0) {
+                    VFS_PutFile(pf);
                     return (uint64_t)-ENOBUFS;
+                }
             }
         }
     }
@@ -256,7 +251,7 @@ uint64_t sys_unix_recvmsg(uint64_t fd_arg, uint64_t msg_ptr_arg, uint64_t flags_
             int max_fds = (int)(max_fd_bytes / sizeof(int));
             if (max_fds <= 0) {
                 msg->msg_controllen = 0;
-                return (uint64_t)total;
+                return (uint64_t)total == 0 ? -EAGAIN : (uint64_t)total;
             }
 
             int nfds = available;
@@ -267,12 +262,30 @@ uint64_t sys_unix_recvmsg(uint64_t fd_arg, uint64_t msg_ptr_arg, uint64_t flags_
             size_t hdr_len = CMSG_ALIGN_K(sizeof(struct cmsghdr_k));
             int *fds = (int *)((char *)cmsg + hdr_len);
 
+            int got = 0;
             for (int i = 0; i < nfds; ++i) {
-                int fd_val;
-                if (unix_fdq_pop(us, &fd_val) < 0)
+                struct file *pf;
+                if (unix_fdq_pop(us, &pf) < 0) break;
+
+                int newfd = VFS_AllocFd();
+                if (newfd < 0) {                         /* out of fds: drop the ref */
+                    VFS_PutFile(pf);
                     break;
-                fds[i] = fd_val;
+                }
+                VFS_SetFd(newfd, pf);                    /* keeps the ref taken at send time */
+                fds[got++] = newfd;
             }
+
+            if (got > 0) {
+                size_t fd_bytes = got * sizeof(int);
+                cmsg->cmsg_level = SOL_SOCKET;
+                cmsg->cmsg_type  = SCM_RIGHTS;
+                cmsg->cmsg_len   = CMSG_LEN_K(fd_bytes);
+                msg->msg_controllen = CMSG_SPACE_K(fd_bytes);
+            } else {
+                msg->msg_controllen = 0;
+            }
+
 
             size_t fd_bytes = nfds * sizeof(int);
             cmsg->cmsg_level = SOL_SOCKET;
@@ -287,7 +300,7 @@ uint64_t sys_unix_recvmsg(uint64_t fd_arg, uint64_t msg_ptr_arg, uint64_t flags_
         msg->msg_controllen = 0;
     }
 
-    return (uint64_t)total;
+    return (uint64_t)total == 0 ? -EAGAIN : (uint64_t)total;
 }
 
 
@@ -362,6 +375,20 @@ static unix_socket_t *unix_find_by_path(const char *path)
     return NULL;
 }
 
+static int copy_sockaddr_un(struct sockaddr_un *out, uint64_t uaddr, uint64_t addrlen)
+{
+    if (addrlen < 3 || addrlen > sizeof(*out))   /* family + at least 1 path byte */
+        return -EINVAL;
+    memset(out, 0, sizeof(*out));
+    memcpy(out, (void *)(uintptr_t)uaddr, addrlen);   /* only what the caller gave us */
+    if (out->sun_family != AF_UNIX)
+        return -EINVAL;
+    out->sun_path[sizeof(out->sun_path) - 1] = '\0';
+    if (out->sun_path[0] == '\0')                 /* abstract socket: not supported */
+        return -EINVAL;
+    return 0;
+}
+
 uint64_t sys_socket(uint64_t domain, uint64_t type, uint64_t protocol)
 {
     (void)protocol;
@@ -390,6 +417,8 @@ uint64_t sys_socket(uint64_t domain, uint64_t type, uint64_t protocol)
     f->refcount        = 1;
     f->flags           = 0;
     f->socketpair_side = 0;
+    f->flags           = (type & 0x800) ? O_NONBLOCK : 0;    /* SOCK_NONBLOCK */
+
 
     int fd = VFS_AllocFd();
     if (fd < 0) {
@@ -412,14 +441,10 @@ uint64_t sys_bind(uint64_t fd, uint64_t addr_ptr, uint64_t addrlen)
     if (!us)
         return (uint64_t)-EINVAL;
 
-    if (addrlen < sizeof(struct sockaddr_un))
-        return (uint64_t)-EINVAL;
 
     struct sockaddr_un sun;
-    memcpy(&sun, (void *)(uintptr_t)addr_ptr, sizeof(sun));
-
-    if (sun.sun_family != AF_UNIX)
-        return (uint64_t)-EINVAL;
+    int rc = copy_sockaddr_un(&sun, addr_ptr, addrlen);
+    if (rc < 0) return (uint64_t)(int64_t)rc;
 
     size_t len = strnlen(sun.sun_path, sizeof(sun.sun_path));
     if (len == 0 || len >= sizeof(us->path))
@@ -467,13 +492,12 @@ uint64_t sys_connect(uint64_t fd, uint64_t addr_ptr, uint64_t addrlen)
     if (!cli)
         return (uint64_t)-EINVAL;
 
-    if (addrlen < sizeof(struct sockaddr_un))
-        return (uint64_t)-EINVAL;
-
     struct sockaddr_un sun;
-    memcpy(&sun, (void *)(uintptr_t)addr_ptr, sizeof(sun));
+    int rc = copy_sockaddr_un(&sun, addr_ptr, addrlen);
+    if (rc < 0) return (uint64_t)(int64_t)rc;
 
-    if (sun.sun_family != AF_UNIX)
+    size_t len = strnlen(sun.sun_path, sizeof(sun.sun_path));
+    if (len == 0 || len >= sizeof(cli->path))
         return (uint64_t)-EINVAL;
 
     unix_socket_t *srv = unix_find_by_path(sun.sun_path);
@@ -562,3 +586,25 @@ uint64_t sys_accept(uint64_t fd, uint64_t addr_ptr, uint64_t addrlen_ptr)
     return (uint64_t)newfd;
 }
 
+uint64_t sys_accept4(uint64_t fd, uint64_t addr, uint64_t alen, uint64_t flags)
+{
+    uint64_t r = sys_accept(fd, addr, alen);
+    if ((int64_t)r >= 0 && (flags & 0x800)) {
+        struct file *nf = VFS_GetFile((int)r);
+        if (nf) nf->flags |= O_NONBLOCK;
+    }
+    return r;
+}
+
+int unix_unbind_path(const char *path)
+{
+    for (int i = 0; i < MAX_UNIX_SOCKS; ++i) {
+        unix_socket_t *us = g_unix_socks[i];
+        if (us && strcmp(us->path, path) == 0) {
+            g_unix_socks[i] = NULL;
+            us->path[0] = '\0';
+            return 0;
+        }
+    }
+    return -ENOENT;
+}
