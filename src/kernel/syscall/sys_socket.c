@@ -17,6 +17,8 @@
 
 extern struct file_operations unix_socket_fops;
 
+static unix_socket_t *g_unix_socks[MAX_UNIX_SOCKS];
+
 int unix_sock_write(struct file *f, const void *buf, size_t size)
 {
     unix_socket_t *us = (unix_socket_t *)f->private_data;
@@ -69,22 +71,37 @@ int unix_sock_ioctl(struct file *f, unsigned long req, void *arg)
     return -EINVAL;
 }
 
+int unix_fdq_pop(unix_socket_t *s, struct file **out);   /* prototype above this function */
+static void unix_unregister_socket(unix_socket_t *us);
+
 int unix_sock_close(struct file *f)
 {
     unix_socket_t *us = (unix_socket_t *)f->private_data;
+    if (!us) return 0;
 
     struct file *pf;
     while (unix_fdq_pop(us, &pf) == 0)
-    {
         VFS_PutFile(pf);
+
+    /* un-accepted connections still queued on a listener */
+    while (us->pending_head != us->pending_tail) {
+        unix_socket_t *p = us->pending[us->pending_head];
+        us->pending_head = (us->pending_head + 1) % 16;
+        if (p->peer) p->peer->peer = NULL;
+        kfree(p);
     }
 
-    if (us) {
-        unix_unbind_path(us->path);
-        kfree(us);
-        f->private_data = NULL;
-    }
+    if (us->peer) us->peer->peer = NULL;      /* peer now sees EOF */
+    unix_unregister_socket(us);               /* by pointer, not by path */
+    kfree(us);
+    f->private_data = NULL;
     return 0;
+}
+
+static void unix_unregister_socket(unix_socket_t *us)
+{
+    for (int i = 0; i < MAX_UNIX_SOCKS; ++i)
+        if (g_unix_socks[i] == us) g_unix_socks[i] = NULL;
 }
 
 static int unix_can_read(struct file *f)
@@ -99,7 +116,7 @@ static int unix_can_read(struct file *f)
     }
 
     // connected socket: readable if buffer has data
-    return us->buf_len > 0;
+    return us->buf_len > 0 || us->fdq_head != us->fdq_tail || us->peer == NULL;
 }
 
 static int unix_can_write(struct file *f)
@@ -242,6 +259,7 @@ uint64_t sys_unix_recvmsg(uint64_t fd_arg, uint64_t msg_ptr_arg, uint64_t flags_
     }
 
     msg->msg_flags = 0;
+    int got = 0;
 
     // 2. SCM_RIGHTS receive
     if (msg->msg_control && msg->msg_controllen >= sizeof(struct cmsghdr_k)) {
@@ -262,7 +280,6 @@ uint64_t sys_unix_recvmsg(uint64_t fd_arg, uint64_t msg_ptr_arg, uint64_t flags_
             size_t hdr_len = CMSG_ALIGN_K(sizeof(struct cmsghdr_k));
             int *fds = (int *)((char *)cmsg + hdr_len);
 
-            int got = 0;
             for (int i = 0; i < nfds; ++i) {
                 struct file *pf;
                 if (unix_fdq_pop(us, &pf) < 0) break;
@@ -276,23 +293,17 @@ uint64_t sys_unix_recvmsg(uint64_t fd_arg, uint64_t msg_ptr_arg, uint64_t flags_
                 fds[got++] = newfd;
             }
 
-            if (got > 0) {
+            if (got > 0) 
+            {
                 size_t fd_bytes = got * sizeof(int);
                 cmsg->cmsg_level = SOL_SOCKET;
                 cmsg->cmsg_type  = SCM_RIGHTS;
                 cmsg->cmsg_len   = CMSG_LEN_K(fd_bytes);
                 msg->msg_controllen = CMSG_SPACE_K(fd_bytes);
-            } else {
+            }
+            else {
                 msg->msg_controllen = 0;
             }
-
-
-            size_t fd_bytes = nfds * sizeof(int);
-            cmsg->cmsg_level = SOL_SOCKET;
-            cmsg->cmsg_type  = SCM_RIGHTS;
-            cmsg->cmsg_len   = CMSG_LEN_K(fd_bytes);
-
-            msg->msg_controllen = CMSG_SPACE_K(fd_bytes);
         } else {
             msg->msg_controllen = 0;
         }
@@ -300,7 +311,11 @@ uint64_t sys_unix_recvmsg(uint64_t fd_arg, uint64_t msg_ptr_arg, uint64_t flags_
         msg->msg_controllen = 0;
     }
 
-    return (uint64_t)total == 0 ? -EAGAIN : (uint64_t)total;
+    if (total == 0 && got == 0)
+    {
+        return us->peer ? (uint64_t)-EAGAIN : 0;
+    }
+    return (uint64_t)total;
 }
 
 
@@ -349,7 +364,6 @@ struct file_operations unix_socket_fops = {
 };
 
 
-static unix_socket_t *g_unix_socks[MAX_UNIX_SOCKS];
 
 static void unix_register_socket(unix_socket_t *us)
 {
@@ -504,20 +518,21 @@ uint64_t sys_connect(uint64_t fd, uint64_t addr_ptr, uint64_t addrlen)
     if (!srv || !srv->listening)
         return (uint64_t)-ECONNREFUSED;
 
-    unix_socket_t *srv_side = kmalloc(sizeof(unix_socket_t));
-    if (!srv_side)
-        return (uint64_t)-ENOMEM;
-    memset(srv_side, 0, sizeof(*srv_side));
-
-    srv_side->peer = cli;
-    cli->peer      = srv_side;
-
     int next = (srv->pending_tail + 1) % 16;
-    if (next == srv->pending_head) {
-        kfree(srv_side);
+    if (next == srv->pending_head)
+    {
         return (uint64_t)-ECONNREFUSED;
     }
 
+    unix_socket_t *srv_side = kmalloc(sizeof(*srv_side));
+    if (!srv_side)
+    {
+        return (uint64_t)-ENOMEM;
+    }
+
+    memset(srv_side, 0, sizeof(*srv_side));
+    srv_side->peer = cli;  cli->peer = srv_side;
+    srv_side->connected = cli->connected = true;
     srv->pending[srv->pending_tail] = srv_side;
     srv->pending_tail = next;
 

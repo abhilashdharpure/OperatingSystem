@@ -939,18 +939,6 @@ int main()
 
     syscall6(SYS_test, 11, 22, 33, 44, 55, 66);
 
-    // testClientSocketPool();
-
-
-    // printf("Hello from /bin/init!\n");
-
-    // // char *argv[] = { "test", NULL };
-    // // execve("/bin/test", argv, NULL);
-
-    // // // If execve fails:
-    // // printf("execve /bin/test failed\n");
-
-
     start_compositor();
 
     // If compositor exits, keep init alive

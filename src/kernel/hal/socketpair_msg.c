@@ -5,24 +5,19 @@
 #include "errno.h"   // where EINVAL, EBADF, ENOBUFS, etc. live
 #include "types.h"
 
-static int sp_fdq_push(int *q, int *head, int *tail, int fd)
+static int sp_fdq_push(struct file **q, int *head, int *tail, struct file *f)
 {
     int next = (*tail + 1) % SP_MAX_FDS;
-    if (next == *head)
-        return -1; // full
-    q[*tail] = fd;
-    *tail = next;
-    return 0;
+    if (next == *head) return -1;
+    q[*tail] = f; *tail = next; return 0;
 }
 
-static int sp_fdq_pop(int *q, int *head, int *tail, int *out_fd)
+static int sp_fdq_pop(struct file **q, int *head, int *tail, struct file **out)
 {
-    if (*head == *tail)
-        return -1; // empty
-    *out_fd = q[*head];
-    *head = (*head + 1) % SP_MAX_FDS;
-    return 0;
+    if (*head == *tail) return -1;
+    *out = q[*head]; *head = (*head + 1) % SP_MAX_FDS; return 0;
 }
+
 static int sp_get_from_fd(int fd, socketpair_t **out_sp, int *out_side)
 {
     if (!VFS_IsValidFd(fd))
@@ -109,15 +104,15 @@ uint64_t sys_sp_sendmsg(uint64_t fd_arg, uint64_t msg_ptr_arg, uint64_t flags_ar
                 if (!VFS_IsValidFd(pass_fd))
                     return (uint64_t)-EBADF;
 
-                struct file *pf = VFS_GetFile(pass_fd);
+                struct file *pf = VFS_GetFile(fds[i]);
                 if (!pf)
+                {
                     return (uint64_t)-EBADF;
-
-                // Bump refcount; receiver will also hold a ref
+                }
                 pf->refcount++;
-
-                if (sp_fdq_push(q, q_head, q_tail, pass_fd) < 0) {
-                    // Queue full
+                if (sp_fdq_push(q, q_head, q_tail, pf) < 0) 
+                {
+                    VFS_PutFile(pf);
                     return (uint64_t)-ENOBUFS;
                 }
             }
@@ -196,20 +191,27 @@ uint64_t sys_sp_recvmsg(uint64_t fd_arg, uint64_t msg_ptr_arg, uint64_t flags_ar
             size_t hdr_len = CMSG_ALIGN_K(sizeof(struct cmsghdr_k));
             int *fds = (int *)((char *)cmsg + hdr_len);
 
-            for (int i = 0; i < nfds; ++i) {
-                int fd_val;
-                if (sp_fdq_pop(q, q_head, q_tail, &fd_val) < 0)
-                    break;
-                fds[i] = fd_val;
-                // We do NOT change refcount here; sender already bumped it
+            int got = 0;
+            for (int i = 0; i < nfds; ++i)
+            {
+                struct file *pf;
+                if (sp_fdq_pop(q, q_head, q_tail, &pf) < 0) break;
+                int nfd = VFS_AllocFd();
+                if (nfd < 0) { VFS_PutFile(pf); break; }
+                VFS_SetFd(nfd, pf);          /* ref from send time now belongs to this fd */
+                fds[got++] = nfd;
             }
-
-            size_t fd_bytes = nfds * sizeof(int);
-            cmsg->cmsg_level = SOL_SOCKET;
-            cmsg->cmsg_type  = SCM_RIGHTS;
-            cmsg->cmsg_len   = CMSG_LEN_K(fd_bytes);
-
-            msg->msg_controllen = CMSG_SPACE_K(fd_bytes);
+            if (got > 0)
+            {
+                size_t fd_bytes = got * sizeof(int);
+                cmsg->cmsg_level = SOL_SOCKET; cmsg->cmsg_type = SCM_RIGHTS;
+                cmsg->cmsg_len = CMSG_LEN_K(fd_bytes);
+                msg->msg_controllen = CMSG_SPACE_K(fd_bytes);
+            } 
+            else
+            {
+                msg->msg_controllen = 0;
+            }
         } else {
             msg->msg_controllen = 0;
         }

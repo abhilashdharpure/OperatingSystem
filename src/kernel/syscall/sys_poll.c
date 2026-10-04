@@ -129,6 +129,12 @@ uint64_t sys_poll(uint64_t ufds_ptr,
     // allow timer IRQs while we wait
     __asm__ volatile("sti");
 
+    // for (;;) {
+    //     n = count_ready(pfds, nfds);          /* uses VFS_CanRead/CanWrite */
+    //     if (n || timeout == 0) return n;
+    //     if (timeout > 0 && pit_get_ticks() >= deadline) return 0;
+    //     __asm__ volatile("sti; hlt; cli");
+    // }
 
 
     for (;;) {

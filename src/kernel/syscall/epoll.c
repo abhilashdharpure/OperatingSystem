@@ -246,7 +246,8 @@ long sys_epoll_wait(int epfd, struct epoll_event *user_events,
     struct pollfd pfds[MAX_EPOLL_FDS];
     struct epoll_event kev[MAX_EPOLL_FDS];
 
-    for (int i = 0; i < epi->nfds; i++) {
+    for (int i = 0; i < epi->nfds; i++)
+    {
         pfds[i].fd = epi->watches[i].fd;
         pfds[i].events = 0;
         if (epi->watches[i].events & EPOLLIN)  pfds[i].events |= POLLIN;

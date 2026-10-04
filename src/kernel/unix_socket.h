@@ -7,6 +7,7 @@ typedef struct unix_socket
 {
     bool listening;
     struct unix_socket *peer;
+    bool connected;
 
     char   buf[4096];
     size_t buf_len;
