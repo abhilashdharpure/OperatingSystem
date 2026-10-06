@@ -498,6 +498,8 @@ uint64_t sys_listen(uint64_t fd, uint64_t backlog)
 
 uint64_t sys_connect(uint64_t fd, uint64_t addr_ptr, uint64_t addrlen)
 {
+    log_info("SYS_SOCKET", "sys_connect start fd = %ul addr_ptr = %ul addrlen = %ul",fd, addr_ptr, addrlen);
+
     struct file *f = VFS_GetFile((int)fd);
     if (!f || f->fops != &unix_socket_fops)
         return (uint64_t)-EBADF;
@@ -535,6 +537,11 @@ uint64_t sys_connect(uint64_t fd, uint64_t addr_ptr, uint64_t addrlen)
     srv_side->connected = cli->connected = true;
     srv->pending[srv->pending_tail] = srv_side;
     srv->pending_tail = next;
+
+    log_info("SYS_SOCKET",
+         "queued connection: head=%d tail=%d",
+         srv->pending_head,
+         srv->pending_tail);
 
     return 0;
 }
@@ -622,4 +629,86 @@ int unix_unbind_path(const char *path)
         }
     }
     return -ENOENT;
+}
+
+uint64_t sys_getsockopt(uint64_t fd_arg,
+                        uint64_t level_arg,
+                        uint64_t optname_arg,
+                        uint64_t optval_arg,
+                        uint64_t optlen_arg)
+{
+    int fd      = (int)fd_arg;
+    int level   = (int)level_arg;
+    int optname = (int)optname_arg;
+
+    log_info("SOCKET",
+             "getsockopt fd=%d level=%d opt=%d",
+             fd,
+             level,
+             optname);
+
+    struct file *f = VFS_GetFile(fd);
+    if (!f)
+        return (uint64_t)-EBADF;
+
+    uint32_t *optlen = (uint32_t *)(uintptr_t)optlen_arg;
+    if (!optlen)
+        return (uint64_t)-EFAULT;
+
+    uint32_t len = *optlen;
+
+    switch (level)
+    {
+        case SOL_SOCKET:
+        {
+            switch (optname)
+            {
+                case SO_ERROR:
+                {
+                    if (len < sizeof(int))
+                        return (uint64_t)-EINVAL;
+
+                    int err = 0;
+
+                    memcpy((void *)(uintptr_t)optval_arg,
+                           &err,
+                           sizeof(err));
+
+                    *optlen = sizeof(int);
+
+                    log_info("SOCKET",
+                             "getsockopt SO_ERROR -> 0");
+
+                    return 0;
+                }
+                case SO_PEERCRED: {
+                    if (len < 12) return (uint64_t)-EINVAL;
+                    struct { int32_t pid; uint32_t uid, gid; } uc = { 1, 0, 0 };
+                    if (copy_to_user(optval_arg, &uc, sizeof(uc)) != 0) return (uint64_t)-EFAULT;
+                    uint32_t n = sizeof(uc);
+                    copy_to_user(optlen_arg, &n, sizeof(n));
+                    return 0;
+                }
+
+                default:
+                {
+                    log_info("SOCKET",
+                             "unsupported SOL_SOCKET opt=%d",
+                             optname);
+
+                    return (uint64_t)-ENOPROTOOPT; 
+                }
+            }
+        }
+
+        default:
+        {
+            log_info("SOCKET",
+                     "unsupported level=%d opt=%d",
+                     level,
+                     optname);
+
+            return 0;
+        }
+    }
 }

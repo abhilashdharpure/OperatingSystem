@@ -22,6 +22,9 @@ struct fb_device {
 } info;
 
 
+uint8_t* g_fb_ptr = nullptr; uint32_t g_fb_pitch = 0, g_fb_w = 0, g_fb_h = 0;
+
+
 int main() {
     printf("Hello from Compositor!\n");
 
@@ -63,6 +66,8 @@ int main() {
         perror("ERROR: mmap fb Failed \0");
         exit(1);
     }
+
+    g_fb_ptr = (uint8_t*)fb; g_fb_pitch = info.pitch; g_fb_w = info.width; g_fb_h = info.height;
 
     close(fb_fd);
 

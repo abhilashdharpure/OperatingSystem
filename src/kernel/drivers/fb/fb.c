@@ -7,6 +7,17 @@
 VbeModeInfo fb;
 fb_device_t fb_dev;
 
+extern uint64_t *kernel_pml4_virt;
+
+static struct { uint64_t s, e; } g_shared_maps[64];
+static void shared_map_add(uint64_t s, uint64_t len) {
+    for (int i = 0; i < 64; i++) if (!g_shared_maps[i].e) { g_shared_maps[i].s = s; g_shared_maps[i].e = s + len; return; }
+}
+static bool is_shared_va(uint64_t va) {
+    for (int i = 0; i < 64; i++) if (va >= g_shared_maps[i].s && va < g_shared_maps[i].e) return true;
+    return false;
+}
+
 static int fb_open(struct file *f)
 {
     // nothing special
@@ -40,48 +51,39 @@ static int fb_ioctl(struct file *f, int cmd, void *arg)
     }
 }
 
-static int fb_mmap(struct file *f,
-                   uint64_t length,
-                   uint64_t prot,
-                   uint64_t flags,
-                   uint64_t offset,
-                   uint64_t *out_user_va)
+
+static int fb_mmap(struct file *f, uint64_t length, uint64_t prot,
+                   uint64_t flags, uint64_t offset, uint64_t *out_user_va)
 {
     fb_device_t *dev = f->private_data;
-
-    uint64_t fb_pa   = dev->framebuffer + offset;
     uint64_t fb_size = (uint64_t)dev->pitch * dev->height;
 
-    if (offset >= fb_size || offset + length > fb_size)
-        return -1;
-
-    if (!current_process)
-        return -1;
-
+    if (offset >= fb_size || offset + length > fb_size) return -1;
+    if (!current_process) return -1;
     if (current_process->mmap_base == 0)
         current_process->mmap_base = USER_MMAP_BASE;
 
-    uint64_t page_size = PAGE_SIZE;
-    uint64_t len   = (length + page_size - 1) & ~(page_size - 1);
-    uint64_t start = (current_process->mmap_base + page_size - 1) & ~(page_size - 1);
+    uint64_t len   = (length + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+    uint64_t start = (current_process->mmap_base + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
 
-    uint64_t flags_pte = PAGE_PRESENT | PAGE_USER;
-    if (prot & PROT_WRITE)
-        flags_pte |= PAGE_RW;
+    uint64_t pte_flags = PAGE_PRESENT | PAGE_USER;
+    if (prot & PROT_WRITE) pte_flags |= PAGE_RW;
 
-    uint64_t pa = fb_pa & ~(page_size - 1);
-    uint64_t va = start;
+    uint64_t kva_base = (dev->framebuffer + offset) & ~(PAGE_SIZE - 1);
 
-    for (uint64_t off = 0; off < len; off += page_size) {
-        if (map_page(current_process->page_directory,
-                     va + off,
-                     pa + off,
-                     flags_pte) != 0)
-        {
+    for (uint64_t off = 0; off < len; off += PAGE_SIZE) {
+        uint64_t pa = get_mapped_phys(kernel_pml4_virt, kva_base + off);
+        if (!pa) {
+            log_error("FB", "fb_mmap: no phys for kva=0x%llx",
+                      (unsigned long long)(kva_base + off));
             return -1;
         }
+        if (map_page(current_process->page_directory, start + off,
+                     pa & ~(PAGE_SIZE - 1), pte_flags) != 0)
+            return -1;
     }
 
+    shared_map_add(start, len);
     current_process->mmap_base = start + len;
     *out_user_va = start;
     return 0;
@@ -122,6 +124,37 @@ void fb_init(VbeModeInfo* info)
     log_info("FB", "Framebuffer initialized: %ux%u, pitch=%u, bpp=%u, addr=0x%lx",
              fb_dev.width, fb_dev.height, fb_dev.pitch, fb_dev.bpp, fb_dev.framebuffer);
 
+
+    log_info("FB",
+         "info->framebuffer = 0x%llx",
+         (unsigned long long)info->framebuffer);
+
+    log_info("FB",
+            "fb_dev.framebuffer = 0x%llx",
+            (unsigned long long)fb_dev.framebuffer);
+
+    log_info("FB",
+            "DIRECT_MAP_BASE = 0x%llx",
+            (unsigned long long)DIRECT_MAP_BASE);
+
+    log_info("FB",
+            "KERNEL_VMA_BASE = 0x%llx",
+            (unsigned long long)KERNEL_VMA_BASE);
+
+            uint64_t fb_addr = info->framebuffer;
+
+            if (fb_addr >= DIRECT_MAP_BASE) {
+                log_info("FB",
+                        "framebuffer looks like DIRECT-MAP virtual address; PA=0x%llx",
+                        (unsigned long long)virt_to_phys((void *)fb_addr));
+            } else if (fb_addr >= KERNEL_VMA_BASE) {
+                log_info("FB",
+                        "framebuffer looks like KERNEL virtual address; PA=0x%llx",
+                        (unsigned long long)kernel_virt_to_phys((void *)fb_addr));
+            } else {
+                log_info("FB",
+                        "framebuffer looks like a physical/low address");
+            }
 
     // // Optional: Fill framebuffer with a test pattern
     // uint32_t* fb_mem = (uint32_t*)fb_dev.framebuffer;

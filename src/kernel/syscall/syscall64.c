@@ -354,7 +354,11 @@ uint64_t syscall_dispatch(uint64_t nr,
 
     case SYS_epoll_wait:
     case SYS_epoll_pwait:
-        return sys_epoll_wait(a0, a1, a2, a3); // epfd, events*, maxevents, timeout
+    {
+        long r = sys_epoll_wait(a0, a1, a2, a3); // epfd, events*, maxevents, timeout
+        log_info("EPOLL","ret=%ld", r);
+        return r;
+    }
 
     case SYS_preadv:
         // preadv(fd, iov, vlen, offset)
@@ -385,6 +389,9 @@ uint64_t syscall_dispatch(uint64_t nr,
 
     case SYS_accept4:
         return sys_accept4(a0, a1, a2, a3);
+
+    case SYS_getsockopt:
+        return sys_getsockopt(a0, a1, a2, a3, a4);
 
 
     // case SYS_timerfd_create:

@@ -83,6 +83,10 @@ void dump_pte_for_va(uint64_t pml4_phys, uint64_t va)
     uint64_t *pt = (uint64_t *)phys_to_virt(pt_pa);
     uint64_t pte = pt[idx_pt];
     log_info("PGDBG", "   PT[%llu]=0x%llx", idx_pt, (unsigned long long)pte);
+        log_info("PGDBG",
+    "pt_pa=%llx pt_virt=%p",
+    pt_pa,
+    phys_to_virt(pt_pa));
 
     log_info("PGDBG", "PT[%llu]=0x%llx (present=%d user=%d rw=%d nx=%d)",
          idx_pt, (unsigned long long)pte,
@@ -305,6 +309,15 @@ int map_page(uint64_t *pml4, uint64_t va, uint64_t pa, uint64_t flags)
         return -1;
     }
 
+    if (va >= 0x100000000ULL &&
+    va <  0x100020000ULL)
+    {
+        log_info("FBTRACE",
+            "map_page va=%llx pa=%llx flags=%llx",
+            va, pa, flags);
+    }
+
+
     // log_info("Paging", "map_page: pml4=%p va=0x%llx pa=0x%llx flags=0x%llx",
     //          pml4, va, pa, flags);
     uint64_t *pdp = get_or_alloc_pdp(pml4, va, flags);
@@ -337,6 +350,10 @@ int map_page(uint64_t *pml4, uint64_t va, uint64_t pa, uint64_t flags)
     // }
 
 
+    // log_info("MAP",
+    //     "PTE written = %llx",
+    //     pt[idx]);
+    
     __asm__ volatile("invlpg (%0)" :: "r"(va) : "memory");
 
     // log_info("MAP", "map_page: mapped va=0x%llx -> pa=0x%llx flags=0x%llx", (unsigned long long)va, (unsigned long long)pa, (unsigned long long)flags);

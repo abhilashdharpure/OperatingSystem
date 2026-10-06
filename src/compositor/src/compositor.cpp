@@ -28,6 +28,38 @@
 #include <algorithm>
 #include <climits>
 #include <time.h>
+#include "builtin_client.h"
+
+extern uint8_t* g_fb_ptr; extern uint32_t g_fb_pitch, g_fb_w, g_fb_h;
+
+// static int on_client_fd(int fd, uint32_t mask, void*)
+// {
+//     printf("[Pump] fd=%d mask=%x\n", fd, mask);
+//     builtin_client_pump();
+//     return 0;
+// }
+
+
+static wl_event_source* g_client_src = nullptr;
+
+static int on_client_fd(int fd, uint32_t mask, void *data)
+{
+    (void)fd;
+    (void)mask;
+    (void)data;
+
+    builtin_client_pump();
+
+    if (builtin_client_get_error())
+    {
+        wl_event_source_remove(g_client_src);
+        builtin_client_disconnect();
+        g_client_src = nullptr;
+    }
+
+    return 0;
+}
+
 
 CompositorInput compositorInput;
 // SDL_Window* window;
@@ -124,14 +156,14 @@ void send_keymap_to_client(wl_resource* keyboard_res)
     xkb_context_unref(ctx);
 }
 
-void fb_flush(LumaCompositor *comp)
+void fb_flush(LumaCompositor* comp)
 {
-    // std::cout << "[LumaCompositor] fb_flush\n";
-
-    // SDL_UpdateTexture(texture, nullptr, comp_framebuffer.data(), comp->output_width * 4);
-    // SDL_RenderClear(renderer);
-    // SDL_RenderCopy(renderer, texture, nullptr, nullptr);
-    // SDL_RenderPresent(renderer);
+    if (!g_fb_ptr) return;
+    int w = std::min<int>(comp->output_width,  g_fb_w);
+    int h = std::min<int>(comp->output_height, g_fb_h);
+    for (int y = 0; y < h; y++)
+        memcpy(g_fb_ptr + (size_t)y * g_fb_pitch,
+               &comp_framebuffer[(size_t)y * comp->output_width], (size_t)w * 4);
 }
 
 static inline void blend_pixel(uint8_t* dst, const uint8_t* src, const uint8_t* map_start, const uint8_t* map_end)
@@ -496,7 +528,7 @@ void compositor_repaint(LumaCompositor* comp)
         }
     }
 
-    // Push to output backend (your SDL renderer or kernel fb)
+    // Push to output backend (kernel fb)
     fb_flush(comp);
 }
 
@@ -959,45 +991,56 @@ static void shm_pool_resize(struct wl_client* client, struct wl_resource* resour
 }
 
 
-static void shm_pool_destroy_req(struct wl_client* client, struct wl_resource* pool_res)
+
+// shm_buffer destructor:    ~shm_buffer() { if (pool) pool_unref(pool); }
+static void shm_pool_destroy_req(wl_client*, wl_resource* r)
 {
-    std::cout << "[LumaCompositor] shm_pool_destroy_req\n";
-    auto *pool = static_cast<shm_pool_data*>(wl_resource_get_user_data(pool_res));
-    if (!pool) return;
-
-    std::scoped_lock lk(pool->pool_mutex);
-    pool->pending_unmap = true;
-
-    bool any_live = false;
-    for (shm_buffer* b : pool->buffers)
-    {
-        if (!b) continue;
-        int refs = b->refcount.load(std::memory_order_acquire);
-        if (refs > 0)
-        {
-            any_live = true;
-            b->pending_destroy.store(true, std::memory_order_release);
-        }
-    }
-
-    if (!any_live)
-    {
-        // safe to unmap now
-        if (pool->data && pool->data != MAP_FAILED)
-        {
-            std::cout << "[LumaCompositor] shm_pool_destroy: unmapping pool data\n";
-            munmap(pool->data, pool->size);
-            pool->data = nullptr;
-        }
-        wl_resource_set_user_data(pool_res, nullptr);
-        delete pool;
-    }
-    else
-    {
-        // keep pool alive; it will be unmapped when last buffer is freed (see maybe_cleanup_pool below)
-        std::cout << "[LumaCompositor] shm_pool_destroy: deferring unmap, live buffers remain\n";
-    }
+    wl_resource_destroy(r);
 }
+
+
+// static void shm_pool_destroy_req(struct wl_client* client, struct wl_resource* pool_res)
+// {
+//     std::cout << "[LumaCompositor] shm_pool_destroy_req\n";
+//     auto *pool = static_cast<shm_pool_data*>(wl_resource_get_user_data(pool_res));
+//     if (!pool) return;
+
+//     std::scoped_lock lk(pool->pool_mutex);
+//     pool->pending_unmap = true;
+
+//     bool any_live = false;
+//     for (shm_buffer* b : pool->buffers)
+//     {
+//         if (!b) continue;
+//         int refs = b->refcount.load(std::memory_order_acquire);
+//         if (refs > 0)
+//         {
+//             any_live = true;
+//             b->pending_destroy.store(true, std::memory_order_release);
+//         }
+//     }
+
+//     if (!any_live)
+//     {
+//         // safe to unmap now
+//         if (pool->data && pool->data != MAP_FAILED)
+//         {
+//             std::cout << "[LumaCompositor] shm_pool_destroy: unmapping pool data\n";
+//             munmap(pool->data, pool->size);
+//             pool->data = nullptr;
+//         }
+//         wl_resource_set_user_data(pool_res, nullptr);
+//         delete pool;
+//     }
+//     else
+//     {
+//         // keep pool alive; it will be unmapped when last buffer is freed (see maybe_cleanup_pool below)
+//         std::cout << "[LumaCompositor] shm_pool_destroy: deferring unmap, live buffers remain\n";
+//     }
+// }
+
+
+// shm_pool_create_buffer:   pool->refs++;   after "buf->pool = pool;"
 
 static void shm_pool_create_buffer(struct wl_client *client, struct wl_resource *pool_res,
                                    uint32_t id, int32_t offset, int32_t width, int32_t height,
@@ -1052,6 +1095,7 @@ std::cout << "[LumaCompositor] shm_pool_create_buffer callback:"
     buf->refcount.store(0);
     buf->pending_destroy.store(false);
     buf->pool = pool;
+    pool->refs++; 
     buf->owner_surface = nullptr;
 
     // register wrapper with pool so pool knows about live buffers
@@ -1073,17 +1117,33 @@ static const struct wl_shm_pool_interface shm_pool_impl = {
 
 
 // ------------------ wl_shm ------------------
-static void shm_pool_destroy(struct wl_resource* resource)
+// shm_pool_data: add   int refs = 1;   // 1 = the wl_resource
+static void pool_unref(shm_pool_data* p)
 {
-    auto *pool = static_cast<shm_pool_data*>(wl_resource_get_user_data(resource));
-    if (!pool) return;
-    // If you mmap'ed pool->data, munmap here:
-    if (pool->data && pool->data != MAP_FAILED)
-    {
-        munmap(pool->data, pool->size);
-    }
-    delete pool;
+    if (--p->refs > 0) return;
+    if (p->data && p->data != MAP_FAILED) munmap(p->data, p->size);
+    close(p->fd);
+    delete p;
 }
+
+static void shm_pool_destroy(wl_resource* r) {              // the resource destructor
+    if (auto* p = (shm_pool_data*)wl_resource_get_user_data(r))
+    {
+        pool_unref(p);
+    }
+}
+
+// static void shm_pool_destroy(struct wl_resource* resource)
+// {
+//     auto *pool = static_cast<shm_pool_data*>(wl_resource_get_user_data(resource));
+//     if (!pool) return;
+//     // If you mmap'ed pool->data, munmap here:
+//     if (pool->data && pool->data != MAP_FAILED)
+//     {
+//         munmap(pool->data, pool->size);
+//     }
+//     delete pool;
+// }
 
 static void shm_create_pool(struct wl_client* client, struct wl_resource* resource,
                             uint32_t id, int32_t fd, int32_t size)
@@ -1218,23 +1278,25 @@ static void surface_commit(wl_client* client, wl_resource* surface_res)
         //----------------------------------------------------------
         bool is_cursor = (surf == comp->cursor_surface);
         // if (!is_cursor && !isResizeSurface)
-        if (!is_cursor)
-        {
-            std::cout << "[LumaCompositor] surface_commit... wl_buffer_send_release\n";
+        // if (!is_cursor)
+        // {
+        //     std::cout << "[LumaCompositor] surface_commit... wl_buffer_send_release\n";
 
-            wl_buffer_send_release(surf->buffer_res);
+        //     wl_buffer_send_release(surf->buffer_res);
 
-            // decrease refcount on the old one (we no longer hold it)
-            surf->committed_buffer->refcount.fetch_sub(1, std::memory_order_acq_rel);
-            surf->buffer_res = nullptr;
-        }
+        //     // decrease refcount on the old one (we no longer hold it)
+        //     surf->committed_buffer->refcount.fetch_sub(1, std::memory_order_acq_rel);
+        //     surf->buffer_res = nullptr;
+        // }
     }// mutex
+
+    std::cout << "[LumaCompositor] surface_commit... pending_configured set to false\n";
 
     surf->pending_configured = false;
     // wl_display_flush_clients(comp->display);
 
     comp->needs_repaint = true;
-    // compositor_repaint(comp);
+    compositor_repaint(comp);
 }
 
 void clear_surface_from_framebuffer(LumaCompositor* comp, my_surface* surf)
@@ -1841,11 +1903,28 @@ static const struct xdg_surface_interface xdg_surface_impl = {
 };
 
 // ------------------ xdg_wm_base ------------------
-static void xdg_wm_base_destroy(struct wl_client*, struct wl_resource*)
+// static void xdg_wm_base_destroy(struct wl_client*, struct wl_resource*)
+// {
+//     std::cout << "[LumaCompositor] xdg_wm_base_destroy...\n";
+
+// }
+
+static void wm_base_resource_gone(struct wl_resource* r)
+{
+    LumaCompositor* c = (LumaCompositor*)wl_resource_get_user_data(r);
+    if (c && c->wm_base_resource == r)
+    {
+        c->wm_base_resource = nullptr;
+    }
+}
+
+static void xdg_wm_base_destroy(struct wl_client*, struct wl_resource* r)
 {
     std::cout << "[LumaCompositor] xdg_wm_base_destroy...\n";
 
+    wl_resource_destroy(r);
 }
+
 
 // ------------------ xdg_positioner ------------------
 static void xdg_positioner_destroy(struct wl_client*, struct wl_resource*)
@@ -1984,20 +2063,41 @@ static void xdg_wm_base_get_xdg_surface(struct wl_client* client, struct wl_reso
     surf->xdg_surface_res = xdg_surf;
 }
 
-static void xdg_wm_base_pong(struct wl_client* client, struct wl_resource* surface, uint32_t)
+static void xdg_wm_base_pong(struct wl_client*, struct wl_resource* res, uint32_t serial)
 {
-    std::cout << "[LumaCompositor] xdg_wm_base_pong...\n";
-    my_surface* surf = static_cast<my_surface*>(wl_resource_get_user_data(surface));
-    if (!surf) {
-        return;
+    LumaCompositor* comp = static_cast<LumaCompositor*>(wl_resource_get_user_data(res));
+    if (comp)
+    {
+        comp->is_pong_received = true;
+        std::cout << "[LumaCompositor] after surface is_pong_received is true...\n";
     }
-    if (!surf->compositor) {
-        return;
-    }
-
-    surf->compositor->is_pong_received = true;
-
 }
+
+// static void xdg_wm_base_pong(struct wl_client* client, struct wl_resource* surface, uint32_t)
+// {
+//     std::cout << "[LumaCompositor] xdg_wm_base_pong...\n";
+//     my_surface* surf = static_cast<my_surface*>(wl_resource_get_user_data(surface));
+//     std::cout << "[LumaCompositor] after surface in pong...\n";
+
+//     if (!surf) 
+//     {
+//         std::cout << "[LumaCompositor] xdg_wm_base_pong surf is NULL\n";
+//         return;
+//     }
+
+//     std::cout << "[LumaCompositor] after surface in pong 2..\n";
+
+//     if (!surf->compositor)
+//     {
+//         std::cout << "[LumaCompositor] xdg_wm_base_pong compositor is NULL\n";
+//         return;
+//     }
+
+//     std::cout << "[LumaCompositor] after surface in pong 3..\n";
+
+//     surf->compositor->is_pong_received = true;
+//     std::cout << "[LumaCompositor] after surface is_pong_received is true...\n";
+// }
 
 static const struct xdg_wm_base_interface xdg_wm_base_impl = {
     .destroy = xdg_wm_base_destroy,
@@ -2267,20 +2367,24 @@ static void bind_shm(struct wl_client* client, void* data, uint32_t version, uin
     // advertise a common format
     if (ver >= WL_SHM_FORMAT_ARGB8888) { // WL_SHM_FORMAT_* are enums; check header if needed
         wl_shm_send_format(res, WL_SHM_FORMAT_ARGB8888);
+        wl_shm_send_format(res, WL_SHM_FORMAT_XRGB8888);
     } else {
         // still send something if available (older headers unlikely)
         wl_shm_send_format(res, WL_SHM_FORMAT_ARGB8888);
+        wl_shm_send_format(res, WL_SHM_FORMAT_XRGB8888);
+        
     }
 
     wl_resource_set_implementation(res, &shm_impl, nullptr, nullptr);
 }
+
 
 static void bind_xdg_wm_base(struct wl_client* client, void* data, uint32_t version, uint32_t id)
 {
     std::cout << "[LumaCompositor] bind_xdg_wm_base...\n";
 
     wl_resource* res = wl_resource_create(client, &xdg_wm_base_interface, version, id);
-    wl_resource_set_implementation(res, &xdg_wm_base_impl, data, nullptr);
+    wl_resource_set_implementation(res, &xdg_wm_base_impl, data, wm_base_resource_gone);
 
     LumaCompositor* compositor = static_cast<LumaCompositor*>(data);
     compositor->wm_base_resource = res;
@@ -2302,210 +2406,7 @@ void setup_wayland_display(wl_display* display)
 
 static void sdl_renderer_thread(int win_w, int win_h, LumaCompositor* comp)
 {
-    // if (SDL_Init(SDL_INIT_VIDEO) != 0)
-    // {
-    //     std::cerr << "SDL_Init error: " << SDL_GetError() << std::endl;
-    //     return;
-    // }
-
-    // window = SDL_CreateWindow("LumaCompositor (Preview)",
-    //                                       SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-    //                                       win_w, win_h,
-    //                                       SDL_WINDOW_RESIZABLE);
-    // if (!window)
-    // {
-    //     std::cerr << "SDL_CreateWindow error: " << SDL_GetError() << std::endl;
-    //     SDL_Quit();
-    //     return;
-    // }
-
-    // renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
-    // if (!renderer)
-    // {
-    //     std::cerr << "SDL_CreateRenderer error: " << SDL_GetError() << std::endl;
-    //     SDL_DestroyWindow(window);
-    //     SDL_Quit();
-    //     return;
-    // }
-
-    // texture = SDL_CreateTexture(renderer,
-    //                             SDL_PIXELFORMAT_ARGB8888,
-    //                             SDL_TEXTUREACCESS_STREAMING,
-    //                             win_w, win_h);
-    // if (!texture)
-    // {
-    //     std::cerr << "SDL_CreateTexture error: " << SDL_GetError() << std::endl;
-    //     SDL_DestroyRenderer(renderer);
-    //     SDL_DestroyWindow(window);
-    //     SDL_Quit();
-    //     return;
-    // }
-
-    // sdl_thread_running.store(true);
-
-    // while (sdl_thread_running.load())
-    // {
-    //     SDL_Event ev;
-
-    //     while (SDL_PollEvent(&ev))
-    //     {
-    //         if (ev.type == SDL_QUIT)
-    //         {
-    //             sdl_thread_running.store(false);
-    //         } 
-    //         else if (ev.type == SDL_WINDOWEVENT && ev.window.event == SDL_WINDOWEVENT_SIZE_CHANGED)
-    //         {
-    //             // Optionally respond to resize
-    //         }
-    //         else if (ev.type == SDL_MOUSEMOTION)
-    //         {
-    //             int win_x, win_y;
-    //             SDL_GetWindowPosition(window, &win_x, &win_y);   // top-left of window on screen
-    //             int mouse_x_global, mouse_y_global;
-    //             SDL_GetGlobalMouseState(&mouse_x_global, &mouse_y_global);
-
-    //             // Compute mouse position relative to the SDL window content area
-    //             double local_x = mouse_x_global - win_x;
-    //             double local_y = mouse_y_global - win_y;
-
-    //             // Optional: scale correction if window != compositor framebuffer
-    //             int win_w, win_h;
-    //             SDL_GetWindowSize(window, &win_w, &win_h);
-
-    //             double sx = local_x * ((double)comp->output_width  / (double)win_w);
-    //             double sy = local_y * ((double)comp->output_height / (double)win_h);
-    //             comp->cursor_x = sx;
-    //             comp->cursor_y = sy;
-
-    //             handle_mouse_move(comp, sx, sy);
-    //         }
-    //         else if (ev.type == SDL_MOUSEBUTTONDOWN || ev.type == SDL_MOUSEBUTTONUP)
-    //         {
-    //             uint32_t button = 0;
-    //             switch (ev.button.button)
-    //             {
-    //                 case SDL_BUTTON_LEFT: button = BTN_LEFT; break;
-    //                 case SDL_BUTTON_MIDDLE: button = BTN_MIDDLE; break;
-    //                 case SDL_BUTTON_RIGHT: button = BTN_RIGHT; break;
-    //             }
-
-    //             uint32_t state = (ev.type == SDL_MOUSEBUTTONDOWN)
-    //                                 ? WL_POINTER_BUTTON_STATE_PRESSED
-    //                                 : WL_POINTER_BUTTON_STATE_RELEASED;
-
-    //             if (button == BTN_LEFT && state == WL_POINTER_BUTTON_STATE_PRESSED)
-    //             {
-    //                 comp->mouse_pressed = true;
-    //             }
-    //             else if (button == BTN_LEFT && state == WL_POINTER_BUTTON_STATE_RELEASED)
-    //             {
-    //                 comp->mouse_pressed = false;
-    //                 if (comp->move_grab_active && comp->moving_surface)
-    //                 {
-    //                     // finalize move
-    //                     comp->move_grab_active = false;
-
-    //                     auto itr = std::find(comp->surfaces.begin(), comp->surfaces.end(), comp->moving_surface);
-
-    //                     if(itr != comp->surfaces.end())
-    //                     {
-    //                         (*itr)->x = comp->moving_surface->x;
-    //                         (*itr)->y = comp->moving_surface->y;
-
-    //                         comp->focus_x = comp->moving_surface->x;
-    //                         comp->focus_y = comp->moving_surface->y;
-    //                     }
-
-    //                     comp->moving_surface = nullptr;
-
-    //                     // final repaint to ensure the surface appears at the final position
-    //                     std::cout<<"Move Stopped *****************************************"<<std::endl;
-    //                     // Send keyboard enter
-    //                     // if (comp->keyboard_resource) {
-    //                     //     safe_send_keyboard_enter(comp, comp->keyboard_focused_surface, comp->display);
-    //                     // }
-    //                     comp->needs_repaint = true;
-    //                     compositor_repaint(comp);
-
-    //                     // (optional) send any configure or focus updates as needed
-    //                 }
-    //                 else if(comp->resize_grab_active && comp->resizing_surface)
-    //                 {
-    //                     comp->resize_grab_active = false;
-    //                     comp->resizing_surface = nullptr;
-    //                     comp->resize_edges = toplevel_edges::NONE;
-    //                     std::cout<<"Resize Stopped *****************************************"<<std::endl;
-
-
-    //                     // // Send keyboard enter
-    //                     // if (comp->keyboard_resource) {
-    //                     //     safe_send_keyboard_enter(comp, comp->keyboard_focused_surface, comp->display);
-    //                     // }
-
-    //                     comp->needs_repaint = true;
-    //                     compositor_repaint(comp);
-    //                 }
-    //             }
-                
-    //             // if(comp->is_pong_received)
-    //             // if (!comp->resize_grab_active && !comp->move_grab_active)
-    //             {
-    //                 compositorInput.SendButtonEvent(comp, SDL_GetTicks(), button, state);
-    //                 // SendPing(comp);
-    //             }
-
-    //         }
-
-    //         if (comp->needs_repaint)
-    //         {
-    //             compositor_repaint(comp);
-    //         }
-    //     }
-
-    //     // Copy compositor framebuffer into texture
-    //     {
-    //         std::lock_guard<std::mutex> lk(comp_fb_mutex);
-    //         // note: comp_framebuffer.size == comp_width*comp_height
-    //         void* pixels = nullptr;
-    //         int pitch = 0;
-    //         if (SDL_LockTexture(texture, nullptr, &pixels, &pitch) == 0)
-    //         {
-    //             // pitch is bytes per row; our comp_width*4 equals expected pitch if sizes match
-    //             uint8_t* dst = (uint8_t*)pixels;
-    //             uint8_t* src = (uint8_t*)comp_framebuffer.data();
-    //             // if comp_width equals texture width and pitch == comp_width*4, we can memcpy whole buffer
-    //             if (pitch == win_w * 4)
-    //             {
-    //                 memcpy(dst, src, win_w * win_h * 4);
-    //             }
-    //             else
-    //             {
-    //                 // copy row by row
-    //                 for (int y = 0; y < win_h; ++y)
-    //                 {
-    //                     memcpy(dst + y * pitch, src + y * win_w * 4, win_h * 4);
-    //                 }
-    //             }
-    //             SDL_UnlockTexture(texture);
-    //         }
-    //     }
-
-    //     SDL_RenderClear(renderer);
-    //     // Fit texture to window
-    //     SDL_Rect dest;
-    //     int ww, wh;
-    //     SDL_GetWindowSize(window, &ww, &wh);
-    //     dest.x = 0; dest.y = 0; dest.w = ww; dest.h = wh;
-    //     SDL_RenderCopy(renderer, texture, nullptr, &dest);
-    //     SDL_RenderPresent(renderer);
-
-    //     SDL_Delay(16); // ~60 FPS
-    // }
-
-    // SDL_DestroyTexture(texture);
-    // SDL_DestroyRenderer(renderer);
-    // SDL_DestroyWindow(window);
-    // SDL_Quit();
+    
 }
 
 
@@ -2625,6 +2526,23 @@ bool luma_init(LumaCompositor* comp)
 
     std::cout << "[LumaCompositor] Wayland display initialized\n";
 
+
+    std::cout << "[LumaCompositor] STarting Client\n";
+
+
+
+    int cfd = builtin_client_start();
+    g_client_src = wl_event_loop_add_fd(comp->loop, cfd, WL_EVENT_READABLE, on_client_fd, comp);
+
+    std::cout << "dispatching manually\n";
+
+    // wl_event_loop_dispatch(comp->loop, 0);
+    wl_display_flush_clients(comp->display);
+    // if (cfd >= 0)
+    // {
+    //     wl_event_loop_add_fd(comp->loop, cfd, WL_EVENT_READABLE, on_client_fd, comp);
+    // }
+
     return true;
 }
 
@@ -2632,4 +2550,5 @@ void luma_run(LumaCompositor* comp)
 {
     std::cout << "[LumaCompositor] Running Wayland event loop...\n";
     wl_display_run(comp->display);
+    std::cout << "[LumaCompositor] wl_display_run returned\n";
 }

@@ -44,6 +44,5 @@
 #define ENOTCONN        107
 #define ECONNREFUSED    111
 
-
 // errno is a global variable in simple libc
 extern int errno;

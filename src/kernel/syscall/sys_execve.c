@@ -16,6 +16,8 @@
 extern BootParams g_bootParams;
 extern Process *current_process;
 
+#define ENABLE_COPYDBG
+
 #ifdef ENABLE_COPYDBG
 extern int debug_copy_to_user(uint64_t user_va, const void *src, size_t n);
 #define COPY_TO_USER(dst, src, n) debug_copy_to_user((uint64_t)(dst), (src), (n))
@@ -107,64 +109,9 @@ static inline void byte_to_hex(uint8_t b, char *dst)
 /* Debug wrapper that replaces copy_to_user while debugging */
 int copy_to_user(uint64_t user_va, const void *src, size_t n)
 {
-
-    if (user_va >= 0x43e00000 && user_va < 0x44000000)
-    {
-        log_critical("STACK CORRUPTION: copy_to_user writing to stack dst=%llx", user_va);
-    }
-    
-    if (!is_canonical(user_va))
-    {
-        log_critical("copy_to_user: non-canonical user VA=0x%llx", user_va);
+    if (n == 0) return 0;
+    if (!is_canonical(user_va) || !is_canonical(user_va + n - 1))
         return -1;
-    }
-    return -1;
-    const uint8_t *s = src;
-
-    /* TEMP: log every copy_to_user call while debugging */
-    void *caller = __builtin_return_address(0);
-    log_info("COPYDBG", "caller=%#llx copy_to_user -> dst=%#llx len=%zu",
-            (unsigned long long)caller,
-            (unsigned long long)user_va,
-            n);
-
-    /* sample up to 8 bytes */
-    size_t sample = (n < 8) ? n : 8;
-    char hexbuf[3 * 8 + 1];
-    char *p = hexbuf;
-    for (size_t i = 0; i < sample; ++i) {
-        byte_to_hex(s[i], p);
-        p += 2;
-        if (i + 1 < sample) *p++ = ' ';
-    }
-    *p = '\0';
-    log_info("COPYDBG", "src_sample: %s", hexbuf);
-
-    // if (n && ((user_va >= USER_START && user_va < USER_END) ||
-    //           (user_va + n - 1 >= USER_START && user_va + n - 1 < USER_END))) {
-
-    //     /* capture caller (the function that called copy_to_user) */
-    //     void *caller = __builtin_return_address(0);
-
-    //     /* log full 64-bit caller and destination addresses */
-    //     log_info("COPYDBG", "caller=%#llx copy_to_user -> dst=%#llx len=%zu",
-    //              (unsigned long long)caller,
-    //              (unsigned long long)user_va,
-    //              n);
-
-    //     /* sample first up to 16 bytes of source (hex) */
-    //     size_t sample = (n < 16) ? n : 16;
-    //     char hexbuf[3 * 16 + 1];
-    //     char *p = hexbuf;
-    //     for (size_t i = 0; i < sample; ++i) {
-    //         byte_to_hex(s[i], p);
-    //         p += 2;
-    //         if (i + 1 < sample) *p++ = ' ';
-    //     }
-    //     *p = '\0';
-    //     log_info("COPYDBG", "src_sample: %s", hexbuf);
-    // }
-
     return real_copy_to_user(user_va, src, n);
 }
 

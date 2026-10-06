@@ -24,17 +24,14 @@ static bool unix_socket_has_pending_conn(unix_socket_t *s)
 {
     return s->pending_head != s->pending_tail; // simple ring buffer non-empty
 }
+
 static int unix_can_read(struct file *f)
 {
-    unix_socket_t *s = (unix_socket_t *)f->private_data;
-
-    if (s->listening) {
-        // readable only if accept() would succeed
-        return s->pending_head != s->pending_tail;
-    }
-
-    // connected socket: readable if buffer has data
-    return s->buf_len > 0;
+    unix_socket_t *us = (unix_socket_t *)f->private_data;
+    if (!us) return 0;
+    if (us->listening) return us->pending_head != us->pending_tail;
+    return us->buf_len > 0 || us->fdq_head != us->fdq_tail
+        || (us->connected && us->peer == NULL);   /* EOF */
 }
 
 static int unix_can_write(struct file *f)

@@ -32,6 +32,7 @@ enum {
     SYS_bind            = 49,
     SYS_listen          = 50,
     SYS_socketpair      = 53,
+    SYS_getsockopt      = 55,
     SYS_clone           = 56,
     SYS_execve          = 59,
     SYS_exit            = 60,

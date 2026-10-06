@@ -10,6 +10,7 @@
 #include "hal/vfs.h"
 #include "kernel_poll.h"
 #include "paging.h"
+#include <arch/x86_64/pit.h>
 
 #define MAX_EPOLL_FDS 64
 
@@ -37,10 +38,13 @@ struct file_operations epoll_fops = {
 
 static struct epoll_instance *epoll_from_fd(int epfd_raw)
 {
-    log_info("SYSCALL", "sys_epoll_from_fd: looking up epfd_raw=%d", epfd_raw);
+    //log_info("SYSCALL", "sys_epoll_from_fd: looking up epfd_raw=%d", epfd_raw);
     struct file *f = VFS_GetFile(epfd_raw);
     if (!f || f->fops != &epoll_fops)
+    {
         return NULL;
+    }
+        
     return (struct epoll_instance *)f->private_data;
 }
 
@@ -70,6 +74,11 @@ ssize_t debug_copy_to_user(void *dst, const void *src, size_t n)
 
     if (is_user_stack_addr(d) || is_user_stack_addr(dlast)) {
         log_info("COPYDBG", "copy_to_user -> stack dst=%#llx len=%zu", (unsigned long long)d, n);
+    }
+
+    if (copy_to_user(dst, src, n) < 0) 
+    {
+        return -EFAULT;   /* if it returns bytes */
     }
 
     /* Call your kernel's real copy_to_user primitive */
@@ -190,17 +199,18 @@ long sys_epoll_ctl(int epfd, int op, int fd, struct epoll_event *user_ev)
     }
 
     switch (op) {
-    case EPOLL_CTL_ADD:
-        if (idx != -1)
-            return -EEXIST;
-        if (epi->nfds >= MAX_EPOLL_FDS)
-            return -ENOSPC;
-        idx = epi->nfds++;
-        epi->watches[idx].fd     = fd;
-        epi->watches[idx].events = kev.events;
-        epi->watches[idx].data   = kev.data;
-        log_info("SYSCALL", "epoll_ctl: added fd=%d events=0x%x", fd, kev.events);
-        return 0;
+    case EPOLL_CTL_ADD: {
+    if (idx != -1) return -EEXIST;
+    if (epi->nfds >= MAX_EPOLL_FDS) return -ENOSPC;
+    struct file *wf = VFS_GetFile(fd);
+    if (!wf) return -EBADF;
+    idx = epi->nfds++;
+    epi->watches[idx].fd     = fd;
+    epi->watches[idx].file   = wf;
+    epi->watches[idx].events = kev.events;
+    epi->watches[idx].data   = kev.data;
+    return 0;
+    }
 
     case EPOLL_CTL_MOD:
         if (idx == -1)
@@ -224,62 +234,53 @@ long sys_epoll_ctl(int epfd, int op, int fd, struct epoll_event *user_ev)
 }
 
 
-
-long sys_epoll_wait(int epfd, struct epoll_event *user_events,
-                    int maxevents, int timeout)
+long sys_epoll_wait(int epfd, struct epoll_event *user_events, int maxevents, int timeout)
 {
-    log_info("SYSCALL", "sys_epoll_wait: ");
-
+    log_info("EPOLL", "wait epfd=%d max=%d timeout=%d", epfd, maxevents, timeout);
     struct epoll_instance *epi = epoll_from_fd(epfd);
-    if (!epi)
-        return -EBADF;
+    if (!epi) { log_info("EPOLL", "EBADF"); return -EBADF; }
+    if (maxevents <= 0 || !user_events) { log_info("EPOLL", "EINVAL"); return -EINVAL; }
+    if (maxevents > MAX_EPOLL_FDS) maxevents = MAX_EPOLL_FDS;
 
-    if (maxevents <= 0 || !user_events)
-        return -EINVAL;
+    uint64_t deadline = 0;
+    if (timeout > 0)
+        deadline = pit_get_ticks() + (uint64_t)timeout * pit_get_frequency() / 1000;
 
-    if (epi->nfds == 0)
-        return 0;
-
-    if (maxevents > epi->nfds)
-        maxevents = epi->nfds;
-
-    struct pollfd pfds[MAX_EPOLL_FDS];
     struct epoll_event kev[MAX_EPOLL_FDS];
+    for (;;) {
+        int out = 0;
+        for (int i = 0; i < epi->nfds; ) {
+            int fd = epi->watches[i].fd;
+            struct file *cur = VFS_GetFile(fd);
 
-    for (int i = 0; i < epi->nfds; i++)
-    {
-        pfds[i].fd = epi->watches[i].fd;
-        pfds[i].events = 0;
-        if (epi->watches[i].events & EPOLLIN)  pfds[i].events |= POLLIN;
-        if (epi->watches[i].events & EPOLLOUT) pfds[i].events |= POLLOUT;
-        pfds[i].revents = 0;
+            /* fd closed, or number reused by another file: drop the watch silently */
+            if (!cur || cur != epi->watches[i].file || !cur->fops) {
+                epi->watches[i] = epi->watches[epi->nfds - 1];
+                epi->nfds--;
+                continue;                      /* re-examine the swapped-in entry */
+            }
+
+            uint32_t want = epi->watches[i].events, ev = 0;
+            if ((want & EPOLLIN)  && VFS_CanRead(fd))  ev |= EPOLLIN;
+            if ((want & EPOLLOUT) && VFS_CanWrite(fd)) ev |= EPOLLOUT;
+
+            if (ev && out < maxevents) {
+                log_info("EPOLL", "ready fd=%d ev=%x", fd, ev);
+                kev[out].events = ev;
+                kev[out].data   = epi->watches[i].data;
+                out++;
+            }
+            i++;
+        }
+
+        if (out > 0) {
+            if (copy_to_user((uint64_t)user_events, kev, out * sizeof(kev[0])) != 0)
+                return -EFAULT;
+            return out;
+        }
+        if (timeout == 0) return 0;
+        if (timeout > 0 && pit_get_ticks() >= deadline) return 0;
+        __asm__ volatile("sti; hlt; cli");
     }
-
-    int n = sys_poll((uint64_t)pfds, (uint64_t)epi->nfds, (uint64_t)timeout);
-    if (n <= 0)
-        return n;
-
-    int out = 0;
-    for (int i = 0; i < epi->nfds && out < maxevents; i++) {
-        if (!pfds[i].revents)
-            continue;
-
-        uint32_t ev = 0;
-        if (pfds[i].revents & POLLIN)  ev |= EPOLLIN;
-        if (pfds[i].revents & POLLOUT) ev |= EPOLLOUT;
-
-        kev[out].events = ev;
-        kev[out].data   = epi->watches[i].data;
-        out++;
-    }
-
-    if (out > 0) {
-        if (!is_user_range_valid((uint64_t)user_events, out * sizeof(struct epoll_event)))
-            return -EFAULT;
-
-        if (copy_to_user(user_events, kev, out * sizeof(struct epoll_event)) != 0)
-            return -EFAULT;
-    }
-
-    return out;
+    
 }

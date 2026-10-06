@@ -12,20 +12,27 @@ typedef union epoll_data {
 struct epoll_event {
     uint32_t     events;
     epoll_data_t data;
-};
+} __attribute__((packed));
+
+
 
 /* epoll_ctl operations */
 #define EPOLL_CTL_ADD 1
 #define EPOLL_CTL_DEL 2
 #define EPOLL_CTL_MOD 3
 
-/* epoll events (minimal set) */
+
+_Static_assert(sizeof(struct epoll_event) == 12, "epoll_event must be packed (12 bytes)");
+
 #define EPOLLIN   0x001
 #define EPOLLOUT  0x004
+#define EPOLLERR  0x008
+#define EPOLLHUP  0x010
 // you can add more later if needed
 
 struct epoll_watch {
     int              fd;
+    struct file     *file;     /* NEW: identity of the watched open file */
     uint32_t         events;
     epoll_data_t     data;
 };

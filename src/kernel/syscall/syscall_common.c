@@ -60,6 +60,15 @@ extern int VFS_CanWrite(int fd);  // for now: maybe also 1
 #endif
 
 
+static struct { uint64_t s, e; } g_shared_maps[64];
+static void shared_map_add(uint64_t s, uint64_t len) {
+    for (int i = 0; i < 64; i++) if (!g_shared_maps[i].e) { g_shared_maps[i].s = s; g_shared_maps[i].e = s + len; return; }
+}
+static bool is_shared_va(uint64_t va) {
+    for (int i = 0; i < 64; i++) if (va >= g_shared_maps[i].s && va < g_shared_maps[i].e) return true;
+    return false;
+}
+
 ssize_t sys_write(uint64_t fd, const char *buf, uint64_t len)
 {
     if (len == 0)
@@ -156,6 +165,9 @@ static uint64_t mmap_file(uint64_t length, uint64_t prot, uint64_t flags,
 
     uint64_t va_start = current_process->mmap_base;
     uint64_t va       = va_start;
+
+    shared_map_add(va_start, aligned_len);
+
     current_process->mmap_base += aligned_len;
 
     size_t start_page = offset / page_size;
@@ -429,7 +441,7 @@ uint64_t sys_mmap(uint64_t addr,
     if (f->fops && f->fops->mmap) {
         uint64_t va = 0;
         int r = f->fops->mmap(f, length, prot, flags, offset, &va);
-
+        // shared_map_add(va_start, aligned_len);
         uint64_t va_ret = (r == 0) ? va : (uint64_t)-1;
         log_info("SYSCALL", "sys_mmap return va = 0x%llx",
          (unsigned long long)va_ret);
@@ -536,7 +548,10 @@ uint64_t sys_munmap(uint64_t addr, uint64_t length)
 
         // Unmap and free
         unmap_page(current_process->page_directory, va);
-        pmm_free_page(pa);
+        if (!is_shared_va(va))
+        {
+            pmm_free_page(pa);
+        }
     }
 
     return 0; // success

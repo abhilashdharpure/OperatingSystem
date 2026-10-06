@@ -56,6 +56,7 @@ target_env = Environment(
 
     LIBS = [
         'wayland-server',
+        'wayland-client',
         'xkbcommon',
         'ffi',
         'stdc++',
@@ -129,12 +130,20 @@ for xml_file in protocols:
 
     generated_sources.append(c_out)
 
-# Sources
+# client-side header only; the interface definitions already exist in your server-generated .c files
+xdg_client_h = generated_dir_node.File('xdg-shell-client-protocol.h')
+host_env.Command(
+    xdg_client_h,
+    project_root.File('protocols/xdg-shell.xml'),
+    f'{wayland_scanner} client-header $SOURCE $TARGET'
+)
+# --- User-space source files ---
 sources = [
     'src/main.cpp',
     'src/compositor.cpp',
     'src/compositor_input.cpp',
     'src/compositor_helper.cpp',
+    'src/builtin_client.cpp',
 ] + generated_sources
 
 # Program

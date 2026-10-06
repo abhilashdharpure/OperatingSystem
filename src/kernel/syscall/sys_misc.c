@@ -237,7 +237,7 @@ struct iovec {
 
 long sys_writev(int fd, const struct iovec *user_iov, int iovcnt)
 {
-    log_info("SYSCALL", "writev fd=%d iov=%p cnt=%d", fd, user_iov, iovcnt);
+    // log_info("SYSCALL", "writev fd=%d iov=%p cnt=%d", fd, user_iov, iovcnt);
     if (iovcnt <= 0 || iovcnt > 64)
         return -EINVAL;
 
@@ -250,10 +250,10 @@ long sys_writev(int fd, const struct iovec *user_iov, int iovcnt)
             return -EFAULT;
         }
 
-        log_info("SYSCALL", " iov[%d].base=%p len=%llu",
-                 i,
-                 kiov[i].iov_base,
-                 (unsigned long long)kiov[i].iov_len);
+        // log_info("SYSCALL", " iov[%d].base=%p len=%llu",
+        //          i,
+        //          kiov[i].iov_base,
+        //          (unsigned long long)kiov[i].iov_len);
     }
 
     long total = 0;

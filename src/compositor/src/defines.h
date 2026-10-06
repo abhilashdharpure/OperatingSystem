@@ -58,8 +58,8 @@ struct LumaCompositor
     double cursor_w = 0.0;
     double cursor_h = 0.0;
     bool mouse_pressed = false;
-    int output_width =  1200; //1920;
-    int output_height = 800; //1080;
+    int output_width =  1024; //1920;
+    int output_height = 786; //1080;
 
     int32_t focus_x = 0;
     int32_t focus_y = 0;
@@ -169,6 +169,7 @@ struct shm_pool_data {
     std::mutex pool_mutex;
     std::vector<shm_buffer*> buffers; // all buffers created from this pool
     bool pending_unmap = false;
+    int refs = 1;   // 1 = the wl_resource
 };
 
 struct shm_buffer {
@@ -185,6 +186,16 @@ struct shm_buffer {
     std::atomic<int> refcount{0};
     std::atomic<bool> pending_destroy{false};
     shm_pool_data* pool = nullptr;
+
+    // // shm_buffer destructor:    
+    // ~shm_buffer()
+    // {
+    //     if (pool)
+    //     {
+    //         pool_unref(pool);
+    //     }
+    // }
+
 };
 
 struct LumaSeat
