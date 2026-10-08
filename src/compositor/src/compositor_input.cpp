@@ -6,18 +6,94 @@
 #include <sys/time.h>
 #include "compositor_helper.h"
 #include <algorithm>
+#include "compositor.h"
+
 #include <linux/input.h>
 
 static constexpr int SCREEN_WIDTH_TEMP = 1920;
 static constexpr int SCREEN_HEIGHT_TEMP = 1080;
 int count = 1;
 
+
+void SendButtonEvent(LumaCompositor* compositor, uint32_t time_ms, uint32_t button, uint32_t state);
+
 static std::atomic<bool> g_running{true};
+
+static void compositor_keyboard_event(LumaCompositor *comp, InputEvent *ev)
+{
+    printf("[KBD] type=%u code=%u value=%d\n", ev->type, ev->code, ev->value);
+}
+
+static void compositor_mouse_event(LumaCompositor* c, InputEvent* ev)
+{
+    static double dx = 0, dy = 0;
+    if (ev->type == EV_REL) { if (ev->code == REL_X) dx += ev->value; else if (ev->code == REL_Y) dy += ev->value; }
+    else if (ev->type == EV_KEY && (ev->code == BTN_LEFT || ev->code == BTN_RIGHT)) {
+        SendButtonEvent(c, get_ticks(), ev->code, ev->value ? WL_POINTER_BUTTON_STATE_PRESSED : WL_POINTER_BUTTON_STATE_RELEASED);
+    }
+    else if (ev->type == EV_SYN && (dx != 0 || dy != 0)) {
+        c->cursor_x = std::clamp(c->cursor_x + dx, 0.0, (double)c->output_width  - 1);
+        c->cursor_y = std::clamp(c->cursor_y + dy, 0.0, (double)c->output_height - 1);
+        dx = dy = 0;
+        handle_mouse_move(c, c->cursor_x, c->cursor_y);   // make this non-static, declared in a header
+    }
+}
+
+static int keyboard_fd_handler(
+    int fd,
+    uint32_t mask,
+    void *data)
+{
+    LumaCompositor *comp =
+        (LumaCompositor*)data;
+
+    InputEvent ev;
+
+    while (read(fd, &ev, sizeof(ev)) == sizeof(ev))
+    {
+        compositor_keyboard_event(comp, &ev);
+    }
+
+    return 0;
+}
+
+static int mouse_fd_handler(int fd, uint32_t, void *data)
+{
+    LumaCompositor *comp = (LumaCompositor*)data;
+    InputEvent ev;
+    while (read(fd, &ev, sizeof(ev)) == (ssize_t)sizeof(ev))
+        compositor_mouse_event(comp, &ev);
+    return 0;
+}
+
 
 void CompositorInput::Initialize(LumaCompositor* compositor)
 {
     std::cout << "[Input] Start Initialize " << std::endl;
     //std::thread(evdev_input_loop, this, compositor).detach();
+
+    int g_kbd_fd = open("/dev/input/event0", O_RDONLY);
+    int g_mouse_fd = open("/dev/input/event1", O_RDONLY);
+
+    if (g_kbd_fd >= 0)
+    {
+        wl_event_loop_add_fd(
+            compositor->loop,
+            g_kbd_fd,
+            WL_EVENT_READABLE,
+            keyboard_fd_handler,
+            compositor);
+    }
+
+    if (g_mouse_fd >= 0)
+    {
+        wl_event_loop_add_fd(
+            compositor->loop,
+            g_mouse_fd,
+            WL_EVENT_READABLE,
+            mouse_fd_handler,
+            compositor);
+    }
 }
 
 static my_surface* hit_test_surface(LumaCompositor* comp, int32_t x, int32_t y)
@@ -425,7 +501,7 @@ void CompositorInput::SendMouseMoveEvent(LumaCompositor* compositor, double gx, 
 
 }
 
-void CompositorInput::SendButtonEvent(LumaCompositor* compositor, uint32_t time_ms, uint32_t button, uint32_t state)
+void SendButtonEvent(LumaCompositor* compositor, uint32_t time_ms, uint32_t button, uint32_t state)
 {
     if(button == BTN_LEFT)
     {
@@ -444,6 +520,6 @@ void CompositorInput::SendButtonEvent(LumaCompositor* compositor, uint32_t time_
         }
 
         compositor->last_press_serial = serial;
-        handle_pointer_button(this, compositor, (int)compositor->cursor_x, (int)compositor->cursor_y, button, state);
+        handle_pointer_button(getCompositorInput(), compositor, (int)compositor->cursor_x, (int)compositor->cursor_y, button, state);
     }
 }

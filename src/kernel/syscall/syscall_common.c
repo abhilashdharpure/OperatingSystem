@@ -128,9 +128,6 @@ int64_t sys_open(const char *path, uint64_t flags, uint64_t mode)
 
 ssize_t sys_read(uint64_t fd, void *buf, uint64_t len)
 {
-    log_info("SYSCALL", "sys_read fd=%llu len=%llu",
-             (unsigned long long)fd, (unsigned long long)len);
-
     return VFS_Read((int)fd, buf, (size_t)len);
 }
 

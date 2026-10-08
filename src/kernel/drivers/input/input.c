@@ -76,38 +76,26 @@ static int input_open(struct file *file)
     return 0;
 }
 
+static int input_can_read(struct file *f)
+{
+    struct input_device *d = f->private_data;
+    return d->count > 0;              /* not head != tail: a full ring has head == tail */
+}
+
 static int input_read(struct file *file, void *buf, size_t size)
 {
-    struct input_device *dev = (struct input_device *)file->private_data;
-
-    if (dev->count == 0)
-        return 0; // no events available
-
-    if (size < sizeof(InputEvent))
-        return -1;
-
-    // InputEvent *src = &dev->buffer[dev->tail];
-    // memcpy(buf, src, sizeof(InputEvent));
-
-    // dev->tail = (dev->tail + 1) % INPUT_BUFFER_SIZE;
-    // dev->count--;
-
-    // return sizeof(InputEvent);
-
-    InputEvent *out = (InputEvent *)buf;
-    int events_read = 0;
-
-    while (events_read * sizeof(InputEvent) < size)
-    {
+    struct input_device *dev = file->private_data;
+    if (size < sizeof(InputEvent)) return -22;            /* EINVAL */
+    InputEvent *out = buf;
+    size_t n = 0;
+    while ((n + 1) * sizeof(InputEvent) <= size) {
         InputEvent ev;
-        if (!input_pop_event(dev, &ev))
-            break; // no more events available
-
-        out[events_read++] = ev;
+        if (!input_pop_event(dev, &ev)) break;
+        out[n++] = ev;
     }
-
-    return events_read * sizeof(InputEvent);
+    return n ? (int)(n * sizeof(InputEvent)) : -11;       /* EAGAIN when empty */
 }
+
 
 static int input_write(struct file *file, const void *buf, size_t size)
 {
@@ -119,6 +107,7 @@ struct file_operations input_fops = {
     .open  = input_open,
     .read  = input_read,
     .write = input_write,
+    .can_read = input_can_read,   
 };
 
 void register_input_device(struct input_device *dev, const char *name)

@@ -180,8 +180,9 @@ int VFS_Read(fd_t fd, void *buf, size_t size)
     if (file->fops && file->fops->read)
     {
         int n = file->fops->read(file, buf, size);
-        if (n < 0) {
-            log_error("VFS", "Underlying read failed for fd=%d", fd);
+        if (n < 0 && n != -11) 
+        {
+            log_error("VFS", "read failed fd=%d n=%d", fd, n);
         }
         return n;
     }

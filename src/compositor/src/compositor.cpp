@@ -32,15 +32,39 @@
 
 extern uint8_t* g_fb_ptr; extern uint32_t g_fb_pitch, g_fb_w, g_fb_h;
 
-// static int on_client_fd(int fd, uint32_t mask, void*)
-// {
-//     printf("[Pump] fd=%d mask=%x\n", fd, mask);
-//     builtin_client_pump();
-//     return 0;
-// }
-
-
 static wl_event_source* g_client_src = nullptr;
+
+CompositorInput compositorInput;
+static std::vector<uint32_t> comp_framebuffer; // stored as ARGB8888 (32-bit words)
+static std::mutex comp_fb_mutex;
+// static std::atomic<bool> sdl_thread_running{false};
+// static std::thread sdl_thread;
+
+using namespace std;
+
+CompositorInput* getCompositorInput()
+{
+    return &compositorInput;
+}
+
+static void draw_default_cursor(LumaCompositor* comp)
+{
+    static const char* arrow[12] = {
+        "X          ", "XX         ", "X.X        ", "X..X       ",
+        "X...X      ", "X....X     ", "X.....X    ", "X......X   ",
+        "X.......X  ", "X....XXXXX ", "X..X..X    ", "XX  X..X   "};
+    int cx = (int)comp->cursor_x, cy = (int)comp->cursor_y;
+    for (int y = 0; y < 12; y++)
+        for (int x = 0; x < 11; x++) {
+            char c = arrow[y][x];
+            if (c == ' ') continue;
+            int px = cx + x, py = cy + y;
+            if (px < 0 || py < 0 || px >= comp->output_width || py >= comp->output_height) continue;
+            comp_framebuffer[(size_t)py * comp->output_width + px] =
+                (c == 'X') ? 0xFF000000 : 0xFFFFFFFF;
+        }
+}
+
 
 static int on_client_fd(int fd, uint32_t mask, void *data)
 {
@@ -60,17 +84,6 @@ static int on_client_fd(int fd, uint32_t mask, void *data)
     return 0;
 }
 
-
-CompositorInput compositorInput;
-// SDL_Window* window;
-// SDL_Texture* texture;
-// SDL_Renderer* renderer;
-static std::vector<uint32_t> comp_framebuffer; // stored as ARGB8888 (32-bit words)
-static std::mutex comp_fb_mutex;
-// static std::atomic<bool> sdl_thread_running{false};
-// static std::thread sdl_thread;
-
-using namespace std;
 
 
 
@@ -526,6 +539,10 @@ void compositor_repaint(LumaCompositor* comp)
         {
             DrawCursor(comp, comp->cursor_surface);
         }
+        else
+        {
+            draw_default_cursor(comp);
+        }
     }
 
     // Push to output backend (kernel fb)
@@ -655,7 +672,7 @@ static void pointer_handle_motion(LumaCompositor* comp)
     }
 }
 
-static void handle_mouse_move(LumaCompositor* comp, double sx, double sy)
+void handle_mouse_move(LumaCompositor* comp, double sx, double sy)
 {
     if(comp != nullptr)
     {
@@ -2464,10 +2481,6 @@ bool luma_init(LumaCompositor* comp)
         std::cout << "[LumaCompositor] wl_display_create Done..." << std::endl;
     }
 
-    compositorInput.Initialize(comp);
-    std::cout << "[LumaCompositor] compositorInput Initialize " << std::endl;
-
-
 
     std::string displayName = "wayland-0";
 
@@ -2506,6 +2519,12 @@ bool luma_init(LumaCompositor* comp)
                                                 &xdg_wm_base_interface,
                                                 4,                          // version from your xdg-shell.xml
                                                 comp, bind_xdg_wm_base);
+
+
+
+    compositorInput.Initialize(comp);
+    std::cout << "[LumaCompositor] compositorInput Initialize " << std::endl;
+
 
     // Setup Keyboard and Mouse
     LumaSeat* seat = new LumaSeat();

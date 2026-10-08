@@ -57,7 +57,7 @@ static void ps2_keyboard_handler()
         return; // Unknown key
 
     InputEvent keyEvent;
-    keyEvent.time = get_system_time();
+    keyEvent.time.tv_sec =  get_system_time();
     keyEvent.type = EV_KEY;
     keyEvent.code = linux_keycode;
     keyEvent.value = released ? KEY_RELEASED : KEY_PRESSED;
@@ -82,7 +82,7 @@ static void ps2_keyboard_handler()
 
     // Always follow up with EV_SYN
     InputEvent synEvent;
-    synEvent.time =  get_system_time();
+    synEvent.time.tv_sec =  get_system_time();
     synEvent.type = EV_SYN;
     synEvent.code = SYN_REPORT;
     synEvent.value = 0;
@@ -135,7 +135,7 @@ static void ps2_mouse_handler(ISR64Handler* regs)
     // Left button
     if ((prev_buttons & 0x01) != (buttons & 0x01))
     {
-        event.time =  get_system_time();
+        event.time.tv_sec =  get_system_time();
         event.type = EV_KEY;
         event.code = BTN_LEFT;
         event.value = left_pressed ? KEY_PRESSED : KEY_RELEASED;
@@ -146,7 +146,7 @@ static void ps2_mouse_handler(ISR64Handler* regs)
     // Right button
     if ((prev_buttons & 0x02) != (buttons & 0x02))
     {
-        event.time =  get_system_time();
+        event.time.tv_sec =  get_system_time();
         event.type = EV_KEY;
         event.code = BTN_RIGHT;
         event.value = right_pressed ? KEY_PRESSED : KEY_RELEASED;
@@ -156,7 +156,7 @@ static void ps2_mouse_handler(ISR64Handler* regs)
     // Middle button
     if ((prev_buttons & 0x04) != (buttons & 0x04))
     {
-        event.time =  get_system_time();
+        event.time.tv_sec =  get_system_time();
         event.type = EV_KEY;
         event.code = BTN_MIDDLE;
         event.value = middle_pressed ? KEY_PRESSED : KEY_RELEASED;
@@ -165,14 +165,14 @@ static void ps2_mouse_handler(ISR64Handler* regs)
 
     // Movement events
     if (x_move != 0) {
-        event.time =  get_system_time();
+        event.time.tv_sec =  get_system_time();
         event.type = EV_REL;
         event.code = REL_X;
         event.value = x_move;
         input_push_event(&mouse_dev, &event);
     }
     if (y_move != 0) {
-        event.time =  get_system_time();
+        event.time.tv_sec =  get_system_time();
         event.type = EV_REL;
         event.code = REL_Y;
         event.value = y_move;
@@ -183,7 +183,7 @@ static void ps2_mouse_handler(ISR64Handler* regs)
 
     // Always send sync event at end
     InputEvent synEvent;
-    synEvent.time =  get_system_time();
+    synEvent.time.tv_sec =  get_system_time();
     synEvent.type = EV_SYN;
     synEvent.code = SYN_REPORT;
     synEvent.value = 0;

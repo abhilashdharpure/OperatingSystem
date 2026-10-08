@@ -71,6 +71,7 @@ int main() {
 
     close(fb_fd);
 
+
     printf("User-space test complete. Ready to launch compositor!\n");
 
     LumaCompositor comp{};

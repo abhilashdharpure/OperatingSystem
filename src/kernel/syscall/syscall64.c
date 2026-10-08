@@ -130,8 +130,8 @@ uint64_t syscall_dispatch(uint64_t nr,
                           uint64_t a4,
                           uint64_t a5)
 {
-    log_info("SYSCALL", "syscall_dispatch: nr=%llu a0=%llx a1=%llx a2=%llx a3=%llx a4=%llx a5=%llx",
-             nr, a0, a1, a2, a3, a4, a5);
+    // log_info("SYSCALL", "syscall_dispatch: nr=%llu a0=%llx a1=%llx a2=%llx a3=%llx a4=%llx a5=%llx",
+    //          nr, a0, a1, a2, a3, a4, a5);
 
              
     switch (nr) {
@@ -355,9 +355,7 @@ uint64_t syscall_dispatch(uint64_t nr,
     case SYS_epoll_wait:
     case SYS_epoll_pwait:
     {
-        long r = sys_epoll_wait(a0, a1, a2, a3); // epfd, events*, maxevents, timeout
-        log_info("EPOLL","ret=%ld", r);
-        return r;
+        return sys_epoll_wait(a0, a1, a2, a3); // epfd, events*, maxevents, timeout
     }
 
     case SYS_preadv:

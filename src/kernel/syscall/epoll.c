@@ -151,7 +151,7 @@ long sys_epoll_create1(int flags)
         return -ENOMEM;
     }
 
-    log_info("SYSCALL291", "exit sys_epoll_create1: ret=%d", fd);
+    // log_info("SYSCALL291", "exit sys_epoll_create1: ret=%d", fd);
     return fd;
 }
 
@@ -236,7 +236,7 @@ long sys_epoll_ctl(int epfd, int op, int fd, struct epoll_event *user_ev)
 
 long sys_epoll_wait(int epfd, struct epoll_event *user_events, int maxevents, int timeout)
 {
-    log_info("EPOLL", "wait epfd=%d max=%d timeout=%d", epfd, maxevents, timeout);
+    // log_info("EPOLL", "wait epfd=%d max=%d timeout=%d", epfd, maxevents, timeout);
     struct epoll_instance *epi = epoll_from_fd(epfd);
     if (!epi) { log_info("EPOLL", "EBADF"); return -EBADF; }
     if (maxevents <= 0 || !user_events) { log_info("EPOLL", "EINVAL"); return -EINVAL; }
@@ -265,7 +265,7 @@ long sys_epoll_wait(int epfd, struct epoll_event *user_events, int maxevents, in
             if ((want & EPOLLOUT) && VFS_CanWrite(fd)) ev |= EPOLLOUT;
 
             if (ev && out < maxevents) {
-                log_info("EPOLL", "ready fd=%d ev=%x", fd, ev);
+                // log_info("EPOLL", "ready fd=%d ev=%x", fd, ev);
                 kev[out].events = ev;
                 kev[out].data   = epi->watches[i].data;
                 out++;
