@@ -1,0 +1,142 @@
+import os
+
+project_name   = 'client'
+build_dir      = 'build'
+generated_dir  = os.path.join(build_dir, 'generated')
+
+# -----------------------------
+# HOST ENVIRONMENT
+# -----------------------------
+host_env = Environment(
+    CC='gcc',
+    CXX='g++',
+)
+
+workspace = os.path.expanduser(
+    '~/Project/OSDev/ToolchainWorkspace'
+)
+
+prefix  = os.path.join(workspace, 'Install')
+sysroot = os.path.join(workspace, 'Sysroot')
+
+cross_prefix = os.path.join(prefix, 'bin', 'x86_64-linux-musl-')
+
+wayland_scanner = os.path.join(
+    prefix,
+    'native',
+    'bin',
+    'wayland-scanner'
+)
+# -----------------------------
+# TARGET ENVIRONMENT
+# -----------------------------
+target_env = Environment(
+    CC   = cross_prefix + 'gcc',
+    CXX  = cross_prefix + 'gcc',
+    LINK = cross_prefix + 'gcc',
+
+    CPPPATH = [
+        '.', 'src', generated_dir,
+        os.path.join(sysroot, 'usr/include'),
+    ],
+
+    LIBPATH = [
+        os.path.join(sysroot, 'usr/lib'),
+    ],
+
+    LIBS = [
+        'wayland-server',
+        'wayland-client',
+        'xkbcommon',
+        'ffi',
+        'stdc++',
+        'm',
+        'c',
+    ],
+
+    CCFLAGS = [
+        '--sysroot=' + sysroot,
+        '-g',
+        '-O0',
+        '-fno-pie',
+        '-fno-stack-protector',
+        '-fno-exceptions',
+        '-fno-rtti',
+        '-static',
+    ],
+
+    CXXFLAGS = [
+        '--sysroot=' + sysroot,
+        '-std=c++17',
+        '-g',
+        '-O0',
+        '-fno-pie',
+        '-static',
+    ],
+
+    LINKFLAGS = [
+        '--sysroot=' + sysroot,
+        '-static',
+        '-no-pie',
+        '-Wl,-T,' + os.path.abspath('linker.ld'),   # absolute path, doesn't depend on cwd
+        '-Wl,--eh-frame-hdr',
+        '-Wl,-z,max-page-size=0x1000',
+        '-Wl,-z,common-page-size=0x1000',
+        '-Wl,-z,norelro',
+        '-Wl,-z,noseparate-code',
+        '-Wl,--build-id=none',
+    ],
+)
+
+# dirs
+target_env.Execute(Mkdir(build_dir))
+target_env.Execute(Mkdir(generated_dir))
+
+generated_dir_node = target_env.Dir(generated_dir)
+project_root       = target_env.Dir('#')
+
+# Wayland protocol generation
+protocols = [
+    project_root.File('protocols/xdg-shell.xml'),
+    project_root.File('protocols/wayland.xml'),
+]
+
+generated_sources = []
+
+for xml_file in protocols:
+    base = os.path.splitext(os.path.basename(xml_file.path))[0]
+
+    c_out = generated_dir_node.File(f"{base}-protocol.c")
+    h_out = generated_dir_node.File(f"{base}-protocol.h")
+
+    host_env.Command(
+        [c_out, h_out],
+        xml_file,
+        [
+            f'{wayland_scanner} private-code {xml_file.path} {c_out.path}',
+            f'{wayland_scanner} server-header {xml_file.path} {h_out.path}',
+        ]
+    )
+
+    generated_sources.append(c_out)
+
+# client-side header only; the interface definitions already exist in your server-generated .c files
+xdg_client_h = generated_dir_node.File('xdg-shell-client-protocol.h')
+host_env.Command(
+    xdg_client_h,
+    project_root.File('protocols/xdg-shell.xml'),
+    f'{wayland_scanner} client-header $SOURCE $TARGET'
+)
+# --- User-space source files ---
+sources = [
+    'src/main.cpp'
+] + generated_sources
+
+# Program
+program = target_env.Program(
+    target=os.path.join(build_dir, project_name),
+    source=sources,
+)
+
+Default(program)
+Export('program')

@@ -7,9 +7,17 @@
 #include "errno.h"
 #include "kmalloc.h"
 
+
+#include "hal/process.h"
+extern Process *current_process;
+
+
+
 static int vfs_count = 0;
 static struct file file_table[MAX_OPEN_FILES]; // actual file objects
-static struct file *open_files[MAX_OPEN_FILES]; // fd -> file*
+static struct file *boot_fds[MAX_OPEN_FILES];
+_Static_assert(PROC_MAX_FDS >= MAX_OPEN_FILES, "PROC_MAX_FDS too small");
+#define open_files (current_process ? current_process->fds : boot_fds)
 
 
 typedef struct vfs_entry {

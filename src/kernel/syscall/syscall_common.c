@@ -170,7 +170,7 @@ static uint64_t mmap_file(uint64_t length, uint64_t prot, uint64_t flags,
     size_t start_page = offset / page_size;
     size_t start_off  = offset % page_size;
 
-    uint64_t pte_flags = PAGE_PRESENT | PAGE_USER;
+    uint64_t pte_flags = PAGE_PRESENT | PAGE_USER | PAGE_SHARED;
     if (prot & PROT_WRITE)
         pte_flags |= PAGE_RW;
 
@@ -544,8 +544,9 @@ uint64_t sys_munmap(uint64_t addr, uint64_t length)
         }
 
         // Unmap and free
+        uint64_t pte = get_pte(current_process->page_directory, va);
         unmap_page(current_process->page_directory, va);
-        if (!is_shared_va(va))
+        if (!(pte & PAGE_SHARED))
         {
             pmm_free_page(pa);
         }
@@ -1116,11 +1117,9 @@ uint64_t sys_nanosleep(uint64_t req_ptr, uint64_t rem_ptr)
              start, target);
 
     // Enable interrupts so PIT IRQ can fire
-    __asm__ volatile("sti");
-
     while (pit_get_ticks() < target) {
         // Sleep until next interrupt (PIT, keyboard, etc.)
-        __asm__ volatile("hlt");
+        sched_wait_yield();
     }
 
     // Optionally disable interrupts again if your syscall

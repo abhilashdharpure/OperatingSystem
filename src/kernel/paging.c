@@ -342,7 +342,7 @@ int map_page(uint64_t *pml4, uint64_t va, uint64_t pa, uint64_t flags)
     }
 
     uint64_t idx = PT_INDEX(va);
-    pt[idx] = (pa & PTE_ADDR_MASK) | (flags & (PAGE_PRESENT | PAGE_RW | PAGE_USER | PAGE_NX));
+    pt[idx] = (pa & PTE_ADDR_MASK) | (flags & (PAGE_PRESENT | PAGE_RW | PAGE_USER | PAGE_NX | PAGE_SHARED));
 
     // if (!(flags & PAGE_USER) && PML4_INDEX(va) == 511 && pml4 == kernel_pml4_virt)
     // {
@@ -507,6 +507,70 @@ void clone_kernel_mappings_for_user(uint64_t *user_pml4)
     // // memset(user_pml4, 0, 256 * sizeof(uint64_t));
 
     log_info("Paging", "clone_kernel_mappings_for_user: low half (except index 0) cleared, kernel high-half kept");
+}
+
+uint64_t get_pte(uint64_t *pml4, uint64_t va)
+{
+    uint64_t *pdp = get_pdp(pml4, va);  if (!pdp) return 0;
+    uint64_t *pd  = get_pd(pdp, va);    if (!pd)  return 0;
+    uint64_t *pt  = get_pt(pd, va);     if (!pt)  return 0;
+    return pt[PT_INDEX(va)];
+}
+
+/* Deep-copy all user pages (PDPT indices >= 1); share PAGE_SHARED pages. */
+int clone_user_address_space(uint64_t *src, uint64_t *dst)
+{
+    if (!(src[0] & PAGE_PRESENT)) return 0;
+    uint64_t *pdpt = phys_to_virt(src[0] & PTE_ADDR_MASK);
+    for (int i = 1; i < 512; i++) {
+        if (!(pdpt[i] & PAGE_PRESENT)) continue;
+        uint64_t *pd = phys_to_virt(pdpt[i] & PTE_ADDR_MASK);
+        for (int j = 0; j < 512; j++) {
+            if (!(pd[j] & PAGE_PRESENT) || (pd[j] & PAGE_PS)) continue;
+            uint64_t *pt = phys_to_virt(pd[j] & PTE_ADDR_MASK);
+            for (int k = 0; k < 512; k++) {
+                uint64_t e = pt[k];
+                if (!(e & PAGE_PRESENT)) continue;
+                uint64_t va = ((uint64_t)i << 30) | ((uint64_t)j << 21) | ((uint64_t)k << 12);
+                uint64_t fl = e & (PAGE_PRESENT | PAGE_RW | PAGE_USER | PAGE_NX | PAGE_SHARED);
+                uint64_t pa = e & PTE_ADDR_MASK;
+                if (!(e & PAGE_SHARED)) {
+                    uint64_t np = pmm_alloc_page();
+                    if (!np) return -1;
+                    memcpy(phys_to_virt(np), phys_to_virt(pa), PAGE_SIZE);
+                    pa = np;
+                }
+                if (map_page(dst, va, pa, fl) != 0) return -1;
+            }
+        }
+    }
+    return 0;
+}
+
+void free_user_address_space(uint64_t pml4_pa)
+{
+    uint64_t *pml4 = phys_to_virt(pml4_pa);
+    if (pml4[0] & PAGE_PRESENT) {
+        uint64_t pdpt_pa = pml4[0] & PTE_ADDR_MASK;
+        uint64_t *pdpt = phys_to_virt(pdpt_pa);
+        for (int i = 1; i < 512; i++) {            /* [0] = shared kernel identity map */
+            if (!(pdpt[i] & PAGE_PRESENT)) continue;
+            uint64_t pd_pa = pdpt[i] & PTE_ADDR_MASK;
+            uint64_t *pd = phys_to_virt(pd_pa);
+            for (int j = 0; j < 512; j++) {
+                if (!(pd[j] & PAGE_PRESENT) || (pd[j] & PAGE_PS)) continue;
+                uint64_t pt_pa = pd[j] & PTE_ADDR_MASK;
+                uint64_t *pt = phys_to_virt(pt_pa);
+                for (int k = 0; k < 512; k++)
+                    if ((pt[k] & PAGE_PRESENT) && !(pt[k] & PAGE_SHARED))
+                        pmm_free_page(pt[k] & PTE_ADDR_MASK);
+                pmm_free_page(pt_pa);
+            }
+            pmm_free_page(pd_pa);
+        }
+        pmm_free_page(pdpt_pa);
+    }
+    pmm_free_page(pml4_pa);
 }
 
 static inline uint64_t read_cr2(void)

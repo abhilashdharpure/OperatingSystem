@@ -7,3 +7,5 @@ cp src/userspace/bin/init/init build/x86_64_debug/root/bin/init
 cp src/userspace/bin/test/test build/x86_64_debug/root/bin/test
 cp src/userspace/bin/wl-test/wl-test  build/x86_64_debug/root/bin/wl-test
 cp src/compositor/build/luma-compositor build/x86_64_debug/root/bin/comp
+cp src/client/build/client image/root/bin/client
+cp src/client/build/client build/x86_64_debug/root/bin/client

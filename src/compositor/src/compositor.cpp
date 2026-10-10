@@ -2546,21 +2546,14 @@ bool luma_init(LumaCompositor* comp)
     std::cout << "[LumaCompositor] Wayland display initialized\n";
 
 
-    std::cout << "[LumaCompositor] STarting Client\n";
+    // std::cout << "[LumaCompositor] Starting Client\n";
 
-
-
-    int cfd = builtin_client_start();
-    g_client_src = wl_event_loop_add_fd(comp->loop, cfd, WL_EVENT_READABLE, on_client_fd, comp);
+    // int cfd = builtin_client_start();
+    // g_client_src = wl_event_loop_add_fd(comp->loop, cfd, WL_EVENT_READABLE, on_client_fd, comp);
 
     std::cout << "dispatching manually\n";
 
-    // wl_event_loop_dispatch(comp->loop, 0);
     wl_display_flush_clients(comp->display);
-    // if (cfd >= 0)
-    // {
-    //     wl_event_loop_add_fd(comp->loop, cfd, WL_EVENT_READABLE, on_client_fd, comp);
-    // }
 
     return true;
 }

@@ -120,6 +120,10 @@ void HAL_Initialize()
     x86_enable_fpu_sse();
     log_info("HAL", "After x86_enable_fpu_sse");
 
+    sched_init();
+    log_info("HAL", "After sched_init");
+
+
     uint64_t t0 = pit_get_ticks();
     for (volatile int i = 0; i < 1000000; i++);
     uint64_t t1 = pit_get_ticks();

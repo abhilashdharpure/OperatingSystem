@@ -124,7 +124,7 @@ uint64_t sys_poll(uint64_t ufds_ptr,
 
 
     // allow timer IRQs while we wait
-    __asm__ volatile("sti");
+    // __asm__ volatile("sti");
 
     // for (;;) {
     //     n = count_ready(pfds, nfds);          /* uses VFS_CanRead/CanWrite */
@@ -158,7 +158,33 @@ uint64_t sys_poll(uint64_t ufds_ptr,
         // Sleep ~1ms using PIT
         uint64_t before = ktime_monotonic_ms();
         while (ktime_monotonic_ms() == before) {
-            __asm__ volatile("pause");
+            sched_wait_yield();
         }
     }
+}
+
+long sys_ppoll(uint64_t fds,
+               uint64_t nfds,
+               uint64_t timeout_ts,
+               uint64_t sigmask,
+               uint64_t sigsetsize)
+{
+    (void)sigmask;
+    (void)sigsetsize;
+
+    int64_t timeout_ms = -1;
+
+    if (timeout_ts) {
+        struct timespec ts;
+
+        copy_from_user(&ts,
+                       timeout_ts,
+                       sizeof(ts));
+
+        timeout_ms =
+            ((int64_t)ts.tv_sec * 1000) +
+            ((int64_t)ts.tv_nsec / 1000000);
+    }
+
+    return sys_poll(fds, nfds, timeout_ms);
 }

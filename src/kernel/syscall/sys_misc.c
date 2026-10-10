@@ -20,7 +20,7 @@ int sys_getpid(void) {
 }
 
 int sys_getppid(void) {
-    return 0;
+    return current_process->parent ? current_process->parent->pid : 0;
 }
 
 int sys_uname(struct utsname *u) {
@@ -47,6 +47,12 @@ long sys_set_tid_address(int *tidptr)
 {
     (void)tidptr;  // unused for now
     return current_process->pid ? current_process->pid : 1;
+}
+
+
+long get_pid()
+{
+    return current_process->pid;
 }
 
 

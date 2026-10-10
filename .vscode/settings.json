@@ -3,7 +3,28 @@
         "x86.h": "c",
         "stdio.h": "c"
     },
+
     "makefile.configureOnOpen": false,
     "makefile.buildEnvironment": {},
-    "cmake.sourceDirectory": "/home/abhilash/Project/OperatingSystem/toolchain/binutils-2.37/zlib"
+
+    "files.watcherExclude": {
+        "**/.git/**": true,
+        "**/build/**": true,
+        "**/out/**": true,
+        "**/.cache/**": true
+    },
+
+    "search.exclude": {
+        "**/build": true,
+        "**/out": true
+    },
+
+    "files.exclude": {
+        "**/.cache": true
+    },
+
+    "explorer.fileNesting.enabled": false,
+
+    "typescript.updateImportsOnFileMove.enabled": "never",
+    "javascript.updateImportsOnFileMove.enabled": "never"
 }

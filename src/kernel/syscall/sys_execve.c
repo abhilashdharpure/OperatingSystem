@@ -168,6 +168,12 @@ void *read_entire_file(const char *path, size_t *out_size)
     return buf;
 }
 
+static void free_argv_vec(char **v, size_t n)
+{
+    for (size_t j = 0; j < n; j++)
+        if (v[j]) kfree(v[j]);
+}
+
 uint64_t sys_execve(uint64_t path_ptr,
                     uint64_t argv_ptr,
                     uint64_t envp_ptr)
@@ -231,28 +237,44 @@ uint64_t sys_execve(uint64_t path_ptr,
     }
 
     // ---- 3. Open the ELF file (no read_entire_file) ----
-    int fd = VFS_Open(kpath, O_RDONLY);
-    if (fd < 0) {
-        log_error("EXEC", "sys_execve: cannot open '%s'", kpath);
-        for (size_t j = 0; j < argc; j++) {
-            if (k_argv[j]) kfree(k_argv[j]);
-        }
-        return -ENOSYS;
-    }
+    // int fd = VFS_Open(kpath, O_RDONLY);
+    // if (fd < 0) {
+    //     log_error("EXEC", "sys_execve: cannot open '%s'", kpath);
+    //     for (size_t j = 0; j < argc; j++) {
+    //         if (k_argv[j]) kfree(k_argv[j]);
+    //     }
+    //     return -ENOSYS;
+    // }
 
     static char *init_envp[] = {
         "PATH=/",
         NULL
     };
-    // ---- 4. Execute ELF directly from fd (streaming loader) ----
-    pid_t rc = exec_elf_from_fd(fd, &g_bootParams, argc, k_argv, init_envp);
+    // // ---- 4. Execute ELF directly from fd (streaming loader) ----
+    // pid_t rc = exec_elf_load(fd, &g_bootParams, argc, k_argv, init_envp);
 
-    // If exec succeeds, it never returns.
+    // // If exec succeeds, it never returns.
+    // VFS_Close(fd);
+    // for (size_t j = 0; j < argc; j++) {
+    //     if (k_argv[j]) kfree(k_argv[j]);
+    // }
+
+    // log_error("EXEC", "sys_execve: exec_elf_load returned unexpectedly (rc=%d)", rc);
+    // return -ENOSYS;
+
+    /* ...path/argv copy unchanged... */
+    int fd = VFS_Open(kpath, O_RDONLY);
+    if (fd < 0) { free_argv_vec(k_argv, argc); return (uint64_t)(int64_t)fd; }
+
+    uint64_t old_cr3 = 0;
+    int rc = exec_elf_load(current_process, fd, &g_bootParams,
+                        argc, k_argv, init_envp, &old_cr3);
     VFS_Close(fd);
-    for (size_t j = 0; j < argc; j++) {
-        if (k_argv[j]) kfree(k_argv[j]);
-    }
+    free_argv_vec(k_argv, argc);
+    if (rc) return (uint64_t)(int64_t)rc;
 
-    log_error("EXEC", "sys_execve: exec_elf_from_fd returned unexpectedly (rc=%d)", rc);
+    write_cr3(current_process->cr3);               /* leave the old address space */
+    if (old_cr3) free_user_address_space(old_cr3);
+    enter_user_mode_from_process(current_process); /* never returns */
     return -ENOSYS;
 }

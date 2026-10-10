@@ -6,6 +6,9 @@
 #include "arch/x86_64/msr.h"
 #include "fs/sys_ftruncate.h"
 #include "hal/process.h"
+#include "sched.h"
+#include "fork.h"
+#include "syscall_frame.h"
 
 extern void x64_syscall_entry(void);
 
@@ -122,15 +125,25 @@ void log_syscall_entry(uint64_t rip, uint64_t rsp, uint64_t nr)
 }
 
 
-uint64_t syscall_dispatch(uint64_t nr,
+uint64_t syscall_dispatch(uint64_t nr, uint64_t a0, uint64_t a1, uint64_t a2,
+                          uint64_t a3, uint64_t a4, uint64_t a5,
+                          struct syscall_frame *frame)
+{
+    uint64_t r = do_syscall(nr, a0, a1, a2, a3, a4, a5, frame);
+    g_poll_yields = 0;                 /* a process made progress */
+    return r;
+}
+
+uint64_t do_syscall(uint64_t nr,
                           uint64_t a0,
                           uint64_t a1,
                           uint64_t a2,
                           uint64_t a3,
                           uint64_t a4,
-                          uint64_t a5)
+                          uint64_t a5,
+                          struct syscall_frame *frame)
 {
-    // log_info("SYSCALL", "syscall_dispatch: nr=%llu a0=%llx a1=%llx a2=%llx a3=%llx a4=%llx a5=%llx",
+    // log_info("SYSCALL", "do_syscall: nr=%llu a0=%llx a1=%llx a2=%llx a3=%llx a4=%llx a5=%llx",
     //          nr, a0, a1, a2, a3, a4, a5);
 
              
@@ -138,9 +151,9 @@ uint64_t syscall_dispatch(uint64_t nr,
     case SYS_write:
         return sys_write(a0, (const char *)a1, a2);
 
-    case SYS_exit:
-        sys_exit(a0);
-        __builtin_unreachable();
+    // case SYS_exit:
+    //     sys_exit(a0);
+    //     __builtin_unreachable();
 
     case SYS_open:
         return sys_open((const char *)a0, a1, a2);
@@ -229,7 +242,7 @@ uint64_t syscall_dispatch(uint64_t nr,
     case SYS_ftruncate:
         return sys_ftruncate(a0, a1);
 
-    case SYS_getpid: return sys_getpid();
+    // case SYS_getpid: return sys_getpid();
     case SYS_getppid: return sys_getppid();
     case SYS_uname: return sys_uname((struct utsname*)a0);
     case SYS_getcwd: return sys_getcwd((char*)a0, a1);
@@ -249,7 +262,7 @@ uint64_t syscall_dispatch(uint64_t nr,
 
     case SYS_prlimit64: return sys_prlimit64(a0, a1, (void*)a2, (void*)a3);
     case SYS_getrandom: return sys_getrandom((void*)a0, a1, a2);
-    case SYS_exit_group: return sys_exit_group(a0);
+    // case SYS_exit_group: return sys_exit_group(a0);
 
     case SYS_arch_prctl:
     {
@@ -391,6 +404,34 @@ uint64_t syscall_dispatch(uint64_t nr,
     case SYS_getsockopt:
         return sys_getsockopt(a0, a1, a2, a3, a4);
 
+    case SYS_fork:
+    case SYS_vfork: 
+        return sys_fork(frame);
+
+    case SYS_spawn:
+        return sys_spawn(a0, a1, a2, a3);
+
+    case SYS_wait4:
+        return sys_wait4((int)a0, a1, (int)a2, a3);
+
+    case SYS_getpid:
+    case SYS_gettid:
+        return get_pid();
+
+    // case SYS_getppid:
+    //     return current_process->parent ? current_process->parent->pid : 0;
+
+    case SYS_sched_yield:
+        schedule();
+        return 0;
+
+    case SYS_ppoll:
+        return sys_ppoll(a0, a1, a2, a3, a4);
+
+    case SYS_exit:
+    case SYS_exit_group:
+        do_exit((int)a0);
+
 
     // case SYS_timerfd_create:
     //     return sys_timerfd_create((int)a0, (int)a1);
@@ -413,11 +454,5 @@ uint64_t syscall_dispatch(uint64_t nr,
     }
 
     log_error("SYSCALL", "Unknown syscall %llu", (unsigned long long)nr);
-
-    // log_error("SYSCALL", "Infinite while loop");
-    // while(1)
-    // {
-
-    // }
     return -ENOSYS;
 }

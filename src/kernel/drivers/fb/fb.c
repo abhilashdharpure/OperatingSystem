@@ -66,7 +66,7 @@ static int fb_mmap(struct file *f, uint64_t length, uint64_t prot,
     uint64_t len   = (length + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
     uint64_t start = (current_process->mmap_base + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
 
-    uint64_t pte_flags = PAGE_PRESENT | PAGE_USER;
+    uint64_t pte_flags = PAGE_PRESENT | PAGE_USER | PAGE_SHARED;
     if (prot & PROT_WRITE) pte_flags |= PAGE_RW;
 
     uint64_t kva_base = (dev->framebuffer + offset) & ~(PAGE_SIZE - 1);

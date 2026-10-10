@@ -278,9 +278,17 @@ long sys_epoll_wait(int epfd, struct epoll_event *user_events, int maxevents, in
                 return -EFAULT;
             return out;
         }
-        if (timeout == 0) return 0;
-        if (timeout > 0 && pit_get_ticks() >= deadline) return 0;
-        __asm__ volatile("sti; hlt; cli");
+        if (timeout == 0)
+        {
+            return 0;
+        }
+        
+        if (timeout > 0 && pit_get_ticks() >= deadline)
+        {
+            return 0;
+        }
+        // __asm__ volatile("sti; hlt; cli");
+        sched_wait_yield();
     }
     
 }

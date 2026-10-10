@@ -33,5 +33,6 @@ iso_root/bin/init
 iso_root/bin/init_luma-compositor
 iso_root/bin/test
 iso_root/*
+src/client/build
 
 

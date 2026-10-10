@@ -79,3 +79,9 @@ void x64_TSS_Install(uintptr_t stack_top) {
     __asm__ volatile ("ltr %0" :: "r"((uint16_t)TSS_SELECTOR));
     log_info("TSS", "TSS installed at %p, rsp0=0x%llx", &the_tss, (unsigned long long)the_tss.rsp0);
 }
+
+void x64_TSS_SetRsp0(uint64_t rsp0)
+{
+    the_tss.rsp0 = rsp0;
+    g_syscall_rsp0 = rsp0;
+}

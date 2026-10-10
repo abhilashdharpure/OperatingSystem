@@ -15,10 +15,9 @@ typedef struct {
 #define PAGE_PRESENT   (1ULL << 0)
 #define PAGE_RW        (1ULL << 1)
 #define PAGE_USER      (1ULL << 2)
-#define PAGE_SIZE            4096ULL
-#define PAGE_NX              (1ULL << 63)
-
-
+#define PAGE_SIZE      4096ULL
+#define PAGE_NX        (1ULL << 63)
+#define PAGE_SHARED    (1ULL << 9)
 
 #define USER_START      0x0000000040000000ULL
 #define USER_END        0x0000000080000000ULL
@@ -106,6 +105,10 @@ void     unmap_page(uint64_t *pml4, uint64_t va);
 uint64_t get_mapped_phys(uint64_t *pml4, uint64_t va);
 int set_page_flags(uint64_t *pml4, uint64_t va, uint64_t flags);
 
+
+uint64_t get_pte(uint64_t *pml4, uint64_t va);
+int clone_user_address_space(uint64_t *src, uint64_t *dst);
+void free_user_address_space(uint64_t pml4_pa);
 // int      map_region(uint64_t *pml4, uint64_t va, uint64_t pa_start, uint64_t len, uint64_t flags);
 
 // User page table creation

@@ -23,6 +23,15 @@ extern Process *current_process;
 
 extern uint64_t *kernel_pml4_virt;
 
+static void exec_abort(Process *p, uint64_t *old_pd, uint64_t old_cr3) {
+    if (p->cr3 != old_cr3) {                 /* new PD was installed: drop it */
+        free_user_address_space(p->cr3);
+        p->page_directory = old_pd; p->cr3 = old_cr3;
+    }
+}
+#define EXEC_FAIL() do { exec_abort(p, old_pd, old_cr3); kfree(ph); return -ENOEXEC; } while (0)
+
+
 /* ---------- small helpers ---------- */
 
 void debug_check_va(Process *p, uint64_t va)
@@ -597,6 +606,8 @@ pid_t exec_elf_mem(void *data,
     if (!p)
         return -1;
 
+    proc_register(p);
+
     current_process = p;
 
     log_info("EXEC", "exec_elf_mem create_user_pd");
@@ -697,26 +708,29 @@ pid_t exec_elf_mem(void *data,
 }
 
 /* ---------- exec from fd ---------- */
-pid_t exec_elf_from_fd(int fd,
-                       BootParams *bootParams,
-                       size_t argc,
-                       char **argv,
-                       char **envp)
+// pid_t exec_elf_load(int fd,
+//                        BootParams *bootParams,
+//                        size_t argc,
+//                        char **argv,
+//                        char **envp)
+
+int exec_elf_load(Process *p, int fd, BootParams *bootParams,
+                  size_t argc, char **argv, char **envp, uint64_t *old_cr3_out)
 {
-    log_info("EXEC", "exec_elf_from_fd: start");
+    log_info("EXEC", "exec_elf_load: start");
 
     /* -----------------------------
      * 1. Read ELF header
      * ----------------------------- */
     Elf64_Ehdr eh;
     if (VFS_Lseek(fd, 0, SEEK_SET) < 0) {
-        log_critical("EXEC", "exec_elf_from_fd: lseek(0) failed");
+        log_critical("EXEC", "exec_elf_load: lseek(0) failed");
         return -1;
     }
 
     int n = VFS_Read(fd, &eh, sizeof(eh));
     if (n != (int)sizeof(eh)) {
-        log_critical("EXEC", "exec_elf_from_fd: short read on ELF header (%d)", n);
+        log_critical("EXEC", "exec_elf_load: short read on ELF header (%d)", n);
         return -1;
     }
 
@@ -724,19 +738,19 @@ pid_t exec_elf_from_fd(int fd,
         eh.e_ident[EI_MAG1] != ELFMAG1 ||
         eh.e_ident[EI_MAG2] != ELFMAG2 ||
         eh.e_ident[EI_MAG3] != ELFMAG3) {
-        log_critical("EXEC", "exec_elf_from_fd: not an ELF file");
+        log_critical("EXEC", "exec_elf_load: not an ELF file");
         return -1;
     }
     if (eh.e_ident[EI_CLASS] != ELFCLASS64) {
-        log_critical("EXEC", "exec_elf_from_fd: not ELF64");
+        log_critical("EXEC", "exec_elf_load: not ELF64");
         return -1;
     }
     if (eh.e_machine != EM_X86_64) {
-        log_critical("EXEC", "exec_elf_from_fd: not x86_64 (e_machine=%u)", eh.e_machine);
+        log_critical("EXEC", "exec_elf_load: not x86_64 (e_machine=%u)", eh.e_machine);
         return -1;
     }
     if (eh.e_entry == 0) {
-        log_critical("EXEC", "exec_elf_from_fd: ELF has no entry");
+        log_critical("EXEC", "exec_elf_load: ELF has no entry");
         return -1;
     }
 
@@ -744,7 +758,7 @@ pid_t exec_elf_from_fd(int fd,
      * 2. Read program headers
      * ----------------------------- */
     if (eh.e_phnum == 0 || eh.e_phentsize != sizeof(Elf64_Phdr)) {
-        log_critical("EXEC", "exec_elf_from_fd: invalid phdr table (phnum=%u entsize=%u)",
+        log_critical("EXEC", "exec_elf_load: invalid phdr table (phnum=%u entsize=%u)",
                      eh.e_phnum, eh.e_phentsize);
         return -1;
     }
@@ -752,21 +766,21 @@ pid_t exec_elf_from_fd(int fd,
     size_t phdr_bytes = eh.e_phnum * sizeof(Elf64_Phdr);
     Elf64_Phdr *ph = (Elf64_Phdr *)kmalloc(phdr_bytes);
     if (!ph) {
-        log_critical("EXEC", "exec_elf_from_fd: kmalloc(phdrs) failed");
+        log_critical("EXEC", "exec_elf_load: kmalloc(phdrs) failed");
         return -1;
     }
-
+    uint64_t old_cr3 = p->cr3;
+    uint64_t *old_pd = p->page_directory;
+    
     if (VFS_Lseek(fd, (off_t)eh.e_phoff, SEEK_SET) < 0) {
-        log_critical("EXEC", "exec_elf_from_fd: lseek to phoff failed");
-        kfree(ph);
-        return -1;
+        log_critical("EXEC", "exec_elf_load: lseek to phoff failed");
+        EXEC_FAIL();
     }
 
     n = VFS_Read(fd, ph, phdr_bytes);
     if (n != (int)phdr_bytes) {
-        log_critical("EXEC", "exec_elf_from_fd: short read on phdr table (%d/%zu)", n, phdr_bytes);
-        kfree(ph);
-        return -1;
+        log_critical("EXEC", "exec_elf_load: short read on phdr table (%d/%zu)", n, phdr_bytes);
+        EXEC_FAIL();
     }
 
     for (int i = 0; i < eh.e_phnum; i++) {
@@ -783,20 +797,23 @@ pid_t exec_elf_from_fd(int fd,
     /* -----------------------------
      * 3. Create process + page tables
      * ----------------------------- */
-    Process *p = process_create("user");
-    if (!p) {
-        log_critical("EXEC", "exec_elf_from_fd: process_create failed");
-        kfree(ph);
-        return -1;
-    }
+    // Process *p = process_create("user");
+    // if (!p) {
+    //     log_critical("EXEC", "exec_elf_load: process_create failed");
+    //     kfree(ph);
+    //     return -1;
+    // }
 
-    current_process = p;
+    // current_process = p;
+
+    // uint64_t old_cr3 = p->cr3;
+    // uint64_t *old_pd = p->page_directory;
+    p->fs_base = 0; p->gs_base = 0;
 
     page_dir_t pd = create_user_pd();
     if (!pd.pd_phys || !pd.pd_virt) {
-        log_critical("EXEC", "exec_elf_from_fd: create_user_pd failed");
-        kfree(ph);
-        return -1;
+        log_critical("EXEC", "exec_elf_load: create_user_pd failed");
+        EXEC_FAIL();
     }
 
     p->page_directory = pd.pd_virt;
@@ -819,9 +836,8 @@ pid_t exec_elf_from_fd(int fd,
         }
     }
     if (!user_region) {
-        log_critical("EXEC", "exec_elf_from_fd: no user memory region");
-        kfree(ph);
-        return -1;
+        log_critical("EXEC", "exec_elf_load: no user memory region");
+        EXEC_FAIL();
     }
 
     log_info("ELF", "Selected User Region: start=0x%llx length=0x%llx type=%x",
@@ -858,18 +874,16 @@ pid_t exec_elf_from_fd(int fd,
         for (uint64_t va = seg_start; va < seg_end; va += PAGE_SIZE) {
             uint64_t pa = pmm_alloc_page();
             if (!pa) {
-                log_critical("EXEC", "exec_elf_from_fd: out of pages mapping segment");
-                kfree(ph);
-                return -1;
+                log_critical("EXEC", "exec_elf_load: out of pages mapping segment");
+                EXEC_FAIL();
             }
 
             uint8_t *kva = (uint8_t *)phys_to_virt(pa);
             memset(kva, 0, PAGE_SIZE);
 
             if (map_page(p->page_directory, va, pa, seg_flags) != 0) {
-                log_critical("EXEC", "exec_elf_from_fd: map_page failed for VA=0x%llx", va);
-                kfree(ph);
-                return -1;
+                log_critical("EXEC", "exec_elf_load: map_page failed for VA=0x%llx", va);
+                EXEC_FAIL();
             }
 
             /* Copy file contents into this page if within p_filesz */
@@ -881,17 +895,16 @@ pid_t exec_elf_from_fd(int fd,
 
                 off_t file_off = (off_t)(seg->p_offset + offset_in_segment);
                 if (VFS_Lseek(fd, file_off, SEEK_SET) < 0) {
-                    log_critical("EXEC", "exec_elf_from_fd: lseek to segment data failed");
+                    log_critical("EXEC", "exec_elf_load: lseek to segment data failed");
                     kfree(ph);
                     return -1;
                 }
 
                 int r = VFS_Read(fd, kva, (size_t)to_copy);
                 if (r != (int)to_copy) {
-                    log_critical("EXEC", "exec_elf_from_fd: short read in segment (%d/%llu)",
+                    log_critical("EXEC", "exec_elf_load: short read in segment (%d/%llu)",
                                  r, (unsigned long long)to_copy);
-                    kfree(ph);
-                    return -1;
+                    EXEC_FAIL();
                 }
             }
         }
@@ -900,49 +913,44 @@ pid_t exec_elf_from_fd(int fd,
                  i, (unsigned long long)seg_start, (unsigned long long)seg_end);
     }
 
-    /* >>> ADD PATCH HERE <<< */
-    /* Explicitly map the ELF header page (offset 0–0x1000) */
-    {
-        uint64_t va = 0x40000000;        // start of user text
-        uint64_t pa = pmm_alloc_page();
-        if (!pa) {
-            log_critical("EXEC", "Failed to allocate page for ELF header");
-            kfree(ph);
-            return -1;
-        }
+    // /* >>> ADD PATCH HERE <<< */
+    // /* Explicitly map the ELF header page (offset 0–0x1000) */
+    // {
+    //     uint64_t va = 0x40000000;        // start of user text
+    //     uint64_t pa = pmm_alloc_page();
+    //     if (!pa) {
+    //         log_critical("EXEC", "Failed to allocate page for ELF header");
+    //         EXEC_FAIL();
+    //     }
 
-        uint8_t *kva = (uint8_t *)phys_to_virt(pa);
-        memset(kva, 0, PAGE_SIZE);
+    //     uint8_t *kva = (uint8_t *)phys_to_virt(pa);
+    //     memset(kva, 0, PAGE_SIZE);
 
-        if (VFS_Lseek(fd, 0, SEEK_SET) < 0) {
-            log_critical("EXEC", "lseek to ELF start failed");
-            kfree(ph);
-            return -1;
-        }
-        int r = VFS_Read(fd, kva, PAGE_SIZE);
-        if (r < 0) {
-            log_critical("EXEC", "read ELF header page failed");
-            kfree(ph);
-            return -1;
-        }
+    //     if (VFS_Lseek(fd, 0, SEEK_SET) < 0) {
+    //         log_critical("EXEC", "lseek to ELF start failed");
+    //         EXEC_FAIL();
+    //     }
+    //     int r = VFS_Read(fd, kva, PAGE_SIZE);
+    //     if (r < 0) {
+    //         log_critical("EXEC", "read ELF header page failed");
+    //         EXEC_FAIL();
+    //     }
 
-        const uint64_t flags = PAGE_PRESENT | PAGE_USER | PAGE_RW;
-        if (map_page(p->page_directory, va, pa, flags) != 0) {
-            log_critical("EXEC", "map_page failed for ELF header VA=0x%llx", va);
-            kfree(ph);
-            return -1;
-        }
+    //     const uint64_t flags = PAGE_PRESENT | PAGE_USER | PAGE_RW;
+    //     if (map_page(p->page_directory, va, pa, flags) != 0) {
+    //         log_critical("EXEC", "map_page failed for ELF header VA=0x%llx", va);
+    //         EXEC_FAIL();
+    //     }
 
-        log_info("EXEC", "Mapped ELF header page at VA=0x%llx", va);
-    }
+    //     log_info("EXEC", "Mapped ELF header page at VA=0x%llx", va);
+    // }
 
     /* -----------------------------
      * 5. Map user stack
      * ----------------------------- */
     if (map_user_stack(p) != 0) {
-        log_critical("EXEC", "exec_elf_from_fd: map_user_stack failed");
-        kfree(ph);
-        return -1;
+        log_critical("EXEC", "exec_elf_load: map_user_stack failed");
+        EXEC_FAIL();
     }
 
     /* -----------------------------
@@ -956,7 +964,7 @@ pid_t exec_elf_from_fd(int fd,
 
     log_info("EXEC", "Using phdr_addr=0x%llx", phdr_addr);
 
-    log_info("EXEC", "exec_elf_from_fd: argc=%llu argv=%p envp=%p",
+    log_info("EXEC", "exec_elf_load: argc=%llu argv=%p envp=%p",
              (unsigned long long)argc, (void*)argv, (void*)envp);
 
     if (argv) {
@@ -991,15 +999,14 @@ pid_t exec_elf_from_fd(int fd,
              (unsigned long long)p->regs.rsp, (unsigned long long)rsp_pa);
 
     if (!rip_pa || !rsp_pa) {
-        log_critical("EXEC", "exec_elf_from_fd: ELF pages not mapped!");
+        log_critical("EXEC", "exec_elf_load: ELF pages not mapped!");
     }
 
     /* 8. Apply relocations */
     if (apply_elf_relocations_fd(p, fd, &eh, ph) != 0) 
     {
         log_critical("EXEC", "apply_elf_relocations_fd failed");
-        kfree(ph);
-        return -1;
+        EXEC_FAIL();
     }
 
     p->regs.rip    = eh.e_entry;
@@ -1007,12 +1014,16 @@ pid_t exec_elf_from_fd(int fd,
     p->regs.cs     = USER_CODE_SELECTOR;
     p->regs.ss     = USER_DATA_SELECTOR;
 
-    dump_process_regs(p);
+    // dump_process_regs(p);
 
-    kfree(ph);
+    // kfree(ph);
 
-    enter_user_mode_from_process(p);
+    // enter_user_mode_from_process(p);
 
-    log_critical("EXEC", "exec_elf_from_fd: returned unexpectedly from user mode");
-    return -1;
+    // log_critical("EXEC", "exec_elf_load: returned unexpectedly from user mode");
+    // return -1;
+
+   kfree(ph);
+   *old_cr3_out = old_cr3;
+   return 0;
 }
