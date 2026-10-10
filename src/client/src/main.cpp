@@ -48,12 +48,70 @@ static void p_enter(void*, wl_pointer*, uint32_t, wl_surface*, wl_fixed_t x, wl_
 static void p_leave(void*, wl_pointer*, uint32_t, wl_surface*) {}
 static void p_motion(void*, wl_pointer*, uint32_t, wl_fixed_t x, wl_fixed_t y) { mx = wl_fixed_to_int(x); my = wl_fixed_to_int(y); if (configured) draw(); }
 static void p_button(void*, wl_pointer*, uint32_t, uint32_t, uint32_t, uint32_t state) { pressed = state == WL_POINTER_BUTTON_STATE_PRESSED; if (configured) draw(); }
+
+static void p_frame(void* data, wl_pointer* pointer)
+{
+    (void)data;
+    (void)pointer;
+}
+
+static void p_axis(void* data,
+                   wl_pointer* pointer,
+                   uint32_t time,
+                   uint32_t axis,
+                   wl_fixed_t value)
+{
+    (void)data;
+    (void)pointer;
+    (void)time;
+    (void)axis;
+    (void)value;
+}
+
+static void p_axis_source(void* data,
+                          wl_pointer* pointer,
+                          uint32_t source)
+{
+    (void)data;
+    (void)pointer;
+    (void)source;
+}
+
+static void p_axis_stop(void* data,
+                        wl_pointer* pointer,
+                        uint32_t time,
+                        uint32_t axis)
+{
+    (void)data;
+    (void)pointer;
+    (void)time;
+    (void) axis;
+}
+
+static void p_axis_discrete(void* data,
+                            wl_pointer* pointer,
+                            uint32_t axis,
+                            int32_t discrete)
+{
+    (void)data;
+    (void)pointer;
+    (void)axis;
+    (void)discrete;
+
+}
+
 static wl_pointer_listener pl;     // assigned by name: stays valid across protocol versions
 
 static void seat_caps(void*, wl_seat* s, uint32_t caps) {
     if (caps & WL_SEAT_CAPABILITY_POINTER) {
         wl_pointer* p = wl_seat_get_pointer(s);
         pl.enter = p_enter; pl.leave = p_leave; pl.motion = p_motion; pl.button = p_button;
+        pl.frame = p_frame;
+        pl.axis = p_axis;
+        pl.axis_source = p_axis_source;
+        pl.axis_stop = p_axis_stop;
+        pl.axis_discrete = p_axis_discrete;
+
         wl_pointer_add_listener(p, &pl, nullptr);
     }
 }

@@ -26,6 +26,8 @@ static void compositor_keyboard_event(LumaCompositor *comp, InputEvent *ev)
 
 static void compositor_mouse_event(LumaCompositor* c, InputEvent* ev)
 {
+    printf("[MOUSE] type=%u code=%u value=%d\n", ev->type, ev->code, ev->value);
+
     static double dx = 0, dy = 0;
     if (ev->type == EV_REL) { if (ev->code == REL_X) dx += ev->value; else if (ev->code == REL_Y) dy += ev->value; }
     else if (ev->type == EV_KEY && (ev->code == BTN_LEFT || ev->code == BTN_RIGHT)) {
