@@ -668,7 +668,7 @@ static void pointer_handle_motion(LumaCompositor* comp)
             surf->y = comp->window_start_y + dy;
         }
         comp->needs_repaint = true;
-        compositor_repaint(comp);
+        // compositor_repaint(comp);
     }
 }
 
@@ -691,7 +691,7 @@ void handle_mouse_move(LumaCompositor* comp, double sx, double sy)
 
             // for update cursor live
             comp->needs_repaint = true;
-            compositor_repaint(comp);
+            // compositor_repaint(comp);
         }
     }
 }

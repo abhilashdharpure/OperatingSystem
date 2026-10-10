@@ -59,15 +59,16 @@ static int keyboard_fd_handler(
     return 0;
 }
 
-static int mouse_fd_handler(int fd, uint32_t, void *data)
+static int mouse_fd_handler(int fd, uint32_t, void* data)
 {
-    LumaCompositor *comp = (LumaCompositor*)data;
+    LumaCompositor* comp = (LumaCompositor*)data;
     InputEvent ev;
     while (read(fd, &ev, sizeof(ev)) == (ssize_t)sizeof(ev))
-        compositor_mouse_event(comp, &ev);
+        compositor_mouse_event(comp, &ev);   // only update cursor_x/y and send pointer events
+    comp->needs_repaint = true;
+    compositor_repaint(comp);                // once
     return 0;
 }
-
 
 void CompositorInput::Initialize(LumaCompositor* compositor)
 {
