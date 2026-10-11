@@ -309,14 +309,6 @@ int map_page(uint64_t *pml4, uint64_t va, uint64_t pa, uint64_t flags)
         return -1;
     }
 
-    if (va >= 0x100000000ULL &&
-    va <  0x100020000ULL)
-    {
-        log_info("FBTRACE",
-            "map_page va=%llx pa=%llx flags=%llx",
-            va, pa, flags);
-    }
-
 
     // log_info("Paging", "map_page: pml4=%p va=0x%llx pa=0x%llx flags=0x%llx",
     //          pml4, va, pa, flags);

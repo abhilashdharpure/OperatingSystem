@@ -18,6 +18,9 @@ typedef struct fat32 {
     // computed
     uint32_t fat_start_lba;     // start of FAT region
     uint32_t data_start_lba;    // start of data region
+
+    uint32_t fat_cache_lba;       // fs-relative; 0xFFFFFFFF = empty
+    uint8_t  fat_cache[512];
 } fat32_t;
 
 typedef struct fat32_node {
@@ -30,6 +33,9 @@ typedef struct fat32_node {
     uint32_t cur_offset; // byte offset within current cluster
     // short name cache for debugging
     char name[NAME_MAX];
+
+    uint32_t seek_cluster;        // cluster at index seek_index (0 = none)
+    uint32_t seek_index;
 } fat32_node_t;
 
 

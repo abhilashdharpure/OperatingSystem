@@ -53,6 +53,7 @@ export SYSTEMD_VER=257.4
 export LIBCAP_VER=2.76
 export UTIL_LINUX_VER=2.40.4
 export LIBXKBCOMMON_VER=1.8.1
+export SLINT_VER=1.18.1 
 
 export TARGET=x86_64-linux-musl
 

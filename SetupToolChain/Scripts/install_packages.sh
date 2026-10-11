@@ -34,7 +34,12 @@ sudo apt install -y \
     llvm-dev \
     libclang-dev \
     clang \
-    lld
+    lld \
+    fonts-dejavu-core \
+    libfontconfig1-dev \
+    libfreetype-dev \
+    pkg-config \
+    cargo
     
 echo "Upgrading Meson build system..."
 pip3 install --upgrade meson

@@ -195,8 +195,27 @@ echo "Creating create_systemd_musl_compat_h..."
 echo
 
 
-## Setup Done till here...
+echo "Building and installing rust..."
+"$SCRIPT_DIR/Scripts/install_host_pakage_and_rust.sh
 
+
+## Add below script in ~/.cargo/config.toml
+echo "Updating ~/.cargo/config.toml"
+
+cat > "$CONFIG_FILE" <<'EOF'
+[target.x86_64-unknown-linux-musl]
+linker = "x86_64-linux-musl-gcc"
+rustflags = ["-C", "target-feature=+crt-static", "-C", "link-self-contained=no"]
+EOF
+
+echo "Downloading slint..."
+
+"$SCRIPT_DIR/Scripts/download_slint.sh
+pkg-config --modversion fontconfig      # should print a version
+
+echo "Building and installing slint..."
+
+"$SCRIPT_DIR/Scripts/build_and_install_slint.sh
 
 echo "Building and installing udev..."
 

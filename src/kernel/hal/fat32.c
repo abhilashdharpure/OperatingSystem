@@ -90,23 +90,21 @@ static uint32_t fat_next_cluster(fat32_t *fs, uint32_t cluster)
 {
     if (!fs) return 0x0FFFFFFF;
 
-    uint32_t fat_offset       = cluster * 4;
-    uint32_t bytes_per_sector = fs->bytes_per_sector;
-    // log_error("FAT32", "bytes_per_sector =%u", bytes_per_sector);
+    uint32_t fat_offset = cluster * 4;
+    uint32_t lba        = fs->fat_start_lba + (fat_offset / fs->bytes_per_sector);
+    uint32_t off        = fat_offset % fs->bytes_per_sector;
 
-    uint32_t fs_fat_lba       = fs->fat_start_lba + (fat_offset / bytes_per_sector);
-    uint32_t offset_in_sector = fat_offset % bytes_per_sector;
-
-    uint8_t sec[512];
-    if (read_sector(fs, fs_fat_lba, sec) != 0) {
-        log_error("FAT32", "fat_next_cluster: read_sector failed fs_fat_lba=%u", fs_fat_lba);
-        return 0x0FFFFFFF;
+    if (fs->fat_cache_lba != lba) {
+        if (read_sector(fs, lba, fs->fat_cache) != 0) {
+            fs->fat_cache_lba = 0xFFFFFFFF;
+            log_error("FAT32", "fat_next_cluster: read failed lba=%u", lba);
+            return 0x0FFFFFFF;
+        }
+        fs->fat_cache_lba = lba;
     }
-
     uint32_t entry;
-    memcpy(&entry, sec + offset_in_sector, sizeof(entry));
-    entry &= 0x0FFFFFFF;
-    return entry;
+    memcpy(&entry, fs->fat_cache + off, sizeof(entry));
+    return entry & 0x0FFFFFFF;
 }
 
 static int is_eoc(uint32_t cl)
@@ -202,6 +200,7 @@ fat32_t* fat32_init_device(block_device_t *bdev)
         return NULL;
     }
     memset(fs, 0, sizeof(*fs));
+    fs->fat_cache_lba = 0xFFFFFFFF;
     fs->bdev = bdev;
 
     // If lba_base != 0, bdev is already a partition device
@@ -704,106 +703,76 @@ static int fat32_readdir(struct file *f, dirent_t *e)
 
     return -1;
 }
+
+static int read_sectors_fs(fat32_t *fs, uint32_t fs_lba, uint32_t count, void *buf)
+{
+    return fs->bdev->read_sectors(fs->bdev, fs->bdev->lba_base + fs_lba, count, buf);
+}
+
 static int fat32_read(struct file *f, void *buf, size_t size)
 {
-    fat32_node_t *node = (fat32_node_t*)f->private_data;
+    fat32_node_t *node = (fat32_node_t *)f->private_data;
+    if (!node || node->is_dir || !buf) return -1;
+    if (f->position >= node->size) return 0;
 
-    if (!node || node->is_dir || !buf)
-        return -1;
+    size_t left = node->size - f->position;
+    if (size > left) size = left;
+    if (size == 0) return 0;
 
-    /*
-     * EOF check.
-     *
-     * FAT32 files are sector/cluster backed, but the directory entry
-     * contains the exact byte size of the file. Never read past it.
-     */
-    if (f->position >= node->size)
-        return 0;
+    fat32_t *fs = node->fs;
+    uint32_t bps = fs->bytes_per_sector;
+    uint32_t cluster_size = bps * fs->sectors_per_cluster;
+    if (cluster_size == 0 || cluster_size > MAX_CLUSTER_BYTES) return -1;
 
-    /*
-     * Limit the requested read to the actual bytes remaining in
-     * the file.
-     */
-    size_t file_pos = f->position;
-    size_t file_remaining = (size_t)node->size - file_pos;
+    uint32_t target = (uint32_t)(f->position / cluster_size);
+    uint32_t skip   = (uint32_t)(f->position % cluster_size);
 
-    if (size > file_remaining)
-        size = file_remaining;
-
-    if (size == 0)
-        return 0;
-
-    size_t remaining  = size;
-    size_t read_total = 0;
-
-    uint32_t cluster_size =
-        node->fs->bytes_per_sector *
-        node->fs->sectors_per_cluster;
-
-    if (cluster_size == 0 || cluster_size > MAX_CLUSTER_BYTES)
-        return -1;
-
-    /*
-     * Find the cluster containing file_pos.
-     */
-    uint32_t cluster = node->first_cluster;
-
-    size_t skip = file_pos;
-
-    while (skip >= cluster_size) {
-        if (is_eoc(cluster))
-            return 0;
-
-        cluster = fat_next_cluster(node->fs, cluster);
-
-        if (is_eoc(cluster))
-            return 0;
-
-        skip -= cluster_size;
+    /* start from the cached position when it is not past the target */
+    uint32_t cluster, idx;
+    if (node->seek_cluster >= 2 && node->seek_index <= target) {
+        cluster = node->seek_cluster;  idx = node->seek_index;
+    } else {
+        cluster = node->first_cluster; idx = 0;
+    }
+    while (idx < target) {
+        if (cluster < 2 || is_eoc(cluster)) return 0;
+        cluster = fat_next_cluster(fs, cluster);
+        idx++;
     }
 
-    uint8_t clbuf[MAX_CLUSTER_BYTES];
+    uint8_t  bounce[MAX_CLUSTER_BYTES];
+    uint8_t *out  = (uint8_t *)buf;
+    size_t   done = 0;
 
-    /*
-     * Read only the requested number of bytes.
-     * The request has already been clipped to node->size above.
-     */
-    while (remaining > 0 && !is_eoc(cluster))
-    {
-        if (read_cluster(node->fs, cluster, clbuf) != 0)
-            break;
+    while (done < size && cluster >= 2 && !is_eoc(cluster)) {
+        node->seek_cluster = cluster;
+        node->seek_index   = idx;
 
         size_t chunk = cluster_size - skip;
+        if (chunk > size - done) chunk = size - done;
 
-        if (chunk > remaining)
-            chunk = remaining;
+        uint32_t lba   = fat32_cluster_to_lba(fs, cluster);
+        uint32_t first = skip / bps;
+        uint32_t off   = skip % bps;
 
-        memcpy(
-            (uint8_t*)buf + read_total,
-            clbuf + skip,
-            chunk
-        );
+        if (off == 0 && (chunk % bps) == 0) {
+            /* aligned: read straight into the caller's buffer */
+            if (read_sectors_fs(fs, lba + first, (uint32_t)(chunk / bps), out + done) != 0) break;
+        } else {
+            uint32_t nsec = (uint32_t)((off + chunk + bps - 1) / bps);
+            if (read_sectors_fs(fs, lba + first, nsec, bounce) != 0) break;
+            memcpy(out + done, bounce + off, chunk);
+        }
 
-        read_total += chunk;
-        remaining  -= chunk;
-
+        done += chunk;
         skip = 0;
-
-        if (remaining > 0)
-            cluster = fat_next_cluster(node->fs, cluster);
+        if (done < size) { cluster = fat_next_cluster(fs, cluster); idx++; }
     }
 
-    f->position += read_total;
-
-    /*
-     * Defensive clamp. f->position must never exceed the FAT32
-     * file size.
-     */
-    if (f->position > node->size)
-        f->position = node->size;
-
-    return (int)read_total;
+    f->position += done;
+    return (int)done;
 }
+
 
 static int fat_stat(struct file *f, struct kstat *st)
 {

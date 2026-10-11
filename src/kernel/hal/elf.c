@@ -11,8 +11,6 @@
 #include "auxv.h"
 #include "errno.h"
 
-
-
 #define PT_LOAD           1
 
 #define PF_X  (1 << 0)
@@ -22,6 +20,8 @@
 extern Process *current_process;
 
 extern uint64_t *kernel_pml4_virt;
+#define LOAD_CHUNK (64 * 1024)
+static uint8_t g_load_tmp[LOAD_CHUNK];     /* loader runs one at a time (cooperative scheduler) */
 
 static void exec_abort(Process *p, uint64_t *old_pd, uint64_t old_cr3) {
     if (p->cr3 != old_cr3) {                 /* new PD was installed: drop it */
@@ -707,18 +707,45 @@ pid_t exec_elf_mem(void *data,
     return 0;
 }
 
-/* ---------- exec from fd ---------- */
-// pid_t exec_elf_load(int fd,
-//                        BootParams *bootParams,
-//                        size_t argc,
-//                        char **argv,
-//                        char **envp)
 
+static int load_segment_data(Process *p, int fd, uint64_t vaddr,
+                             uint64_t file_off, uint64_t filesz)
+{
+    if (VFS_Lseek(fd, (off_t)file_off, SEEK_SET) < 0) return -1;
+
+    uint64_t done = 0;
+    while (done < filesz) {
+        size_t n = (size_t)(filesz - done);
+        if (n > LOAD_CHUNK) n = LOAD_CHUNK;
+        if (VFS_Read(fd, g_load_tmp, n) != (int)n)
+        {
+            log_critical("EXEC", "read failed at seg offset 0x%llx", (unsigned long long)done);
+            return -1;
+        }
+
+        for (size_t i = 0; i < n; ) {
+            uint64_t va  = vaddr + done + i;
+            uint64_t pa  = get_mapped_phys(p->page_directory, va & ~(PAGE_SIZE - 1));
+            if (!pa)
+            {
+                log_critical("EXEC", "unmapped VA 0x%llx", (unsigned long long)va);
+                return -1;
+            }
+            size_t   off = (size_t)(va & (PAGE_SIZE - 1));
+            size_t   c   = PAGE_SIZE - off;
+            if (c > n - i) c = n - i;
+            memcpy((uint8_t *)phys_to_virt(pa) + off, g_load_tmp + i, c);
+            i += c;
+        }
+        done += n;
+    }
+    return 0;
+}
+/* ---------- exec from fd ---------- */
 int exec_elf_load(Process *p, int fd, BootParams *bootParams,
                   size_t argc, char **argv, char **envp, uint64_t *old_cr3_out)
 {
     log_info("EXEC", "exec_elf_load: start");
-
     /* -----------------------------
      * 1. Read ELF header
      * ----------------------------- */
@@ -878,6 +905,7 @@ int exec_elf_load(Process *p, int fd, BootParams *bootParams,
                 EXEC_FAIL();
             }
 
+
             uint8_t *kva = (uint8_t *)phys_to_virt(pa);
             memset(kva, 0, PAGE_SIZE);
 
@@ -885,65 +913,20 @@ int exec_elf_load(Process *p, int fd, BootParams *bootParams,
                 log_critical("EXEC", "exec_elf_load: map_page failed for VA=0x%llx", va);
                 EXEC_FAIL();
             }
+        }
 
-            /* Copy file contents into this page if within p_filesz */
-            uint64_t offset_in_segment = va - seg_start;
-            if (offset_in_segment < seg->p_filesz) {
-                uint64_t to_copy = PAGE_SIZE;
-                if (offset_in_segment + to_copy > seg->p_filesz)
-                    to_copy = seg->p_filesz - offset_in_segment;
-
-                off_t file_off = (off_t)(seg->p_offset + offset_in_segment);
-                if (VFS_Lseek(fd, file_off, SEEK_SET) < 0) {
-                    log_critical("EXEC", "exec_elf_load: lseek to segment data failed");
-                    kfree(ph);
-                    return -1;
-                }
-
-                int r = VFS_Read(fd, kva, (size_t)to_copy);
-                if (r != (int)to_copy) {
-                    log_critical("EXEC", "exec_elf_load: short read in segment (%d/%llu)",
-                                 r, (unsigned long long)to_copy);
-                    EXEC_FAIL();
-                }
-            }
+        /* all pages of this segment are mapped now: copy the file data once */
+        if (seg->p_filesz &&
+            load_segment_data(p, fd, seg->p_vaddr, seg->p_offset, seg->p_filesz) != 0) {
+            log_critical("EXEC", "segment %d: data load failed", i);
+            EXEC_FAIL();
         }
 
         log_info("ELF", "Mapped PT_LOAD segment %d: VA [0x%llx, 0x%llx)",
                  i, (unsigned long long)seg_start, (unsigned long long)seg_end);
     }
 
-    // /* >>> ADD PATCH HERE <<< */
-    // /* Explicitly map the ELF header page (offset 0–0x1000) */
-    // {
-    //     uint64_t va = 0x40000000;        // start of user text
-    //     uint64_t pa = pmm_alloc_page();
-    //     if (!pa) {
-    //         log_critical("EXEC", "Failed to allocate page for ELF header");
-    //         EXEC_FAIL();
-    //     }
 
-    //     uint8_t *kva = (uint8_t *)phys_to_virt(pa);
-    //     memset(kva, 0, PAGE_SIZE);
-
-    //     if (VFS_Lseek(fd, 0, SEEK_SET) < 0) {
-    //         log_critical("EXEC", "lseek to ELF start failed");
-    //         EXEC_FAIL();
-    //     }
-    //     int r = VFS_Read(fd, kva, PAGE_SIZE);
-    //     if (r < 0) {
-    //         log_critical("EXEC", "read ELF header page failed");
-    //         EXEC_FAIL();
-    //     }
-
-    //     const uint64_t flags = PAGE_PRESENT | PAGE_USER | PAGE_RW;
-    //     if (map_page(p->page_directory, va, pa, flags) != 0) {
-    //         log_critical("EXEC", "map_page failed for ELF header VA=0x%llx", va);
-    //         EXEC_FAIL();
-    //     }
-
-    //     log_info("EXEC", "Mapped ELF header page at VA=0x%llx", va);
-    // }
 
     /* -----------------------------
      * 5. Map user stack
@@ -956,9 +939,6 @@ int exec_elf_load(Process *p, int fd, BootParams *bootParams,
     /* -----------------------------
      * 6. Build initial stack (argc/argv/envp/auxv)
      * ----------------------------- */
-    // uint64_t phdr_addr = compute_phdr_addr_from_fd(&eh, ph);
-    // if (!phdr_addr)
-    //     phdr_addr = USER_START + eh.e_phoff; // fallback
 
     uint64_t phdr_addr = compute_phdr_addr_from_fd(&eh, ph);
 

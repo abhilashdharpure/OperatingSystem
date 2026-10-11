@@ -55,8 +55,11 @@ int main()
        Simplest: yield a few times. The compositor runs until it blocks in epoll_wait. */
     for (int i = 0; i < 50; i++) syscall(24 /* sched_yield */);
 
-    long client_pid = spawn_path("/bin/client");
-    klog("spawned client\n");
+    // long client_pid = spawn_path("/bin/client");
+    // klog("spawned client\n");
+
+    long client_pid = spawn_path("/bin/luma_os_gui");
+    klog("spawned luma_os_gui\n");
 
     /* init reaps children forever */
     int st;
