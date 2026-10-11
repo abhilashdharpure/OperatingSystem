@@ -1,0 +1,22 @@
+import { Button, LineEdit } from "std-widgets.slint";
+
+export global HomeState {
+    in property <string> greeting: "Welcome";   // C++ -> UI
+    in property <int> clicks: 0;                // C++ -> UI
+    in-out property <string> user-name;         // both ways
+    callback say-hello(string);                 // UI -> C++
+    callback open-settings();                   // UI -> C++
+}
+
+export component HomePage inherits Rectangle {
+    background: #1b2733;
+
+    VerticalLayout {
+        padding: 16px; spacing: 10px;
+        Text { text: HomeState.greeting; color: white; font-size: 20px; }
+        Text { text: "Clicks: \{HomeState.clicks}"; color: white; }
+        LineEdit { text <=> HomeState.user-name; }
+        Button { text: "Say hello"; clicked => { HomeState.say-hello(HomeState.user-name); } }
+        Button { text: "Settings"; clicked => { HomeState.open-settings(); } }
+    }
+}

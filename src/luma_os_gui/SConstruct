@@ -87,14 +87,18 @@ xdg_code_c   = host_env.Command(
 # ---------------------------------------------------------------
 # 3) Compile and link
 # ---------------------------------------------------------------
-main_obj = target_env.Object('src/main.cpp')
-target_env.Depends(main_obj, [app_h, xdg_client_h])
-xdg_obj  = target_env.Object(xdg_code_c)
+cpp_sources = Glob('src/*.cpp')                 # picks up main.cpp, home_page.cpp, and future pages
+objs = target_env.Object(cpp_sources)           # one object per source, named after the source
+target_env.Depends(objs, [app_h, xdg_client_h]) # generated headers must exist before compiling
+xdg_obj = target_env.Object(xdg_code_c)
 
 program = target_env.Program(
     target = os.path.join(build_dir, project_name),
-    source = [main_obj, xdg_obj],
+    source = objs + xdg_obj,
 )
+
+VariantDir('build/obj', 'src', duplicate=0)
+cpp_sources = Glob('build/obj/*.cpp')
 
 # Stripped copy: much smaller, faster to load in your kernel ELF loader
 stripped = target_env.Command(

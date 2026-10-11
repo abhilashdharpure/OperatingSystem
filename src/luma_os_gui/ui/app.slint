@@ -1,18 +1,18 @@
-import { Button, Slider, CheckBox, LineEdit } from "std-widgets.slint";
+import { HomePage, HomeState } from "home_page.slint";
+// import { SettingsPage, SettingsState } from "settings_page.slint";
+
+// Exported so slint-compiler generates C++ classes for them in app.h
+export { HomeState }
+// export { SettingsState }
 
 export component AppWindow inherits Window {
-    title: "Luma Slint";
+    default-font-family: "DejaVu Sans";
     preferred-width: 500px;
     preferred-height: 300px;
-    in-out property <int> counter: 0;
 
-    VerticalLayout {
-        padding: 16px; spacing: 12px;
-        Text { text: "Hello from Slint on Luma OS"; font-size: 20px; }
-        Text { text: "Clicked: \{root.counter}"; }
-        Button { text: "Click me"; clicked => { root.counter += 1; } }
-        Slider { minimum: 0; maximum: 100; value: root.counter; }
-        CheckBox { text: "Enable something"; }
-        LineEdit { placeholder-text: "type here"; }
-    }
+    in-out property <int> current-page: 0;      // C++ can change the page too
+    callback page-changed(int);
+
+    if root.current-page == 0 : HomePage { }
+    // if root.current-page == 1 : SettingsPage { }
 }
