@@ -30,66 +30,66 @@ static uint8_t prev_buttons = 0;
 struct input_device keyboard_dev;
 struct input_device mouse_dev;
 
-// Basic US QWERTY Scan Code Set 1 mapping for keys 0x01-0x3A (partial)
-static const char scancode_to_ascii[128] = {
-    0,   27, '1', '2', '3', '4', '5', '6',  // 0x00-0x07
-    '7', '8', '9', '0', '-', '=', '\b', '\t', // 0x08-0x0F
-    'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', // 0x10-0x17
-    'o', 'p', '[', ']', '\n', 0, 'a', 's',   // 0x18-0x1F
-    'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', // 0x20-0x27
-    '\'', '`', 0, '\\', 'z', 'x', 'c', 'v',  // 0x28-0x2F
-    'b', 'n', 'm', ',', '.', '/', 0, '*',    // 0x30-0x37
-    0, ' ', 0, 0, 0, 0, 0, 0,                 // 0x38-0x3F
-    // rest zero
-};
+static bool e0_pending = false;
+
+static uint16_t e0_to_evdev(uint8_t make)
+{
+    switch (make) {
+        case 0x1C: return 96;   // KP Enter
+        case 0x1D: return 97;   // Right Ctrl
+        case 0x35: return 98;   // KP /
+        case 0x38: return 100;  // Right Alt
+        case 0x47: return 102;  // Home
+        case 0x48: return 103;  // Up
+        case 0x49: return 104;  // Page Up
+        case 0x4B: return 105;  // Left
+        case 0x4D: return 106;  // Right
+        case 0x4F: return 107;  // End
+        case 0x50: return 108;  // Down
+        case 0x51: return 109;  // Page Down
+        case 0x52: return 110;  // Insert
+        case 0x53: return 111;  // Delete
+        default:   return 0;
+    }
+}
 
 // IRQ1 handler
 static void ps2_keyboard_handler()
 {
-    uint8_t scancode = inb(DATA_PORT);
-    bool released = (scancode & 0x80);
-    uint8_t keycode = scancode & 0x7F;
+    uint8_t sc = inb(DATA_PORT);
 
-    // Translate scancode → Linux KEY_* code
-    uint16_t linux_keycode = scancode_to_ascii[keycode]; // You need this table!
-
-    if (linux_keycode == 0)
-        return; // Unknown key
-
-    InputEvent keyEvent;
-    keyEvent.time.tv_sec =  get_system_time();
-    keyEvent.type = EV_KEY;
-    keyEvent.code = linux_keycode;
-    keyEvent.value = released ? KEY_RELEASED : KEY_PRESSED;
-
-
-    log_info("PS2", "[Input] type=%u, code=%u, value=%d, time=%llu",
-                keyEvent.type, keyEvent.code, keyEvent.value, keyEvent.time);
-    input_push_event(&keyboard_dev, &keyEvent); // Your ring buffer writer
-
-
-    // // Only for testing
-    // debug_poll_input(&keyboard_dev);
-
-    if(keyEvent.value == KEY_PRESSED)
-    {
-        log_info("PS2", "Key Pressed!, button = %c", linux_keycode);
+    if (sc == 0xE0) {                 // extended prefix: the next byte is the key
+        e0_pending = true;
+        x64_IRQ_SendEndOfInterupt(HardwareIRQNo_Keyboard);
+        return;
     }
-    else
-    {
-        log_info("PS2", "Key Released!, button = %c", linux_keycode); 
+    if (sc == 0xE1) {                 // Pause key sequence: ignore
+        x64_IRQ_SendEndOfInterupt(HardwareIRQNo_Keyboard);
+        return;
     }
 
-    // Always follow up with EV_SYN
-    InputEvent synEvent;
-    synEvent.time.tv_sec =  get_system_time();
-    synEvent.type = EV_SYN;
-    synEvent.code = SYN_REPORT;
-    synEvent.value = 0;
+    bool     released = sc & 0x80;
+    uint8_t  make     = sc & 0x7F;
+    uint16_t code     = e0_pending ? e0_to_evdev(make)
+                                   : (make <= 0x58 ? make : 0);
+    e0_pending = false;
 
-    input_push_event(&keyboard_dev, &synEvent);
-    
-    x64_IRQ_SendEndOfInterupt(HardwareIRQNo_Keyboard);
+    if (code) {
+        InputEvent ev = {0};
+        ev.time.tv_sec  = get_system_time(); 
+        ev.type  = EV_KEY;
+        ev.code  = code;
+        ev.value = released ? KEY_RELEASED : KEY_PRESSED;
+        input_push_event(&keyboard_dev, &ev);
+
+        InputEvent syn = {0};
+        syn.time.tv_sec  = get_system_time(); 
+        syn.type = EV_SYN;
+        syn.code = SYN_REPORT;
+        input_push_event(&keyboard_dev, &syn);
+    }
+
+    x64_IRQ_SendEndOfInterupt(HardwareIRQNo_Keyboard);   // on every path
 }
 
 // IRQ12 handler

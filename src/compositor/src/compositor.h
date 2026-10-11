@@ -5,6 +5,7 @@
 
 bool luma_init(LumaCompositor* comp);
 void luma_run(LumaCompositor* comp);
+void compositor_repaint(LumaCompositor* comp);
 
 
 uint32_t get_ticks(void);

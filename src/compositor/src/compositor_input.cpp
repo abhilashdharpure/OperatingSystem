@@ -19,14 +19,36 @@ void SendButtonEvent(LumaCompositor* compositor, uint32_t time_ms, uint32_t butt
 
 static std::atomic<bool> g_running{true};
 
-static void compositor_keyboard_event(LumaCompositor *comp, InputEvent *ev)
+static void compositor_keyboard_event(LumaCompositor* comp, InputEvent* ev)
 {
-    printf("[KBD] type=%u code=%u value=%d\n", ev->type, ev->code, ev->value);
+    //printf("[KBD] type=%u code=%u value=%d\n", ev->type, ev->code, ev->value);
+
+    if (ev->type != EV_KEY) return;
+    if (!comp->keyboard_focused_surface) return;
+
+    wl_resource* kbd = get_focused_keyboard(comp);
+    if (!kbd) return;
+
+    uint32_t key   = ev->code;                       // evdev code (Set-1 scancode == evdev for main keys)
+    bool     down  = ev->value != 0;                 // 1 = press, 2 = repeat
+    uint32_t state = down ? WL_KEYBOARD_KEY_STATE_PRESSED : WL_KEYBOARD_KEY_STATE_RELEASED;
+
+    // xkb keycodes are evdev + 8
+    xkb_state_update_key(comp->xkb_state, key + 8, down ? XKB_KEY_DOWN : XKB_KEY_UP);
+
+    uint32_t serial = wl_display_next_serial(comp->display);
+    wl_keyboard_send_modifiers(kbd, serial,
+        xkb_state_serialize_mods(comp->xkb_state, XKB_STATE_MODS_DEPRESSED),
+        xkb_state_serialize_mods(comp->xkb_state, XKB_STATE_MODS_LATCHED),
+        xkb_state_serialize_mods(comp->xkb_state, XKB_STATE_MODS_LOCKED),
+        xkb_state_serialize_layout(comp->xkb_state, XKB_STATE_LAYOUT_EFFECTIVE));
+    wl_keyboard_send_key(kbd, serial, get_ticks(), key, state);
+    wl_display_flush_clients(comp->display);
 }
 
 static void compositor_mouse_event(LumaCompositor* c, InputEvent* ev)
 {
-    printf("[MOUSE] type=%u code=%u value=%d\n", ev->type, ev->code, ev->value);
+    // printf("[MOUSE] type=%u code=%u value=%d\n", ev->type, ev->code, ev->value);
 
     static double dx = 0, dy = 0;
     if (ev->type == EV_REL) { if (ev->code == REL_X) dx += ev->value; else if (ev->code == REL_Y) dy += ev->value; }
@@ -64,7 +86,9 @@ static int mouse_fd_handler(int fd, uint32_t, void* data)
     LumaCompositor* comp = (LumaCompositor*)data;
     InputEvent ev;
     while (read(fd, &ev, sizeof(ev)) == (ssize_t)sizeof(ev))
+    {
         compositor_mouse_event(comp, &ev);   // only update cursor_x/y and send pointer events
+    }
     comp->needs_repaint = true;
     compositor_repaint(comp);                // once
     return 0;
@@ -239,7 +263,7 @@ void handle_pointer_motion(LumaCompositor* comp, int x, int y)
                         double sx = x - surface->x;
                         double sy = y - surface->y;
 
-                        std::cout << "[Input] handle_pointer_motion Entering new surface : "<< surface->clientName<<" , x = "<<x<<", y ="<<y <<", sx = "<< sx<<", sy = "<<sy<< std::endl;
+                        // std::cout << "[Input] handle_pointer_motion Entering new surface : "<< surface->clientName<<" , x = "<<x<<", y ="<<y <<", sx = "<< sx<<", sy = "<<sy<< std::endl;
                         
                         uint32_t serial = wl_display_next_serial(comp->display);
                         wl_pointer_send_enter(focused_pointer, serial, new_surface, wl_fixed_from_double(sx), wl_fixed_from_double(sy));
@@ -260,7 +284,7 @@ void handle_pointer_motion(LumaCompositor* comp, int x, int y)
                 // Leave previous surface
                 if (prev_surface)
                 {
-                    std::cout << "[Input] handle_pointer_motion Leaving new surface" << std::endl;
+                    // std::cout << "[Input] handle_pointer_motion Leaving new surface" << std::endl;
                     uint32_t serial = wl_display_next_serial(comp->display);
                     wl_pointer_send_leave(focused_pointer, serial, prev_surface);
                     wl_pointer_send_frame(focused_pointer);
@@ -426,8 +450,6 @@ void CompositorInput::SendKeyboardEnterEvent(LumaCompositor* compositor, wl_reso
 
     if(focused_kbd)
     {
-        std::cout << "[Input] SendKeyboardEnterEvent" << std::endl;
-
         wl_keyboard_send_enter(focused_kbd, serial, keyboard_focused_surface, &empty_keys);
 
         xkb_mod_mask_t depressed = xkb_state_serialize_mods(compositor->xkb_state, (xkb_state_component)XKB_STATE_DEPRESSED);
@@ -515,7 +537,7 @@ void SendButtonEvent(LumaCompositor* compositor, uint32_t time_ms, uint32_t butt
         wl_resource* focused_pointer = get_focused_pointer(compositor);
         if(focused_pointer)
         {
-            std::cout << "[Input] wl_pointer_send_button serial = "<<serial <<", button = "<<button<<", state = "<<state<<std::endl;
+            // std::cout << "[Input] wl_pointer_send_button serial = "<<serial <<", button = "<<button<<", state = "<<state<<std::endl;
             //if (focused_pointer != compositor->pointer_focused_surface) continue;
             wl_pointer_send_button(focused_pointer, serial, time_ms, button, state);
             wl_pointer_send_frame(focused_pointer);

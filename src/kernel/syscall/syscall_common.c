@@ -116,8 +116,8 @@ int64_t sys_open(const char *path, uint64_t flags, uint64_t mode)
 {
     (void)mode; // ignore for now
 
-    log_info("SYSCALL", "sys_open path=%s flags=%llx",
-             path, (unsigned long long)flags);
+    // log_info("SYSCALL", "sys_open path=%s flags=%llx",
+    //          path, (unsigned long long)flags);
 
     int fd = VFS_Open(path, (int)flags);
     if (fd < 0)
@@ -133,8 +133,8 @@ ssize_t sys_read(uint64_t fd, void *buf, uint64_t len)
 
 int64_t sys_close(uint64_t fd)
 {
-    log_info("SYSCALL", "sys_close fd=%llu",
-             (unsigned long long)fd);
+    // log_info("SYSCALL", "sys_close fd=%llu",
+    //          (unsigned long long)fd);
 
     return VFS_Close((int)fd);
 }
@@ -196,21 +196,21 @@ static uint64_t mmap_file(uint64_t length, uint64_t prot, uint64_t flags,
         va += page_size;
     }
 
-    log_info("SYSCALL",
-             "mmap_file: memfd mapped %llu bytes at 0x%llx (offset=%llu)",
-             (unsigned long long)aligned_len,
-             (unsigned long long)va_start,
-             (unsigned long long)offset);
+    // log_info("SYSCALL",
+    //          "mmap_file: memfd mapped %llu bytes at 0x%llx (offset=%llu)",
+    //          (unsigned long long)aligned_len,
+    //          (unsigned long long)va_start,
+    //          (unsigned long long)offset);
 
     return va_start;
 }
 
 static uint64_t mmap_anon(uint64_t length, uint64_t prot)
 {
-    log_info("MMAPDBG", "mmap_anon: length=%llu prot=%llu, cur_base=%llu",
-            (unsigned long long)length,
-            (unsigned long long)prot,
-            (unsigned long long)(current_process ? current_process->mmap_base : 0));
+    // log_info("MMAPDBG", "mmap_anon: length=%llu prot=%llu, cur_base=%llu",
+    //         (unsigned long long)length,
+    //         (unsigned long long)prot,
+    //         (unsigned long long)(current_process ? current_process->mmap_base : 0));
 
     if (!current_process)
     {
@@ -229,17 +229,14 @@ static uint64_t mmap_anon(uint64_t length, uint64_t prot)
     }
 
     uint64_t len   = (length + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
-
-    log_info("MMAPDBG", "before big mmap: mmap_base=%llu", current_process->mmap_base);
-
     uint64_t start = (current_process->mmap_base + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
 
-    log_info("MMAPDBG",
-         "mmap_anon: AFTER INIT mmap_base=%llu start=%llu len=%llu end=%llu",
-         (unsigned long long)current_process->mmap_base,
-         (unsigned long long)start,
-         (unsigned long long)length,
-         (unsigned long long)(start + length));
+    // log_info("MMAPDBG",
+    //      "mmap_anon: AFTER INIT mmap_base=%llu start=%llu len=%llu end=%llu",
+    //      (unsigned long long)current_process->mmap_base,
+    //      (unsigned long long)start,
+    //      (unsigned long long)length,
+    //      (unsigned long long)(start + length));
              
     uint64_t flags = PAGE_PRESENT | PAGE_USER;
     if (prot & PROT_WRITE)
@@ -279,14 +276,10 @@ static uint64_t mmap_anon(uint64_t length, uint64_t prot)
         }
     }
 
-
-    log_info("MMAPDBG", "mmap_anon: After for loop");
-
-
     current_process->mmap_base = start + len;
-    log_info("MMAPDBG", "mmap_anon: done, ret=%llu new_base=%llu",
-             (unsigned long long)start,
-             (unsigned long long)current_process->mmap_base);
+    // log_info("MMAPDBG", "mmap_anon: done, ret=%llu new_base=%llu",
+    //          (unsigned long long)start,
+    //          (unsigned long long)current_process->mmap_base);
 
     return start;
 }
@@ -386,14 +379,9 @@ uint64_t sys_mmap(uint64_t addr,
                   uint64_t fd,
                   uint64_t offset)
 {
-    log_info("SYSCALL", "sys_mmap addr=%llx len=%llx prot=%llx flags=%llx fd=%lld off=%llx",
-         addr, length, prot, flags, (long long)fd, offset);
+    // log_info("SYSCALL", "sys_mmap addr=%llx len=%llx prot=%llx flags=%llx fd=%lld off=%llx",
+    //      addr, length, prot, flags, (long long)fd, offset);
 
-    // if (addr != 0)
-    // {
-    //      log_info("SYSCALL", "sys_mmap return -ENOSYS, addr != 0");
-    //     return -ENOSYS;
-    // }
 
     bool want_fixed = flags & MAP_FIXED;
 
@@ -418,13 +406,7 @@ uint64_t sys_mmap(uint64_t addr,
     /* Anonymous mapping */
     if (fd == (uint64_t)-1 && (flags & MAP_ANONYMOUS)) {
         // For now we don’t care if it’s MAP_PRIVATE or MAP_SHARED
-
-        uint64_t mmap_anonvalue = mmap_anon(length, prot);
-        log_info("SYSCALL", "sys_mmap return mmap_anonvalue = 0x%llx",
-         (unsigned long long)mmap_anonvalue);
-
-
-        return mmap_anonvalue;
+        return mmap_anon(length, prot);;
     }
 
     /* File-backed mapping */
@@ -505,10 +487,10 @@ uint64_t sys_mmap(uint64_t addr,
         if (old >= 0)
             VFS_Lseek((fd_t)fd, old, SEEK_SET);
 
-        log_info("SYSCALL", "sys_mmap: emulated file-backed mmap fd=%lld -> 0x%llx len=%llu",
-                 (long long)fd,
-                 (unsigned long long)va,
-                 (unsigned long long)length);
+        // log_info("SYSCALL", "sys_mmap: emulated file-backed mmap fd=%lld -> 0x%llx len=%llu",
+        //          (long long)fd,
+        //          (unsigned long long)va,
+        //          (unsigned long long)length);
 
         return va;
     }
@@ -685,13 +667,13 @@ uint64_t sys_brk(uint64_t new_brk)
         panic();
     }
 
-    log_info("BRK",
-        "sys_brk(entry): new=%llx cur=%llx start=%llx end=%llx limit=%llx",
-        new_brk,
-        current_process->brk_cur,
-        current_process->brk_start,
-        current_process->brk_end,
-        current_process->brk_end_limit);
+    // log_info("BRK",
+    //     "sys_brk(entry): new=%llx cur=%llx start=%llx end=%llx limit=%llx",
+    //     new_brk,
+    //     current_process->brk_cur,
+    //     current_process->brk_start,
+    //     current_process->brk_end,
+    //     current_process->brk_end_limit);
 
     /* Query current break */
     if (new_brk == 0) {
@@ -738,9 +720,9 @@ uint64_t sys_brk(uint64_t new_brk)
         uint64_t grow_start = (old_brk + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
         uint64_t grow_end   = (new_brk + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
 
-        log_info("BRK",
-            "sys_brk grow: old=%llx new=%llx grow_start=%llx grow_end=%llx",
-            old_brk, new_brk, grow_start, grow_end);
+        // log_info("BRK",
+        //     "sys_brk grow: old=%llx new=%llx grow_start=%llx grow_end=%llx",
+        //     old_brk, new_brk, grow_start, grow_end);
 
         for (uint64_t va = grow_start; va < grow_end; va += PAGE_SIZE) {
             uint64_t pa = pmm_alloc_page();
@@ -751,8 +733,8 @@ uint64_t sys_brk(uint64_t new_brk)
                 return current_process->brk_cur;
             }
 
-            log_info("BRK",
-                "sys_brk: map_page heap va=%llx -> pa=%llx", va, pa);
+            // log_info("BRK",
+            //     "sys_brk: map_page heap va=%llx -> pa=%llx", va, pa);
 
             if (map_page(current_process->page_directory, va, pa,
                          PAGE_PRESENT | PAGE_RW | PAGE_USER) != 0) {
@@ -766,9 +748,9 @@ uint64_t sys_brk(uint64_t new_brk)
         if (current_process->brk_end < grow_end)
             current_process->brk_end = grow_end;
 
-        log_info("BRK",
-            "sys_brk grow done: cur=%llx end=%llx",
-            current_process->brk_cur, current_process->brk_end);
+        // log_info("BRK",
+        //     "sys_brk grow done: cur=%llx end=%llx",
+        //      current_process->brk_cur, current_process->brk_end);
 
         return current_process->brk_cur;
     }

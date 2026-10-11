@@ -1307,7 +1307,7 @@ static void surface_commit(wl_client* client, wl_resource* surface_res)
         // }
     }// mutex
 
-    std::cout << "[LumaCompositor] surface_commit... pending_configured set to false\n";
+    // std::cout << "[LumaCompositor] surface_commit... pending_configured set to false\n";
 
     surf->pending_configured = false;
     // wl_display_flush_clients(comp->display);
