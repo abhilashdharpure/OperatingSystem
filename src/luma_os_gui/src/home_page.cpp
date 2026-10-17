@@ -27,14 +27,22 @@ HomePage::HomePage(slint::ComponentHandle<AppWindow> ui) : ui_(ui)
 
         if (auto ui = ui_.lock()) (*ui)->set_current_page(1);
     });
+    
 
     state.on_open_file_manager([this] {
         std::cout<<"Home page: on_open_file_manager called!"<<std::endl;
 
         long comp_pid = spawn_path("/bin/file_manager");
-
-        //if (auto ui = ui_.lock()) (*ui)->set_current_page(1);
     });
+
+
+    state.on_open_terminal([this] {
+        std::cout<<"Home page: terminal click called!"<<std::endl;
+
+        long comp_pid = spawn_path("/bin/client");
+    });
+
+    
 
 }
 

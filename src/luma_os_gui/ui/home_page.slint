@@ -7,6 +7,7 @@ export global HomeState {
     callback say-hello(string);                 // UI -> C++
     callback open-settings();                   // UI -> C++
     callback open-file-manager();               // UI -> C++
+    callback open-terminal();                   // UI -> C++
 }
 
 export component HomePage inherits Rectangle {
@@ -71,13 +72,25 @@ export component HomePage inherits Rectangle {
                    }
                 }
 
-
-                Image {
-                    source: @image-url("../resources/icons/terminals.png");
+                Rectangle {
                     width: 64px;
                     height: 64px;
-                    image-fit: fill;
+
+                    Image {
+                        source: @image-url("../resources/icons/terminals.png");
+                        width: 64px;
+                        height: 64px;
+                        image-fit: fill;
+                    }
+
+                    TouchArea {
+                        clicked => {
+                            debug("Terminal clicked!");
+                            HomeState.open-terminal();
+                        }
+                   }
                 }
+
 
                 Image {
                     source: @image-url("../resources/icons/music-player.png");

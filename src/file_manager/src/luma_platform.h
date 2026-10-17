@@ -31,7 +31,7 @@ class LumaWindow : public slint::platform::WindowAdapter {
 public:
     slint::platform::SoftwareRenderer renderer_{
         slint::platform::SoftwareRenderer::RepaintBufferType::NewBuffer};
-    slint::PhysicalSize size_{{600, 400}};
+    slint::PhysicalSize size_{{800, 400}};
     bool dirty_ = true, configured_ = false, frame_pending_ = false, closed_ = false;
     bool maximized_ = false;
 
@@ -70,15 +70,6 @@ public:
             if (!self->configured_) { self->configured_ = true; self->dirty_ = true; }
         }};
         static const xdg_toplevel_listener tl_l = {
-            // [](void* d, xdg_toplevel*, int32_t w, int32_t h, wl_array*) {
-            //     auto* self = (LumaWindow*)d;
-            //     if (w > 0 && h > 0 && ((uint32_t)w != self->size_.width || (uint32_t)h != self->size_.height)) {
-            //         self->size_ = slint::PhysicalSize({(uint32_t)w, (uint32_t)h});
-            //         self->make_buffer();
-            //         self->window().set_size(self->size_);
-            //     }
-            // },
-
             [](void* d, xdg_toplevel*, int32_t w, int32_t h, wl_array* states) {
                 auto* self = (LumaWindow*)d;
                 self->maximized_ = false;
@@ -86,7 +77,8 @@ public:
                     (char*)s < (char*)states->data + states->size; s++)
                     if (*s == XDG_TOPLEVEL_STATE_MAXIMIZED) self->maximized_ = true;
                 if (w > 0 && h > 0) {
-                    self->resize_to((uint32_t)w, (uint32_t)h);
+                    std::cout<<"File manageer create_surface"<<std::endl;
+                    //self->resize_to((uint32_t)w, (uint32_t)h);
                     self->window().set_size(self->size_);
                 }
             },
@@ -110,12 +102,17 @@ public:
     }
     void resize_to(uint32_t w, uint32_t h) {
         if (buf_ && w == size_.width && h == size_.height) return;
+
+        std::cout<<"Somebody calling resize_to, width = "<<w<<", height = "<<h<<", current width = "<<size_.width<<", height = "<<size_.height<<std::endl;
         size_ = slint::PhysicalSize({w, h});
         make_buffer();                 // also reallocates scratch_ from size_
     }
 
     // Slint asks the adapter to resize (preferred size, layout constraints). Match signature to the header.
     void set_size(slint::PhysicalSize size) override{
+
+        std::cout<<"File manageer set_size"<<std::endl;
+
         resize_to(size.width, size.height);
     }
 
@@ -124,12 +121,13 @@ public:
         dirty_ = false;
 
 
-        auto ws = window().size();                        // what Slint will render at
-        if (ws.width != size_.width || ws.height != size_.height)
-            resize_to(ws.width, ws.height);
+        // auto ws = window().size();                        // what Slint will render at
+        // if (ws.width != size_.width || ws.height != size_.height)
+        //     resize_to(ws.width, ws.height);
 
         dirty_ = false;
         int w = size_.width, h = size_.height;
+        std::cout<<"File Manager: Width = "<<w<<", Height = "<<h<<std::endl;
         renderer_.render(std::span<slint::Rgb8Pixel>(scratch_), w);
 
         // int w = size_.width, h = size_.height;
@@ -168,13 +166,24 @@ public:
                                                 slint::PointerEventButton::Left);
         window().dispatch_pointer_exit_event();
     }
-    void toggle_maximize() {
+    void toggle_maximize()
+    {
         if (!tl_) return;
         if (maximized_) xdg_toplevel_unset_maximized(tl_);
         else            xdg_toplevel_set_maximized(tl_);
     }
-    void minimize()     { if (tl_) xdg_toplevel_set_minimized(tl_); }
-    void close_window() { closed_ = true; }
+    void minimize()
+    {
+        if (tl_)
+        {
+            xdg_toplevel_set_minimized(tl_);
+        }
+    }
+
+    void close_window()
+    {
+        closed_ = true;
+    }
 };
 
 

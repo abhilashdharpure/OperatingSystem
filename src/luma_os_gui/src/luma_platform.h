@@ -23,7 +23,7 @@ class LumaWindow : public slint::platform::WindowAdapter {
 public:
     slint::platform::SoftwareRenderer renderer_{
         slint::platform::SoftwareRenderer::RepaintBufferType::ReusedBuffer};
-    slint::PhysicalSize size_{{1024, 700}};
+    slint::PhysicalSize size_{{1024, 768}};
     bool dirty_ = true, configured_ = false, frame_pending_ = false, closed_ = false;
 
     wl_surface* surf_ = nullptr; xdg_surface* xs_ = nullptr; xdg_toplevel* tl_ = nullptr;
@@ -61,15 +61,6 @@ public:
             if (!self->configured_) { self->configured_ = true; self->dirty_ = true; }
         }};
         static const xdg_toplevel_listener tl_l = {
-            // [](void* d, xdg_toplevel*, int32_t w, int32_t h, wl_array*) {
-            //     auto* self = (LumaWindow*)d;
-            //     if (w > 0 && h > 0 && ((uint32_t)w != self->size_.width || (uint32_t)h != self->size_.height)) {
-            //         self->size_ = slint::PhysicalSize({(uint32_t)w, (uint32_t)h});
-            //         self->make_buffer();
-            //         self->window().set_size(self->size_);
-            //     }
-            // },
-            
             [](void* d, xdg_toplevel*, int32_t w, int32_t h, wl_array*) {
                 auto* self = (LumaWindow*)d;
                 if (w > 0 && h > 0) {

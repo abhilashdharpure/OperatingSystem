@@ -228,7 +228,7 @@ static void push_state(struct wl_array *states, uint32_t value)
 void send_toplevel_configure(struct wl_resource *xdg_toplevel, int w, int h,
                              bool activated, bool resizing, bool maximized, bool fullscreen)
 {
-    std::cout<<"[LumaCompositor]  send_toplevel_configure"<<std::endl;
+    std::cout<<"[LumaCompositor]  send_toplevel_configure, width = "<<w<<", height = "<<h<<std::endl;
 
     if(xdg_toplevel == nullptr)
     {
@@ -943,14 +943,6 @@ static void buffer_resource_destroy(struct wl_resource* resource)
         return;
     }
 
-    // if (buf->owner_surface)
-    // {
-    //     std::cout << "[LumaCompositor] buffer_resource_destroy, buffer_res set to NULL\n";
-
-    //     buf->owner_surface->buffer_res = nullptr;
-    //     buf->owner_surface = nullptr;
-    // }
-
     if (buf->owner_surface)
     {
         if (buf->owner_surface->buffer_res == resource)
@@ -1279,11 +1271,12 @@ static void surface_commit(wl_client* client, wl_resource* surface_res)
             // Save buffer so compositor_repaint() can draw it
             surf->committed_buffer = buf;
             // buf->refcount.fetch_add(1, std::memory_order_acq_rel);
-            // std::cout<<"surface_commit: buf_w = "<<surf->committed_buffer->width<<", buf_h = "<<surf->committed_buffer->height<<std::endl;
+            std::cout<<"surface_commit: committed_buffer buf_w = "<<surf->committed_buffer->width<<", buf_h = "<<surf->committed_buffer->height<<std::endl;
         }
 
         surf->width  = buf->width;
         surf->height = buf->height;
+        std::cout<<"surface_commit: buf_w = "<<surf->width<<", buf_h = "<<surf->height<<std::endl;
 
         // If we previously sent a configure with requested size and the client
         // now committed a buffer that matches that requested size, apply pending geometry.
@@ -2204,8 +2197,8 @@ static void compositor_create_surface(struct wl_client* client, struct wl_resour
     }
 
     my_surface* surf = new my_surface();
-    int surfaceX = 50;
-    int surfaceY = 50;
+    int surfaceX = 0;
+    int surfaceY = 0;
 
     surf->x = surfaceX;
     surf->y = surfaceY;
