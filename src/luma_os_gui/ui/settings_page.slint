@@ -1,0 +1,21 @@
+import { Button, LineEdit } from "std-widgets.slint";
+
+export global SettingsState {
+    in property <string> greeting: "Setting";   // C++ -> UI
+    in property <int> clicks: 0;                // C++ -> UI
+    in-out property <string> user-name;         // both ways
+    callback say-hello(string);                 // UI -> C++
+    callback open-home();                   // UI -> C++
+}
+
+export component SettingsPage inherits Rectangle {
+    background: #79b945;
+
+    VerticalLayout {
+        padding: 16px; spacing: 10px;
+        Text { text: SettingsState.greeting; color: white; font-size: 20px; }
+        Text { text: "Clicks: \{SettingsState.clicks}"; color: white; }
+        Button { text: "Setting Page"; clicked => { SettingsState.say-hello(SettingsState.user-name); } }
+        Button { text: "Home Page"; clicked => { SettingsState.open-home(); } }
+    }
+}

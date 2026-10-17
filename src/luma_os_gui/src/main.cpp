@@ -1,6 +1,7 @@
 #include "luma_platform.h"
 #include "app.h"
 #include "home_page.h"
+#include "settings_page.h"
 #include <memory>
 #include <stdio.h>
 
@@ -16,6 +17,8 @@ int main()
     auto ui = AppWindow::create();
     HomePage home(ui);               // keep the controller alive until run() returns
     home.set_user("Abhilash");
+
+    SettingsPage settingPage(ui);
 
     ui->run();
     return 0;

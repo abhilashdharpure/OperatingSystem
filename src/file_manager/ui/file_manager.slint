@@ -1,0 +1,313 @@
+import { Button, LineEdit, ListView } from "std-widgets.slint";
+import { FileEntry, Place } from "types.slint";
+
+// All data and events between C++ and the UI go through this global.
+export global FileManagerState {
+    in-out property <string> current-path: "/";   // path bar (user can edit it)
+    in property <[FileEntry]> entries;
+    in property <[Place]> places;
+    in property <int> selected-index: -1;
+    in property <string> status: "";
+    in property <bool> can-go-back: false;
+    in property <bool> can-go-forward: false;
+
+    callback open-entry(int);            // double click on a row
+    callback select-entry(int);          // single click on a row
+    callback navigate(string);           // path bar Enter, or a sidebar place
+    callback go-back();
+    callback go-forward();
+    callback go-up();
+    callback refresh();
+    callback create-folder(string);
+    callback rename-selected(string);
+    callback delete-selected();
+}
+
+component ToolBtn inherits Rectangle {
+    in property <string> label;
+    in property <bool> enabled: true;
+    in property <length> button-width: 64px;
+    callback clicked();
+
+    width: button-width;
+    height: 28px;
+    border-radius: 4px;
+    opacity: enabled ? 1.0 : 0.45;
+    background: ta.pressed ? #3d6fb5 : ta.has-hover ? #35506f : #2c4057;
+
+    ta := TouchArea {
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+    Text {
+        width: parent.width;
+        height: parent.height;
+        text: root.label;
+        color: white;
+        font-size: 13px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+component PlaceRow inherits Rectangle {
+    in property <string> label;
+    callback clicked();
+    height: 28px;
+    border-radius: 4px;
+    background: ta.has-hover ? #2a3a4b : transparent;
+    ta := TouchArea { clicked => { root.clicked(); } }
+    Text {
+        x: 10px;
+        width: parent.width - 20px;
+        height: parent.height;
+        text: root.label;
+        color: #d7e0ea;
+        font-size: 13px;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+}
+
+component FileRow inherits Rectangle {
+    in property <FileEntry> entry;
+    in property <bool> selected;
+    callback clicked();
+    callback opened();
+
+    height: 28px;
+    background: selected ? #2f5d9e : ta.has-hover ? #223040 : transparent;
+
+    ta := TouchArea {
+        clicked => { root.clicked(); }
+        double-clicked => { root.opened(); }
+    }
+
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 10px;
+
+        Rectangle {
+            width: 16px;
+            Rectangle {
+                y: (parent.height - self.height) / 2;
+                width: 14px;
+                height: 14px;
+                border-radius: 2px;
+                background: entry.is-dir ? #e6b94a : #9aa7b4;
+            }
+        }
+        Text {
+            horizontal-stretch: 1;
+            text: entry.name;
+            color: white;
+            font-size: 13px;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        Text {
+            width: 90px;
+            text: entry.size-text;
+            color: #b8c4d0;
+            font-size: 12px;
+            horizontal-alignment: right;
+            vertical-alignment: center;
+        }
+        Text {
+            width: 90px;
+            text: entry.kind;
+            color: #b8c4d0;
+            font-size: 12px;
+            vertical-alignment: center;
+        }
+    }
+}
+
+export component FileManagerPage inherits Rectangle {
+    background: #17212b;
+
+    // Local dialog state (New folder / Rename)
+    property <bool> dialog-open: false;
+    property <int> dialog-mode: 0;               // 0 = new folder, 1 = rename
+    property <string> dialog-text: "";
+
+    function open-dialog(mode: int, initial: string) {
+        dialog-mode = mode;
+        dialog-text = initial;
+        dialog-open = true;
+    }
+    function confirm-dialog() {
+        if (dialog-mode == 0) {
+            FileManagerState.create-folder(dialog-text);
+        } else {
+            FileManagerState.rename-selected(dialog-text);
+        }
+        dialog-open = false;
+    }
+
+    VerticalLayout {
+        // ---------------- Toolbar ----------------
+        Rectangle {
+            height: 44px;
+            background: #1f2d3a;
+            HorizontalLayout {
+                padding: 8px;
+                spacing: 6px;
+                ToolBtn {
+                    label: "Back";
+                    enabled: FileManagerState.can-go-back;
+                    clicked => { FileManagerState.go-back(); }
+                }
+                ToolBtn {
+                    label: "Next";
+                    enabled: FileManagerState.can-go-forward;
+                    clicked => { FileManagerState.go-forward(); }
+                }
+                ToolBtn {
+                    label: "Up";
+                    width: 48px;
+                    clicked => { FileManagerState.go-up(); }
+                }
+                ToolBtn {
+                    label: "Reload";
+                    clicked => { FileManagerState.refresh(); }
+                }
+                LineEdit {
+                    horizontal-stretch: 1;
+                    text <=> FileManagerState.current-path;
+                    accepted(t) => { FileManagerState.navigate(t); }
+                }
+                ToolBtn {
+                    label: "New";
+                    width: 52px;
+                    clicked => { root.open-dialog(0, ""); }
+                }
+                ToolBtn {
+                    label: "Rename";
+                    enabled: FileManagerState.selected-index >= 0;
+                    clicked => {
+                        root.open-dialog(1, FileManagerState.entries[FileManagerState.selected-index].name);
+                    }
+                }
+                ToolBtn {
+                    label: "Delete";
+                    enabled: FileManagerState.selected-index >= 0;
+                    clicked => { FileManagerState.delete-selected(); }
+                }
+            }
+        }
+
+        HorizontalLayout {
+            vertical-stretch: 1;
+
+            // ---------------- Sidebar ----------------
+            Rectangle {
+                width: 150px;
+                background: #1b2631;
+                VerticalLayout {
+                    padding: 8px;
+                    spacing: 2px;
+                    alignment: start;
+                    Text {
+                        text: "Places";
+                        color: #7f90a2;
+                        font-size: 12px;
+                    }
+                    for place in FileManagerState.places : PlaceRow {
+                        label: place.name;
+                        clicked => { FileManagerState.navigate(place.path); }
+                    }
+                }
+            }
+
+            // ---------------- File list ----------------
+            VerticalLayout {
+                horizontal-stretch: 1;
+
+                Rectangle {
+                    height: 26px;
+                    background: #1d2935;
+                    HorizontalLayout {
+                        padding-left: 36px;
+                        padding-right: 10px;
+                        spacing: 10px;
+                        Text { horizontal-stretch: 1; text: "Name"; color: #8ea0b2; font-size: 12px; vertical-alignment: center; }
+                        Text { width: 90px; text: "Size"; color: #8ea0b2; font-size: 12px; horizontal-alignment: right; vertical-alignment: center; }
+                        Text { width: 90px; text: "Type"; color: #8ea0b2; font-size: 12px; vertical-alignment: center; }
+                    }
+                }
+
+                ListView {
+                    vertical-stretch: 1;
+                    for entry[i] in FileManagerState.entries : FileRow {
+                        entry: entry;
+                        selected: FileManagerState.selected-index == i;
+                        clicked => { FileManagerState.select-entry(i); }
+                        opened => { FileManagerState.open-entry(i); }
+                    }
+                }
+            }
+        }
+
+        // ---------------- Status bar ----------------
+        Rectangle {
+            height: 24px;
+            background: #1f2d3a;
+            Text {
+                x: 10px;
+                width: parent.width - 20px;
+                height: parent.height;
+                text: FileManagerState.status;
+                color: #b8c4d0;
+                font-size: 12px;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+    }
+
+    // ---------------- Dialog overlay ----------------
+    if root.dialog-open : Rectangle {
+        width: parent.width;
+        height: parent.height;
+        background: #fcf1f1a0;
+
+        TouchArea { }                    // block clicks to the page below
+
+        Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: 80px;
+            width: 340px;
+            height: 132px;
+            border-radius: 8px;
+            background: #22303f;
+
+            VerticalLayout {
+                padding: 14px;
+                spacing: 10px;
+                Text {
+                    text: root.dialog-mode == 0 ? "New folder" : "Rename";
+                    color: white;
+                    font-size: 15px;
+                }
+                LineEdit {
+                    text <=> root.dialog-text;
+                    accepted(t) => { root.confirm-dialog(); }
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: end;
+                    ToolBtn {
+                        label: "Cancel";
+                        clicked => { root.dialog-open = false; }
+                    }
+                    ToolBtn {
+                        label: "OK";
+                        clicked => { root.confirm-dialog(); }
+                    }
+                }
+            }
+        }
+    }
+}

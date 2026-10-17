@@ -9,6 +9,8 @@ public:
     void set_user(const std::string& name);       // C++ -> UI
     std::string user() const;                      // UI -> C++
 private:
+    long spawn_path(const char* path);
+
     slint::ComponentWeakHandle<AppWindow> ui_;
     int clicks_ = 0;
 };

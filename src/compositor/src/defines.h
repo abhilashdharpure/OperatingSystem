@@ -120,8 +120,8 @@ struct my_surface
     bool is_maximized = false;
     bool isKeyboardFocused = false;
 
-    int window_geom_x, window_geom_y; // offset inside buffer
-    int window_geom_w, window_geom_h;
+    bool minimized = false;
+    int window_geom_x = 0, window_geom_y = 0, window_geom_w = 0, window_geom_h = 0;
     int min_width = 200;
     int min_height = 200;
     int max_width = 1500;

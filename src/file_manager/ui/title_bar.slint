@@ -1,0 +1,68 @@
+export global WindowControl {
+    callback start-move();
+    callback minimize();
+    callback toggle-maximize();
+    callback close();
+}
+
+component CaptionButton inherits Rectangle {
+    in property <color> hover-color: #3a4a5c;
+    callback clicked();
+    width: 40px;
+    height: 32px;
+    background: ta.pressed ? hover-color.darker(0.2) : ta.has-hover ? hover-color : transparent;
+    ta := TouchArea { clicked => { root.clicked(); } }
+    @children
+}
+
+export component TitleBar inherits Rectangle {
+    in property <string> title;
+    height: 32px;
+    background: #101922;
+
+    // Drag area fills the bar; the buttons sit above it
+    TouchArea {
+        pointer-event(e) => {
+            if (e.kind == PointerEventKind.down && e.button == PointerEventButton.left) {
+                WindowControl.start-move();
+            }
+        }
+        double-clicked => { WindowControl.toggle-maximize(); }
+    }
+
+    Text {
+        x: 12px;
+        width: parent.width - 140px;
+        height: parent.height;
+        text: root.title;
+        color: #d7e0ea;
+        font-size: 13px;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+
+    HorizontalLayout {
+        alignment: end;
+
+        CaptionButton {                       // minimize
+            clicked => { WindowControl.minimize(); }
+            Rectangle { x: 14px; y: 20px; width: 12px; height: 2px; background: white; }
+        }
+        CaptionButton {                       // maximize / restore
+            clicked => { WindowControl.toggle-maximize(); }
+            Rectangle {
+                x: 14px; y: 10px; width: 12px; height: 12px;
+                border-width: 2px; border-color: white; background: transparent;
+            }
+        }
+        CaptionButton {                       // close
+            hover-color: #c0392b;
+            clicked => { WindowControl.close(); }
+            Text {
+                width: parent.width; height: parent.height;
+                text: "X"; color: white; font-size: 14px;
+                horizontal-alignment: center; vertical-alignment: center;
+            }
+        }
+    }
+}

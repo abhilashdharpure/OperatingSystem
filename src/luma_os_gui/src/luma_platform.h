@@ -23,7 +23,7 @@ class LumaWindow : public slint::platform::WindowAdapter {
 public:
     slint::platform::SoftwareRenderer renderer_{
         slint::platform::SoftwareRenderer::RepaintBufferType::ReusedBuffer};
-    slint::PhysicalSize size_{{500, 300}};
+    slint::PhysicalSize size_{{1024, 700}};
     bool dirty_ = true, configured_ = false, frame_pending_ = false, closed_ = false;
 
     wl_surface* surf_ = nullptr; xdg_surface* xs_ = nullptr; xdg_toplevel* tl_ = nullptr;
@@ -61,11 +61,19 @@ public:
             if (!self->configured_) { self->configured_ = true; self->dirty_ = true; }
         }};
         static const xdg_toplevel_listener tl_l = {
+            // [](void* d, xdg_toplevel*, int32_t w, int32_t h, wl_array*) {
+            //     auto* self = (LumaWindow*)d;
+            //     if (w > 0 && h > 0 && ((uint32_t)w != self->size_.width || (uint32_t)h != self->size_.height)) {
+            //         self->size_ = slint::PhysicalSize({(uint32_t)w, (uint32_t)h});
+            //         self->make_buffer();
+            //         self->window().set_size(self->size_);
+            //     }
+            // },
+            
             [](void* d, xdg_toplevel*, int32_t w, int32_t h, wl_array*) {
                 auto* self = (LumaWindow*)d;
-                if (w > 0 && h > 0 && ((uint32_t)w != self->size_.width || (uint32_t)h != self->size_.height)) {
-                    self->size_ = slint::PhysicalSize({(uint32_t)w, (uint32_t)h});
-                    self->make_buffer();
+                if (w > 0 && h > 0) {
+                    self->resize_to((uint32_t)w, (uint32_t)h);
                     self->window().set_size(self->size_);
                 }
             },
@@ -80,12 +88,32 @@ public:
         make_buffer();
         wl_surface_commit(surf_);
     }
+    void resize_to(uint32_t w, uint32_t h) {
+        if (buf_ && w == size_.width && h == size_.height) return;
+        size_ = slint::PhysicalSize({w, h});
+        make_buffer();                 // also reallocates scratch_ from size_
+    }
+
+    // Slint asks the adapter to resize (preferred size, layout constraints). Match signature to the header.
+    void set_size(slint::PhysicalSize size) override{
+        resize_to(size.width, size.height);
+    }
 
     void draw() {
         if (!configured_ || frame_pending_ || !buf_) return;
         dirty_ = false;
+
+
+        auto ws = window().size();                        // what Slint will render at
+        if (ws.width != size_.width || ws.height != size_.height)
+            resize_to(ws.width, ws.height);
+
+        dirty_ = false;
         int w = size_.width, h = size_.height;
         renderer_.render(std::span<slint::Rgb8Pixel>(scratch_), w);
+
+        // int w = size_.width, h = size_.height;
+        // renderer_.render(std::span<slint::Rgb8Pixel>(scratch_), w);
         // Rgb8 -> XRGB8888 (whole frame; optimize later using the returned dirty region)
         for (size_t i = 0, n = (size_t)w * h; i < n; i++) {
             const auto& p = scratch_[i];

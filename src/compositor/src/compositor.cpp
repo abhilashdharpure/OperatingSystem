@@ -35,7 +35,11 @@ extern uint8_t* g_fb_ptr; extern uint32_t g_fb_pitch, g_fb_w, g_fb_h;
 static wl_event_source* g_client_src = nullptr;
 
 CompositorInput compositorInput;
+
 static std::vector<uint32_t> comp_framebuffer; // stored as ARGB8888 (32-bit words)
+static std::vector<uint32_t> bg_cache;
+
+
 static std::mutex comp_fb_mutex;
 // static std::atomic<bool> sdl_thread_running{false};
 // static std::thread sdl_thread;
@@ -482,7 +486,8 @@ void compositor_repaint(LumaCompositor* comp)
         int H = comp->output_height;
 
         // 1. Clear framebuffer (ARGB)
-        memset(comp_framebuffer.data(), 0x00, W * H * 4);
+        // memset(comp_framebuffer.data(), 0x00, W * H * 4);
+        memcpy(comp_framebuffer.data(), bg_cache.data(), (size_t)W * H * 4);
 
         std::vector<my_surface*> snapshot;
 
@@ -938,13 +943,28 @@ static void buffer_resource_destroy(struct wl_resource* resource)
         return;
     }
 
+    // if (buf->owner_surface)
+    // {
+    //     std::cout << "[LumaCompositor] buffer_resource_destroy, buffer_res set to NULL\n";
+
+    //     buf->owner_surface->buffer_res = nullptr;
+    //     buf->owner_surface = nullptr;
+    // }
+
     if (buf->owner_surface)
     {
-        std::cout << "[LumaCompositor] buffer_resource_destroy, buffer_res set to NULL\n";
-
-        buf->owner_surface->buffer_res = nullptr;
+        if (buf->owner_surface->buffer_res == resource)
+        {
+            std::cout << "[LumaCompositor] buffer_resource_destroy, buffer_res set to NULL\n";
+            buf->owner_surface->buffer_res = nullptr;
+        }
+        if (buf->owner_surface->committed_buffer == buf)
+        {
+            buf->owner_surface->committed_buffer = nullptr;
+        }
         buf->owner_surface = nullptr;
     }
+
 
     // Remove from pool->buffers list (so pool knows it's gone)
     if (buf->pool)
@@ -1749,11 +1769,18 @@ static void xdg_toplevel_unset_fullscreen(struct wl_client*, struct wl_resource*
     std::cout << "[LumaCompositor] xdg_toplevel_unset_fullscreen\n";
 }
 
-static void xdg_toplevel_set_minimized(struct wl_client*, struct wl_resource*) 
+static void xdg_toplevel_set_minimized(struct wl_client*, struct wl_resource* res)
 {
     std::cout << "[LumaCompositor] xdg_toplevel_set_minimized\n";
-}
 
+    my_surface* surf = (my_surface*)wl_resource_get_user_data(res);
+    if (!surf || !surf->compositor) return;
+    LumaCompositor* comp = surf->compositor;
+    surf->minimized = true;
+    if (comp->keyboard_focused_surface == surf->resource) comp->keyboard_focused_surface = nullptr;
+    comp->needs_repaint = true;
+    compositor_repaint(comp);
+}
 
 static const struct xdg_toplevel_interface xdg_toplevel_impl = {
     .destroy = xdg_toplevel_destroy,
@@ -1825,7 +1852,7 @@ static void xdg_surface_get_toplevel(struct wl_client* client, struct wl_resourc
     surf->is_xdg_toplevel = true;
     surf->xdg_surface_res = resource; 
 
-    send_toplevel_configure(surf->toplevel_res, 500, 300, /*activated=*/true,
+    send_toplevel_configure(surf->toplevel_res, 1024, 768, /*activated=*/true,
                         /*resizing=*/false, /*maximized=*/false, /*fullscreen=*/false);
 
     uint32_t serial = wl_display_next_serial(wl_client_get_display(client));
@@ -2429,6 +2456,17 @@ static void sdl_renderer_thread(int win_w, int win_h, LumaCompositor* comp)
 
 // ------------------ Init & Run ------------------
 
+
+static void capture_boot_screen(LumaCompositor* comp)
+{
+    int W = comp->output_width, H = comp->output_height;
+    bg_cache.assign((size_t)W * H, 0xFF101A2C);          // fallback color
+    if (!g_fb_ptr) return;
+    int w = std::min<int>(W, g_fb_w), h = std::min<int>(H, g_fb_h);
+    for (int y = 0; y < h; y++)
+        memcpy(&bg_cache[(size_t)y * W], g_fb_ptr + (size_t)y * g_fb_pitch, (size_t)w * 4);
+}
+
 bool luma_init(LumaCompositor* comp)
 {
     std::cout << "[LumaCompositor] init: output_width=" << comp->output_width
@@ -2459,6 +2497,8 @@ bool luma_init(LumaCompositor* comp)
 
     comp_framebuffer.assign(comp->output_width * comp->output_height, 0xff000000); // opaque black
     std::cout << "[LumaCompositor] After comp_framebuffer assign"<< std::endl;
+
+    capture_boot_screen(comp);
 
     comp->fb_stride = comp->output_width * 4;  // ARGB8888 = 4 bytes/pixel
     // Start SDL preview window at e.g. 1280x720

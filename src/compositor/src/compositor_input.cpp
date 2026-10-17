@@ -33,6 +33,15 @@ static void compositor_keyboard_event(LumaCompositor* comp, InputEvent* ev)
     bool     down  = ev->value != 0;                 // 1 = press, 2 = repeat
     uint32_t state = down ? WL_KEYBOARD_KEY_STATE_PRESSED : WL_KEYBOARD_KEY_STATE_RELEASED;
 
+
+    // F12 is evdev code 88
+    if (ev->type == EV_KEY && ev->value == 1 && ev->code == 88) {
+        for (auto* s : comp->surfaces) s->minimized = false;
+        comp->needs_repaint = true;
+        compositor_repaint(comp);      // declare it in compositor.h
+        return;
+    }
+
     // xkb keycodes are evdev + 8
     xkb_state_update_key(comp->xkb_state, key + 8, down ? XKB_KEY_DOWN : XKB_KEY_UP);
 
@@ -528,6 +537,14 @@ void CompositorInput::SendMouseMoveEvent(LumaCompositor* compositor, double gx, 
 
 void SendButtonEvent(LumaCompositor* compositor, uint32_t time_ms, uint32_t button, uint32_t state)
 {
+
+    if (button == BTN_LEFT && state == WL_POINTER_BUTTON_STATE_RELEASED) {
+        compositor->move_grab_active   = false;
+        compositor->moving_surface     = nullptr;
+        compositor->resize_grab_active = false;
+        compositor->resizing_surface   = nullptr;
+    }
+
     if(button == BTN_LEFT)
     {
         // handle_pointer_button(this, compositor, (int)compositor->cursor_x, (int)compositor->cursor_y, button, state);

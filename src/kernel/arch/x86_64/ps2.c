@@ -111,11 +111,17 @@ static void ps2_mouse_handler(ISR64Handler* regs)
     {
         return;
     }
+    uint8_t b0 = (uint8_t)mouse_packet[0];
+    int8_t x_move = (int8_t)mouse_packet[1] - ((b0 << 4) & 0x100);   // bit 4 = X sign
+    int8_t y_move = (int8_t)mouse_packet[2]- ((b0 << 3) & 0x100);   // bit 5 = Y sign
 
-    int8_t x_move = (int8_t)mouse_packet[1];
-    int8_t y_move = (int8_t)mouse_packet[2];
-
-    // Convert y_move: mouse Y is typically negative for "up"
+    if (b0 & 0xC0)
+    { 
+        /* overflow: drop this packet */ 
+        mouse_cycle = 0;
+        //send EOI;
+        return;
+    }
     y_move = -y_move;
 
     bool left_pressed   = mouse_packet[0] & 0x01;   // (0000 0001)

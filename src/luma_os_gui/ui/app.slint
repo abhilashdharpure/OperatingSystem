@@ -1,18 +1,18 @@
 import { HomePage, HomeState } from "home_page.slint";
-// import { SettingsPage, SettingsState } from "settings_page.slint";
+import { SettingsPage, SettingsState } from "settings_page.slint";
 
 // Exported so slint-compiler generates C++ classes for them in app.h
 export { HomeState }
-// export { SettingsState }
+export { SettingsState }
 
 export component AppWindow inherits Window {
     default-font-family: "DejaVu Sans";
-    preferred-width: 500px;
-    preferred-height: 300px;
+    preferred-width: 1000px;
+    preferred-height: 800px;
 
     in-out property <int> current-page: 0;      // C++ can change the page too
     callback page-changed(int);
 
     if root.current-page == 0 : HomePage { }
-    // if root.current-page == 1 : SettingsPage { }
+    if root.current-page == 1 : SettingsPage { }
 }
