@@ -87,7 +87,9 @@ xdg_code_c   = host_env.Command(
 # ---------------------------------------------------------------
 # 3) Compile and link
 # ---------------------------------------------------------------
-cpp_sources = Glob('src/*.cpp')                 # picks up main.cpp, home_page.cpp, and future pages
+cpp_sources = (
+    Glob('src/*.cpp') +
+    Glob('src/process/*.cpp'))
 objs = target_env.Object(cpp_sources)           # one object per source, named after the source
 target_env.Depends(objs, [app_h, xdg_client_h]) # generated headers must exist before compiling
 xdg_obj = target_env.Object(xdg_code_c)

@@ -70,26 +70,21 @@ public:
             if (!self->configured_) { self->configured_ = true; self->dirty_ = true; }
         }};
         static const xdg_toplevel_listener tl_l = {
-            [](void* d, xdg_toplevel*, int32_t w, int32_t h, wl_array* states) {
+            /*configure*/ [](void* d, xdg_toplevel*, int32_t w, int32_t h, wl_array* states) {
                 auto* self = (LumaWindow*)d;
                 self->maximized_ = false;
                 for (uint32_t* s = (uint32_t*)states->data;
                     (char*)s < (char*)states->data + states->size; s++)
                     if (*s == XDG_TOPLEVEL_STATE_MAXIMIZED) self->maximized_ = true;
-                if (w > 0 && h > 0) {
-                    std::cout<<"File manageer create_surface"<<std::endl;
-                    //self->resize_to((uint32_t)w, (uint32_t)h);
-                    //self->window().set_size(self->size_);
+
+                // w == 0 or h == 0 means "pick your own size"
+                if (w > 0 && h > 0 &&
+                    ((uint32_t)w != self->size_.width || (uint32_t)h != self->size_.height)) {
+                    self->resize_to((uint32_t)w, (uint32_t)h);
+                    self->window().set_size(self->size_);
                 }
             },
-            // [](void* d, xdg_toplevel*, int32_t w, int32_t h, wl_array*) {
-            //     auto* self = (LumaWindow*)d;
-            //     if (w > 0 && h > 0) {
-            //         self->resize_to((uint32_t)w, (uint32_t)h);
-            //         self->window().set_size(self->size_);
-            //     }
-            // },
-            [](void* d, xdg_toplevel*) { ((LumaWindow*)d)->closed_ = true; }
+            /*close*/ [](void* d, xdg_toplevel*) { ((LumaWindow*)d)->closed_ = true; }
         };
         surf_ = wl_compositor_create_surface(g.comp);
         xs_ = xdg_wm_base_get_xdg_surface(g.wm, surf_);
@@ -127,7 +122,6 @@ public:
 
         dirty_ = false;
         int w = size_.width, h = size_.height;
-        std::cout<<"File Manager: Width = "<<w<<", Height = "<<h<<std::endl;
         renderer_.render(std::span<slint::Rgb8Pixel>(scratch_), w);
 
         // int w = size_.width, h = size_.height;
@@ -151,17 +145,6 @@ public:
     void begin_move() {
         if (!tl_ || !g.seat) return;
         xdg_toplevel_move(tl_, g.seat, g_last_serial);
-
-
-        /*button*/ [](void*, wl_pointer*, uint32_t serial, uint32_t, uint32_t btn, uint32_t state) {
-        g_last_serial = serial;
-        auto b = btn == 0x111 ? slint::PointerEventButton::Right
-            : btn == 0x112 ? slint::PointerEventButton::Middle : slint::PointerEventButton::Left;
-        slint::LogicalPosition p({g_px, g_py});
-        if (state == WL_POINTER_BUTTON_STATE_PRESSED) g_win->window().dispatch_pointer_press_event(p, b);
-        else g_win->window().dispatch_pointer_release_event(p, b); },
-        
-        // the compositor owns the pointer during the grab: cancel the press in Slint
         window().dispatch_pointer_release_event(slint::LogicalPosition({g_px, g_py}),
                                                 slint::PointerEventButton::Left);
         window().dispatch_pointer_exit_event();
@@ -198,9 +181,18 @@ inline const wl_pointer_listener ptr_l = {
     /*motion*/ [](void*, wl_pointer*, uint32_t, wl_fixed_t x, wl_fixed_t y) {
         g_px = wl_fixed_to_double(x); g_py = wl_fixed_to_double(y);
         g_win->window().dispatch_pointer_move_event(slint::LogicalPosition({g_px, g_py})); },
-    /*button*/ [](void*, wl_pointer*, uint32_t, uint32_t, uint32_t btn, uint32_t state) {
+    // /*button*/ [](void*, wl_pointer*, uint32_t, uint32_t, uint32_t btn, uint32_t state) {
+    //     auto b = btn == 0x111 ? slint::PointerEventButton::Right
+    //            : btn == 0x112 ? slint::PointerEventButton::Middle : slint::PointerEventButton::Left;
+    //     slint::LogicalPosition p({g_px, g_py});
+    //     if (state == WL_POINTER_BUTTON_STATE_PRESSED) g_win->window().dispatch_pointer_press_event(p, b);
+    //     else g_win->window().dispatch_pointer_release_event(p, b); },
+
+
+    /*button*/ [](void*, wl_pointer*, uint32_t serial, uint32_t, uint32_t btn, uint32_t state) {
+        g_last_serial = serial;                       // before dispatching to Slint
         auto b = btn == 0x111 ? slint::PointerEventButton::Right
-               : btn == 0x112 ? slint::PointerEventButton::Middle : slint::PointerEventButton::Left;
+            : btn == 0x112 ? slint::PointerEventButton::Middle : slint::PointerEventButton::Left;
         slint::LogicalPosition p({g_px, g_py});
         if (state == WL_POINTER_BUTTON_STATE_PRESSED) g_win->window().dispatch_pointer_press_event(p, b);
         else g_win->window().dispatch_pointer_release_event(p, b); },

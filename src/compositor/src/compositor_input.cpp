@@ -7,12 +7,15 @@
 #include "compositor_helper.h"
 #include <algorithm>
 #include "compositor.h"
+#include <sched.h>
 
 #include <linux/input.h>
 
 static constexpr int SCREEN_WIDTH_TEMP = 1920;
 static constexpr int SCREEN_HEIGHT_TEMP = 1080;
 int count = 1;
+
+static double g_pdx = 0, g_pdy = 0;
 
 
 void SendButtonEvent(LumaCompositor* compositor, uint32_t time_ms, uint32_t button, uint32_t state);
@@ -55,22 +58,22 @@ static void compositor_keyboard_event(LumaCompositor* comp, InputEvent* ev)
     wl_display_flush_clients(comp->display);
 }
 
-static void compositor_mouse_event(LumaCompositor* c, InputEvent* ev)
-{
-    // printf("[MOUSE] type=%u code=%u value=%d\n", ev->type, ev->code, ev->value);
+// static void compositor_mouse_event(LumaCompositor* c, InputEvent* ev)
+// {
+//     // printf("[MOUSE] type=%u code=%u value=%d\n", ev->type, ev->code, ev->value);
 
-    static double dx = 0, dy = 0;
-    if (ev->type == EV_REL) { if (ev->code == REL_X) dx += ev->value; else if (ev->code == REL_Y) dy += ev->value; }
-    else if (ev->type == EV_KEY && (ev->code == BTN_LEFT || ev->code == BTN_RIGHT)) {
-        SendButtonEvent(c, get_ticks(), ev->code, ev->value ? WL_POINTER_BUTTON_STATE_PRESSED : WL_POINTER_BUTTON_STATE_RELEASED);
-    }
-    else if (ev->type == EV_SYN && (dx != 0 || dy != 0)) {
-        c->cursor_x = std::clamp(c->cursor_x + dx, 0.0, (double)c->output_width  - 1);
-        c->cursor_y = std::clamp(c->cursor_y + dy, 0.0, (double)c->output_height - 1);
-        dx = dy = 0;
-        handle_mouse_move(c, c->cursor_x, c->cursor_y);   // make this non-static, declared in a header
-    }
-}
+//     static double dx = 0, dy = 0;
+//     if (ev->type == EV_REL) { if (ev->code == REL_X) dx += ev->value; else if (ev->code == REL_Y) dy += ev->value; }
+//     else if (ev->type == EV_KEY && (ev->code == BTN_LEFT || ev->code == BTN_RIGHT)) {
+//         SendButtonEvent(c, get_ticks(), ev->code, ev->value ? WL_POINTER_BUTTON_STATE_PRESSED : WL_POINTER_BUTTON_STATE_RELEASED);
+//     }
+//     else if (ev->type == EV_SYN && (dx != 0 || dy != 0)) {
+//         c->cursor_x = std::clamp(c->cursor_x + dx, 0.0, (double)c->output_width  - 1);
+//         c->cursor_y = std::clamp(c->cursor_y + dy, 0.0, (double)c->output_height - 1);
+//         dx = dy = 0;
+//         handle_mouse_move(c, c->cursor_x, c->cursor_y);   // make this non-static, declared in a header
+//     }
+// }
 
 static int keyboard_fd_handler(
     int fd,
@@ -90,16 +93,51 @@ static int keyboard_fd_handler(
     return 0;
 }
 
+// static int mouse_fd_handler(int fd, uint32_t, void* data)
+// {
+//     LumaCompositor* comp = (LumaCompositor*)data;
+//     InputEvent ev;
+//     while (read(fd, &ev, sizeof(ev)) == (ssize_t)sizeof(ev))
+//     {
+//         compositor_mouse_event(comp, &ev);   // only update cursor_x/y and send pointer events
+//     }
+//     comp->needs_repaint = true;
+//     compositor_repaint(comp);                // once
+//     return 0;
+// }
+
+
+static void flush_motion(LumaCompositor* c)
+{
+    if (g_pdx == 0 && g_pdy == 0) return;
+    c->cursor_x = std::clamp(c->cursor_x + g_pdx, 0.0, (double)c->output_width  - 1);
+    c->cursor_y = std::clamp(c->cursor_y + g_pdy, 0.0, (double)c->output_height - 1);
+    g_pdx = g_pdy = 0;
+    handle_mouse_move(c, c->cursor_x, c->cursor_y);      // sends at most one motion event per batch
+}
+
+static void compositor_mouse_event(LumaCompositor* c, InputEvent* ev)
+{
+    if (ev->type == EV_REL) {
+        if (ev->code == REL_X) g_pdx += ev->value;
+        else if (ev->code == REL_Y) g_pdy += ev->value;
+    } else if (ev->type == EV_KEY && (ev->code == BTN_LEFT || ev->code == BTN_RIGHT)) {
+        flush_motion(c);                                  // the click applies at the current position
+        SendButtonEvent(c, get_ticks(), ev->code,
+            ev->value ? WL_POINTER_BUTTON_STATE_PRESSED : WL_POINTER_BUTTON_STATE_RELEASED);
+    }
+    // EV_SYN: nothing to do, motion is flushed per batch
+}
+
 static int mouse_fd_handler(int fd, uint32_t, void* data)
 {
     LumaCompositor* comp = (LumaCompositor*)data;
     InputEvent ev;
     while (read(fd, &ev, sizeof(ev)) == (ssize_t)sizeof(ev))
-    {
-        compositor_mouse_event(comp, &ev);   // only update cursor_x/y and send pointer events
-    }
-    comp->needs_repaint = true;
-    compositor_repaint(comp);                // once
+        compositor_mouse_event(comp, &ev);
+    flush_motion(comp);
+    compositor_present(comp);        // one repaint, or just the cursor (below)
+    sched_yield();                   // let the clients read their sockets
     return 0;
 }
 
@@ -145,7 +183,7 @@ static my_surface* hit_test_surface(LumaCompositor* comp, int32_t x, int32_t y)
     for (auto it = comp->surfaces.rbegin(); it != comp->surfaces.rend(); ++it)
     {
         my_surface* s = *it;
-        if (!s || !s->resource)
+        if (!s || !s->resource || s->minimized)
         {
             continue;
         }
@@ -538,7 +576,8 @@ void CompositorInput::SendMouseMoveEvent(LumaCompositor* compositor, double gx, 
 void SendButtonEvent(LumaCompositor* compositor, uint32_t time_ms, uint32_t button, uint32_t state)
 {
 
-    if (button == BTN_LEFT && state == WL_POINTER_BUTTON_STATE_RELEASED) {
+    if (button == BTN_LEFT && state == WL_POINTER_BUTTON_STATE_RELEASED)
+    {
         compositor->move_grab_active   = false;
         compositor->moving_surface     = nullptr;
         compositor->resize_grab_active = false;
@@ -561,7 +600,11 @@ void SendButtonEvent(LumaCompositor* compositor, uint32_t time_ms, uint32_t butt
             wl_display_flush_clients(compositor->display);
         }
 
+
+
         compositor->last_press_serial = serial;
+        std::cout << "[Input] wl_pointer_send_button last_press_serial = "<<compositor->last_press_serial<<std::endl;
+
         handle_pointer_button(getCompositorInput(), compositor, (int)compositor->cursor_x, (int)compositor->cursor_y, button, state);
     }
 }

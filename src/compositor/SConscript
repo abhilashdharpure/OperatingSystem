@@ -67,7 +67,7 @@ target_env = Environment(
     CCFLAGS = [
         '--sysroot=' + sysroot,
         '-g',
-        '-O0',
+        '-O2',
         '-fno-pie',
         '-fno-stack-protector',
         '-fno-exceptions',
@@ -79,7 +79,7 @@ target_env = Environment(
         '--sysroot=' + sysroot,
         '-std=c++17',
         '-g',
-        '-O0',
+        '-O2',
         '-fno-pie',
         '-static',
     ],

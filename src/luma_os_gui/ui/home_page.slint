@@ -21,47 +21,32 @@ export global HomeState {
 component AppIcon inherits Rectangle {
     in property <image> icon;
     in property <bool> active;
-
-    property <bool> hovered: false;
+    callback activated();
 
     width: 60px;
     height: 60px;
     border-radius: 8px;
 
-    background:
-        active ? #1f4f80 :
-        hovered ? #4a4a4a :
-        transparent;
+    background: ta.pressed   ? #2b6aa8 :
+                active       ? #1f4f80 :
+                ta.has-hover ? #bebbbb :
+                               transparent;
+    animate background { duration: 120ms; }
 
     Image {
-        source: icon;
+        source: root.icon;
         width: parent.width - 10px;
         height: parent.height - 10px;
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
-
         image-fit: fill;
     }
 
-    TouchArea {
+    ta := TouchArea {
         mouse-cursor: pointer;
-
-        moved => {
-            hovered = true;
-        }
-
-        //exited => {
-        //    hovered = false;
-        //}
-
-        double-clicked => {
-            root.activated();
-        }
+        double-clicked => { root.activated(); }
     }
-
-    callback activated();
 }
-
 
 export component RoundedLineEdit inherits Rectangle {
     in-out property <string> text <=> input.text;
