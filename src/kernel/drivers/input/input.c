@@ -40,6 +40,11 @@ void input_push_event(struct input_device *dev, InputEvent* inputEvent)
         dev->head = (dev->head + 1) % INPUT_BUFFER_SIZE;
         dev->count++;
     }
+    else if ((++dev->dropped & 63) == 1)
+    {
+        log_info("Input", "ring full, dropped=%u", dev->dropped);
+    }
+    
 
     //Unlock
     irq_restore_flags(flags);

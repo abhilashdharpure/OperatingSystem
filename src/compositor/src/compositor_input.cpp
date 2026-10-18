@@ -600,11 +600,7 @@ void SendButtonEvent(LumaCompositor* compositor, uint32_t time_ms, uint32_t butt
             wl_display_flush_clients(compositor->display);
         }
 
-
-
         compositor->last_press_serial = serial;
-        std::cout << "[Input] wl_pointer_send_button last_press_serial = "<<compositor->last_press_serial<<std::endl;
-
         handle_pointer_button(getCompositorInput(), compositor, (int)compositor->cursor_x, (int)compositor->cursor_y, button, state);
     }
 }

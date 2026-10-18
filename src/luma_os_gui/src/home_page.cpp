@@ -46,6 +46,7 @@ void HomePage::launch(int i)
 {
     AppSlot& a = apps_[i];
     if (a.pid > 0) {
+        // TODO: Right now we are just supporting one instance per icon.
         std::cout << "[Home] " << a.path << " already running (pid " << a.pid << ")\n";
         return;                                    // one instance per icon
     }

@@ -181,13 +181,6 @@ inline const wl_pointer_listener ptr_l = {
     /*motion*/ [](void*, wl_pointer*, uint32_t, wl_fixed_t x, wl_fixed_t y) {
         g_px = wl_fixed_to_double(x); g_py = wl_fixed_to_double(y);
         g_win->window().dispatch_pointer_move_event(slint::LogicalPosition({g_px, g_py})); },
-    // /*button*/ [](void*, wl_pointer*, uint32_t, uint32_t, uint32_t btn, uint32_t state) {
-    //     auto b = btn == 0x111 ? slint::PointerEventButton::Right
-    //            : btn == 0x112 ? slint::PointerEventButton::Middle : slint::PointerEventButton::Left;
-    //     slint::LogicalPosition p({g_px, g_py});
-    //     if (state == WL_POINTER_BUTTON_STATE_PRESSED) g_win->window().dispatch_pointer_press_event(p, b);
-    //     else g_win->window().dispatch_pointer_release_event(p, b); },
-
 
     /*button*/ [](void*, wl_pointer*, uint32_t serial, uint32_t, uint32_t btn, uint32_t state) {
         g_last_serial = serial;                       // before dispatching to Slint

@@ -27,7 +27,8 @@ typedef struct {
 //     int32_t  value;       // meaning depends on type+code
 // } InputEvent;
 
-#define INPUT_BUFFER_SIZE 64
+// #define INPUT_BUFFER_SIZE 64
+#define INPUT_BUFFER_SIZE 512
 
 struct input_device {
     char name[32];
@@ -35,6 +36,7 @@ struct input_device {
     int head;
     int tail;
     int count;
+    uint32_t dropped; 
     struct file_operations *fops;
 };
 
