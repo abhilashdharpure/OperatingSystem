@@ -79,7 +79,7 @@ public:
                 if (w > 0 && h > 0) {
                     std::cout<<"File manageer create_surface"<<std::endl;
                     //self->resize_to((uint32_t)w, (uint32_t)h);
-                    self->window().set_size(self->size_);
+                    //self->window().set_size(self->size_);
                 }
             },
             // [](void* d, xdg_toplevel*, int32_t w, int32_t h, wl_array*) {

@@ -1271,12 +1271,12 @@ static void surface_commit(wl_client* client, wl_resource* surface_res)
             // Save buffer so compositor_repaint() can draw it
             surf->committed_buffer = buf;
             // buf->refcount.fetch_add(1, std::memory_order_acq_rel);
-            std::cout<<"surface_commit: committed_buffer buf_w = "<<surf->committed_buffer->width<<", buf_h = "<<surf->committed_buffer->height<<std::endl;
+            // std::cout<<"surface_commit: committed_buffer buf_w = "<<surf->committed_buffer->width<<", buf_h = "<<surf->committed_buffer->height<<std::endl;
         }
 
         surf->width  = buf->width;
         surf->height = buf->height;
-        std::cout<<"surface_commit: buf_w = "<<surf->width<<", buf_h = "<<surf->height<<std::endl;
+        // std::cout<<"surface_commit: buf_w = "<<surf->width<<", buf_h = "<<surf->height<<std::endl;
 
         // If we previously sent a configure with requested size and the client
         // now committed a buffer that matches that requested size, apply pending geometry.

@@ -10,6 +10,36 @@ export global HomeState {
     callback open-terminal();                   // UI -> C++
 }
 
+
+export component RoundedLineEdit inherits Rectangle {
+    in-out property <string> text <=> input.text;
+    in property <string> placeholder-text;
+
+    height: 35px;
+    background: #ffffff;
+    border-radius: 30px;           // This makes it perfectly round
+    border-width: 1px;
+    border-color: input.has-focus ? #3b82f6 : #888888; // Blue border on focus
+
+    // Inner layout for the text field
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+
+        // Overlay the placeholder text when empty
+        if input.text == "" : Text {
+            text: root.placeholder-text;
+            color: #aaaaaa;
+            vertical-alignment: center;
+        }
+
+        input := TextInput {
+            vertical-alignment: center;
+            single-line: true;
+        }
+    }
+}
+
 export component HomePage inherits Rectangle {
     background: #024f9c;
 
@@ -20,83 +50,94 @@ export component HomePage inherits Rectangle {
         //Button { text: "Say hello"; clicked => { HomeState.say-hello(HomeState.user-name); } }
         //Button { text: "Settings"; clicked => { HomeState.open-settings(); } }
 
+        HorizontalLayout {
+            spacing: 8px;
 
-        Rectangle {
-            height: 80px;
-            background: #fffafa;
+            RoundedLineEdit { 
+                width: 200px;
+                height: 50px;
+                text <=> HomeState.user-name; 
+            }
 
-            HorizontalLayout {
-                spacing: 8px;
+            Rectangle {
+                width: 400px;
+                height: 60px;
+                border-radius: 10px;
+                background: #3a2950;
 
-                LineEdit { 
-                    width: 300px;
-                    height: 50px;
-                    text <=> HomeState.user-name; 
-                }
+                HorizontalLayout {
+                    alignment: center;
+                    padding-top: 5px;
+                    padding-bottom: 5px;
+                    //x: parent.width / 2 - self.width / 2;
+                    //y: parent.height / 2 - self.height / 2;
 
+                    spacing: 8px;
+                    
 
-                Rectangle {
-                    width: 64px;
-                    height: 64px;
+                    Rectangle {
+                        width: 50px;
+                        height: 50px;
 
-                    Image {
-                        source: @image-url("../resources/icons/archive.png");
-                        width: 64px;
-                        height: 64px;
-                        image-fit: fill;
-                    }
-                    TouchArea {
-                        clicked => {
-                            debug("File Manager clicked!");
-                            HomeState.open-file-manager();
+                        Image {
+                            source: @image-url("../resources/icons/archive.png");
+                            width: 50px;
+                            height: 50px;
+                            image-fit: fill;
                         }
-                   }
-                }
-
-                Rectangle {
-                    width: 64px;
-                    height: 64px;
-
-                    Image {
-                        source: @image-url("../resources/icons/settings.png");
-                        width: parent.width;
-                        height: parent.height;
-                        image-fit: fill;
-                    }
-                    TouchArea {
-                        clicked => {
-                            debug("Image clicked!");
-                            HomeState.open-settings();
+                        TouchArea {
+                            clicked => {
+                                debug("File Manager clicked!");
+                                HomeState.open-file-manager();
+                            }
                         }
-
-                   }
-                }
-
-                Rectangle {
-                    width: 64px;
-                    height: 64px;
-
-                    Image {
-                        source: @image-url("../resources/icons/terminals.png");
-                        width: 64px;
-                        height: 64px;
-                        image-fit: fill;
                     }
 
-                    TouchArea {
-                        clicked => {
-                            debug("Terminal clicked!");
-                            HomeState.open-terminal();
+                    Rectangle {
+                        width: 50px;
+                        height: 50px;
+
+                        Image {
+                            source: @image-url("../resources/icons/settings.png");
+                            width: parent.width;
+                            height: parent.height;
+                            image-fit: fill;
                         }
-                   }
-                }
+                        TouchArea {
+                            clicked => {
+                                debug("Image clicked!");
+                                HomeState.open-settings();
+                            }
+
+                        }
+                    }
+
+                    Rectangle {
+                        width: 50px;
+                        height: 50px;
+
+                        Image {
+                            source: @image-url("../resources/icons/terminals.png");
+                            width: 50px;
+                            height: 50px;
+                            image-fit: fill;
+                        }
+
+                        TouchArea {
+                            clicked => {
+                                debug("Terminal clicked!");
+                                HomeState.open-terminal();
+                            }
+                    }
+                    }
 
 
-                Image {
-                    source: @image-url("../resources/icons/music-player.png");
-                    width: 64px;
-                    height: 64px;
-                    image-fit: fill;
+                    Image {
+                        source: @image-url("../resources/icons/music-player.png");
+                        width: 50px;
+                        height: 50px;
+                        image-fit: fill;
+                    }
                 }
             }
         }
