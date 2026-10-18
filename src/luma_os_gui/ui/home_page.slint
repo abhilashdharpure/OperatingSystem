@@ -3,11 +3,63 @@ import { Button, LineEdit } from "std-widgets.slint";
 export global HomeState {
     in property <string> greeting: "Welcome";   // C++ -> UI
     in property <int> clicks: 0;                // C++ -> UI
+
+    in-out property <bool> settings-open: false;
+    in-out property <bool> file-manager-open: false;
+    in-out property <bool> terminal-open: false;
+    in-out property <bool> music-open: false;
+
+
     in-out property <string> user-name;         // both ways
     callback say-hello(string);                 // UI -> C++
     callback open-settings();                   // UI -> C++
     callback open-file-manager();               // UI -> C++
     callback open-terminal();                   // UI -> C++
+    callback open_music();                      // UI -> C++
+}
+
+component AppIcon inherits Rectangle {
+    in property <image> icon;
+    in property <bool> active;
+
+    property <bool> hovered: false;
+
+    width: 60px;
+    height: 60px;
+    border-radius: 8px;
+
+    background:
+        active ? #1f4f80 :
+        hovered ? #4a4a4a :
+        transparent;
+
+    Image {
+        source: icon;
+        width: parent.width - 10px;
+        height: parent.height - 10px;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+
+        image-fit: fill;
+    }
+
+    TouchArea {
+        mouse-cursor: pointer;
+
+        moved => {
+            hovered = true;
+        }
+
+        //exited => {
+        //    hovered = false;
+        //}
+
+        double-clicked => {
+            root.activated();
+        }
+    }
+
+    callback activated();
 }
 
 
@@ -67,76 +119,52 @@ export component HomePage inherits Rectangle {
 
                 HorizontalLayout {
                     alignment: center;
-                    padding-top: 5px;
-                    padding-bottom: 5px;
+                    //padding-top: 5px;
+                    //padding-bottom: 5px;
                     //x: parent.width / 2 - self.width / 2;
                     //y: parent.height / 2 - self.height / 2;
 
                     spacing: 8px;
+
+
+                    AppIcon {
+                        icon: @image-url("../resources/icons/archive.png");
+
+                        active: HomeState.file-manager-open;
+
+                        activated => {
+                            HomeState.open-file-manager();
+                        }
+                    }
                     
+                    AppIcon {
+                        icon: @image-url("../resources/icons/settings.png");
 
-                    Rectangle {
-                        width: 50px;
-                        height: 50px;
+                        active: HomeState.settings-open;
 
-                        Image {
-                            source: @image-url("../resources/icons/archive.png");
-                            width: 50px;
-                            height: 50px;
-                            image-fit: fill;
-                        }
-                        TouchArea {
-                            clicked => {
-                                debug("File Manager clicked!");
-                                HomeState.open-file-manager();
-                            }
+                        activated => {
+                            HomeState.open-settings();
                         }
                     }
 
-                    Rectangle {
-                        width: 50px;
-                        height: 50px;
+                    AppIcon {
+                        icon: @image-url("../resources/icons/terminals.png");
 
-                        Image {
-                            source: @image-url("../resources/icons/settings.png");
-                            width: parent.width;
-                            height: parent.height;
-                            image-fit: fill;
-                        }
-                        TouchArea {
-                            clicked => {
-                                debug("Image clicked!");
-                                HomeState.open-settings();
-                            }
+                        active: HomeState.terminal-open;
 
+                        activated => {
+                            HomeState.open-terminal();
                         }
                     }
 
-                    Rectangle {
-                        width: 50px;
-                        height: 50px;
+                    AppIcon {
+                        icon: @image-url("../resources/icons/music-player.png");
 
-                        Image {
-                            source: @image-url("../resources/icons/terminals.png");
-                            width: 50px;
-                            height: 50px;
-                            image-fit: fill;
+                        active: HomeState.music-open;
+
+                        activated => {
+                            HomeState.open_music();
                         }
-
-                        TouchArea {
-                            clicked => {
-                                debug("Terminal clicked!");
-                                HomeState.open-terminal();
-                            }
-                    }
-                    }
-
-
-                    Image {
-                        source: @image-url("../resources/icons/music-player.png");
-                        width: 50px;
-                        height: 50px;
-                        image-fit: fill;
                     }
                 }
             }

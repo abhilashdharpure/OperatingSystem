@@ -13,7 +13,8 @@ HomePage::HomePage(slint::ComponentHandle<AppWindow> ui) : ui_(ui)
     state.set_greeting("Hello from C++");
 
     // UI -> C++ callbacks. Capture 'this' and use the weak handle inside.
-    state.on_say_hello([this](slint::SharedString name) {
+    state.on_say_hello([this](slint::SharedString name)
+    {
         if (auto ui = ui_.lock()) {
             ++clicks_;
             auto& s = (*ui)->global<HomeState>();
@@ -22,39 +23,77 @@ HomePage::HomePage(slint::ComponentHandle<AppWindow> ui) : ui_(ui)
         }
     });
 
-    state.on_open_settings([this] {
+    state.on_open_settings([this]
+    {
         std::cout<<"Home page: on_open_settings called!"<<std::endl;
 
-        if (auto ui = ui_.lock()) (*ui)->set_current_page(1);
+        if (auto ui = ui_.lock()) {
+            (*ui)->set_current_page(1);
+            auto &s = (*ui)->global<HomeState>();
+            s.set_settings_open(true);
+        }
     });
     
 
-    state.on_open_file_manager([this] {
+    state.on_open_file_manager([this]
+    {
         std::cout<<"Home page: on_open_file_manager called!"<<std::endl;
 
-        long comp_pid = spawn_path("/bin/file_manager");
+        long pid = spawn_path("/bin/file_manager");
+
+        if (pid > 0) {
+            if (auto ui = ui_.lock()) {
+                auto &s = (*ui)->global<HomeState>();
+                s.set_file_manager_open(true);
+            }
+        }
     });
 
 
-    state.on_open_terminal([this] {
+    state.on_open_terminal([this]
+    {
         std::cout<<"Home page: terminal click called!"<<std::endl;
 
-        long comp_pid = spawn_path("/bin/client");
+        long pid = spawn_path("/bin/client");
+
+        if (pid > 0) {
+            if (auto ui = ui_.lock()) {
+                auto &s = (*ui)->global<HomeState>();
+                s.set_terminal_open(true);
+            }
+        }
     });
 
-    
 
+    state.on_open_music([this]
+    {
+        std::cout<<"Home page: open_music click called!"<<std::endl;
+
+        long pid = spawn_path("/bin/client");
+
+        if (pid > 0) {
+            if (auto ui = ui_.lock()) {
+                auto &s = (*ui)->global<HomeState>();
+                s.set_music_open(true);
+            }
+        }
+    });
 }
 
 void HomePage::set_user(const std::string& name)
 {
-    if (auto ui = ui_.lock()) (*ui)->global<HomeState>().set_user_name(slint::SharedString(name));
+    if (auto ui = ui_.lock())
+    {
+        (*ui)->global<HomeState>().set_user_name(slint::SharedString(name));
+    }
 }
 
 std::string HomePage::user() const
 {
     if (auto ui = ui_.lock())
+    {
         return std::string((*ui)->global<HomeState>().get_user_name());
+    }
     return {};
 }
 
