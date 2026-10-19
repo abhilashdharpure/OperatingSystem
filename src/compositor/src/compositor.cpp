@@ -2619,6 +2619,7 @@ static void shell_resource_gone(wl_resource* r)
 
 static void bind_luma_shell(wl_client* client, void* data, uint32_t, uint32_t id)
 {
+    std::cout << "[LumaCompositor] bind_luma_shell\n";
     auto* c = (LumaCompositor*)data;
     wl_resource* res = wl_resource_create(client, &luma_shell_interface, 1, id);
     if (!res) { wl_client_post_no_memory(client); return; }

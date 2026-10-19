@@ -136,10 +136,10 @@ export component HomePage inherits Rectangle {
             }
 
             Rectangle {
-                width: 400px;
+                width: 600px;
                 height: 60px;
                 border-radius: 10px;
-                background: #3a2950;
+                background: #383636;
 
                 HorizontalLayout {
                     alignment: center;
@@ -163,7 +163,7 @@ export component HomePage inherits Rectangle {
                         new-instance => { HomeState.app-new-instance(1); }
                     }
                     AppIcon {
-                        icon: @image-url("../resources/icons/terminals.png");
+                        icon: @image-url("../resources/icons/terminal.png");
                         app-state: HomeState.apps[2];
                         activated => { HomeState.app-clicked(2); }
                         new-instance => { HomeState.app-new-instance(2); }
@@ -173,6 +173,55 @@ export component HomePage inherits Rectangle {
                         app-state: HomeState.apps[3];
                         activated => { HomeState.app-clicked(3); }
                         new-instance => { HomeState.app-new-instance(3); }
+                    }
+                    AppIcon {
+                        icon: @image-url("../resources/icons/menu.png");
+                        app-state: HomeState.apps[4];
+                        activated => { HomeState.app-clicked(4); }
+                        new-instance => { HomeState.app-new-instance(4); }
+                    }
+                    AppIcon {
+                        icon: @image-url("../resources/icons/browser.png");
+                        app-state: HomeState.apps[5];
+                        activated => { HomeState.app-clicked(5); }
+                        new-instance => { HomeState.app-new-instance(5); }
+                    }
+                    AppIcon {
+                        icon: @image-url("../resources/icons/photos.png");
+                        app-state: HomeState.apps[6];
+                        activated => { HomeState.app-clicked(6); }
+                        new-instance => { HomeState.app-new-instance(6); }
+                    }
+                    AppIcon {
+                        icon: @image-url("../resources/icons/text-editor.png");
+                        app-state: HomeState.apps[7];
+                        activated => { HomeState.app-clicked(7); }
+                        new-instance => { HomeState.app-new-instance(8); }
+                    }
+                }
+            }
+
+
+            Rectangle {
+                width: 100px;
+                height: 60px;
+                border-radius: 10px;
+                background: #3f1861;
+
+                HorizontalLayout {
+                    alignment: center;
+                    //padding-top: 5px;
+                    //padding-bottom: 5px;
+                    //x: parent.width / 2 - self.width / 2;
+                    //y: parent.height / 2 - self.height / 2;
+
+                    spacing: 8px;
+
+                    Image {
+                        source: @image-url("../resources/icons/lock.png");
+                        width: 50px;
+                        height: 50px;
+                        image-fit: fill;
                     }
                 }
             }

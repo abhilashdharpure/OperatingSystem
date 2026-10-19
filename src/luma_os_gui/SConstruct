@@ -111,8 +111,6 @@ program = target_env.Program(
     source = objs + xdg_obj + shell_obj,
 )
 
-VariantDir('build/obj', 'src', duplicate=0)
-cpp_sources = Glob('build/obj/*.cpp')
 
 # Stripped copy: much smaller, faster to load in your kernel ELF loader
 stripped = target_env.Command(
