@@ -109,6 +109,7 @@ project_root       = target_env.Dir('#')
 protocols = [
     project_root.File('protocols/xdg-shell.xml'),
     project_root.File('protocols/wayland.xml'),
+    project_root.File('protocols/luma-shell.xml'),
 ]
 
 generated_sources = []
@@ -131,12 +132,26 @@ for xml_file in protocols:
     generated_sources.append(c_out)
 
 # client-side header only; the interface definitions already exist in your server-generated .c files
-xdg_client_h = generated_dir_node.File('xdg-shell-client-protocol.h')
+xdg_client_h = generated_dir_node.File(
+'xdg-shell-client-protocol.h'
+)
+
+luma_client_h = generated_dir_node.File(
+'luma-shell-client-protocol.h'
+)
+
 host_env.Command(
     xdg_client_h,
     project_root.File('protocols/xdg-shell.xml'),
     f'{wayland_scanner} client-header $SOURCE $TARGET'
 )
+
+host_env.Command(
+    luma_client_h,
+    project_root.File('protocols/luma-shell.xml'),
+    f'{wayland_scanner} client-header $SOURCE $TARGET'
+)
+
 # --- User-space source files ---
 sources = [
     'src/main.cpp',

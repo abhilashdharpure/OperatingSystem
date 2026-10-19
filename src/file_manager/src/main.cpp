@@ -25,6 +25,7 @@ int main()
     wc.on_minimize([]        { if (g_win) g_win->minimize(); });
     wc.on_close([]           { if (g_win) g_win->close_window(); });
 
+    g_app_id = "file_manager";      // home: "luma_home"; others: "settings", "terminal", "music"
     ui->run();
     return 0;
 }

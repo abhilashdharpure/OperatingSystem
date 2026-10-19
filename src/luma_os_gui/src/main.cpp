@@ -5,6 +5,7 @@
 #include <memory>
 #include <stdio.h>
 
+
 int main()
 {
     auto platform = std::make_unique<LumaPlatform>();
@@ -19,6 +20,7 @@ int main()
     home.set_user("Abhilash");
 
     SettingsPage settingPage(ui);
+    g_app_id = "luma_home";
 
     ui->run();
     return 0;

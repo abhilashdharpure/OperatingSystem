@@ -121,6 +121,10 @@ struct my_surface
     bool isKeyboardFocused = false;
 
     bool minimized = false;
+    uint32_t    win_id = 0;
+    std::string app_id, title;
+    bool        background = false;     // the home screen: never raised above windows
+
     int window_geom_x = 0, window_geom_y = 0, window_geom_w = 0, window_geom_h = 0;
     int min_width = 200;
     int min_height = 200;

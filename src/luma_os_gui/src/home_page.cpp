@@ -6,23 +6,43 @@
 
 enum { APP_FILES = 0, APP_SETTINGS, APP_TERMINAL, APP_MUSIC };
 
-HomePage::HomePage(slint::ComponentHandle<AppWindow> ui) : ui_(ui)
+// HomePage::HomePage(slint::ComponentHandle<AppWindow> ui) : ui_(ui)
+
+HomePage::HomePage(slint::ComponentHandle<AppWindow> ui)
+    : ui_(ui), model_(std::make_shared<slint::VectorModel<AppState>>())
 {
+    // auto& s = ui->global<HomeState>();
+
+    // apps_[APP_FILES]    = { "/bin/file_manager", 0, [this](bool v){ if (auto u = ui_.lock()) (*u)->global<HomeState>().set_file_manager_open(v); } };
+    // apps_[APP_SETTINGS] = { "/bin/settings",     0, [this](bool v){ if (auto u = ui_.lock()) (*u)->global<HomeState>().set_settings_open(v); } };
+    // apps_[APP_TERMINAL] = { "/bin/terminal",     0, [this](bool v){ if (auto u = ui_.lock()) (*u)->global<HomeState>().set_terminal_open(v); } };
+    // apps_[APP_MUSIC]    = { "/bin/music",        0, [this](bool v){ if (auto u = ui_.lock()) (*u)->global<HomeState>().set_music_open(v); } };
+
+    // s.on_open_file_manager([this] { launch(APP_FILES); });
+    // s.on_open_settings    ([this] { launch(APP_SETTINGS); });
+    // s.on_open_terminal    ([this] { launch(APP_TERMINAL); });
+    // s.on_open_music       ([this] { launch(APP_MUSIC); });
+
+    // // Check for exited children every 300 ms
+    // reaper_.start(slint::TimerMode::Repeated, std::chrono::milliseconds(300),
+    //               [this] { poll_children(); });
+
+    apps_ = {
+        { "file_manager", "/bin/file_manager", {} },
+        { "settings",     "/bin/settings",     {} },
+        { "terminal",     "/bin/terminal",     {} },
+        { "music",        "/bin/music",        {} },
+    };
+    for (size_t i = 0; i < apps_.size(); i++) model_->push_back(AppState{ 0, false, false });
+
     auto& s = ui->global<HomeState>();
+    s.set_apps(model_);
+    s.on_app_clicked([this](int i) { click(i); });
+    s.on_app_new_instance([this](int i) { launch(i); });
 
-    apps_[APP_FILES]    = { "/bin/file_manager", 0, [this](bool v){ if (auto u = ui_.lock()) (*u)->global<HomeState>().set_file_manager_open(v); } };
-    apps_[APP_SETTINGS] = { "/bin/settings",     0, [this](bool v){ if (auto u = ui_.lock()) (*u)->global<HomeState>().set_settings_open(v); } };
-    apps_[APP_TERMINAL] = { "/bin/terminal",     0, [this](bool v){ if (auto u = ui_.lock()) (*u)->global<HomeState>().set_terminal_open(v); } };
-    apps_[APP_MUSIC]    = { "/bin/music",        0, [this](bool v){ if (auto u = ui_.lock()) (*u)->global<HomeState>().set_music_open(v); } };
-
-    s.on_open_file_manager([this] { launch(APP_FILES); });
-    s.on_open_settings    ([this] { launch(APP_SETTINGS); });
-    s.on_open_terminal    ([this] { launch(APP_TERMINAL); });
-    s.on_open_music       ([this] { launch(APP_MUSIC); });
-
-    // Check for exited children every 300 ms
-    reaper_.start(slint::TimerMode::Repeated, std::chrono::milliseconds(300),
-                  [this] { poll_children(); });
+    ShellClient::get().on_change = [this] { refresh(); };
+    reaper_.start(slint::TimerMode::Repeated, std::chrono::milliseconds(500), [this] { reap(); });
+    refresh();  
 }
 
 void HomePage::set_user(const std::string& name)
@@ -42,37 +62,145 @@ std::string HomePage::user() const
     return {};
 }
 
-void HomePage::launch(int i)
+int HomePage::window_count(size_t i) const
 {
-    AppSlot& a = apps_[i];
-    if (a.pid > 0) {
-        // TODO: Right now we are just supporting one instance per icon.
-        std::cout << "[Home] " << a.path << " already running (pid " << a.pid << ")\n";
-        return;                                    // one instance per icon
-    }
-    long pid = spawn_path(a.path.c_str());
-    if (pid > 0) {
-        a.pid = pid;
-        a.set_open(true);
-    } else {
-        std::cout << "[Home] spawn failed for " << a.path << " rc=" << pid << "\n";
+    int n = 0;
+    for (auto& [id, w] : ShellClient::get().windows)
+        if (w.app_id == apps_[i].app_id) n++;
+    return n;
+}
+
+void HomePage::refresh()
+{
+    auto& wins = ShellClient::get().windows;
+    for (size_t i = 0; i < apps_.size(); i++) {
+        int running = 0;
+        bool all_min = true, focused = false;
+        for (auto& [id, w] : wins) {
+            if (w.app_id != apps_[i].app_id) continue;
+            running++;
+            if (!w.minimized) all_min = false;
+            if (w.focused) focused = true;
+        }
+        model_->set_row_data(i, AppState{ running, running > 0 && all_min, focused });
     }
 }
 
-void HomePage::poll_children()
+void HomePage::click(int i)
 {
-    for (AppSlot& a : apps_) {
-        if (a.pid <= 0) continue;
-        int status = 0;
-        pid_t r = waitpid((pid_t)a.pid, &status, WNOHANG);   // 0 = still running
-        if (r == (pid_t)a.pid || (r < 0 && errno != EINTR)) {
-            std::cout << "[Home] " << a.path << " exited (pid " << a.pid
-                      << ", status " << status << ")\n";
-            a.pid = 0;
-            a.set_open(false);                                // removes the highlight
+    if (i < 0 || i >= (int)apps_.size())
+    {
+        std::cout<<"ERROR: Home Page clicked invalid ID = "<<i<<std::endl;
+        return;
+    }
+
+    auto& sc = ShellClient::get();
+    std::cout<<"Home Page clicked, sc.windows Size = "<<sc.windows.size()<<std::endl;
+
+    uint32_t restore = 0, newest = 0;
+    for (auto& [id, w] : sc.windows)
+    {   
+        std::cout<<"Home Page clicked, apps_[i].app_id = "<<apps_[i].app_id<<std::endl;
+
+                           // ascending id
+        if (w.app_id != apps_[i].app_id)
+        {
+            std::cout << "[Home] click continue id = " << id <<"\n"; 
+            continue;
+        }
+        newest = id;
+        if (w.minimized && restore == 0)
+        {
+            std::cout << "[Home] click id = " << id <<"\n";
+            restore = id;     // oldest minimized first
+        }
+    }
+
+
+    if (restore)
+    {
+        std::cout << "[Home] restore: " << i<<"\n";
+        sc.activate(restore); 
+    }      
+    else if (newest)
+    {
+        std::cout << "[Home] newest: " << i<<"\n";
+        sc.activate(newest);
+    }  
+    else if (apps_[i].pids.empty())
+    {
+        std::cout << "[Home] launch: " << i<<"\n";
+
+        launch(i);              // else: still starting, ignore
+    }
+    else
+    {
+        std::cout<<"Home Page clicked else, ID = "<<i<<std::endl;
+    }
+}
+
+void HomePage::launch(int i)
+{
+    std::cout << "[Home] launch Request for ID: " <<i<< "\n";
+
+    if (i < 0 || i >= (int)apps_.size()) return;
+    long pid = spawn_path(apps_[i].path.c_str());
+    if (pid > 0)
+    {
+        apps_[i].pids.push_back(pid);
+        std::cout << "[Home] spawn Request: " << apps_[i].path << " rc=" << pid << "\n";
+    }
+    else
+    {
+        std::cout << "[Home] spawn failed: " << apps_[i].path << " rc=" << pid << "\n";
+    }
+}
+
+void HomePage::reap()
+{
+    for (auto& a : apps_) {
+        for (size_t k = 0; k < a.pids.size(); ) {
+            int status = 0;
+            pid_t r = waitpid((pid_t)a.pids[k], &status, WNOHANG);
+            if (r == (pid_t)a.pids[k] || (r < 0 && errno != EINTR))
+                a.pids.erase(a.pids.begin() + k);
+            else
+                k++;
         }
     }
 }
+
+// void HomePage::launch(int i)
+// {
+//     AppSlot& a = apps_[i];
+//     if (a.pid > 0) {
+//         // TODO: Right now we are just supporting one instance per icon.
+//         std::cout << "[Home] " << a.path << " already running (pid " << a.pid << ")\n";
+//         return;                                    // one instance per icon
+//     }
+//     long pid = spawn_path(a.path.c_str());
+//     if (pid > 0) {
+//         a.pid = pid;
+//         a.set_open(true);
+//     } else {
+//         std::cout << "[Home] spawn failed for " << a.path << " rc=" << pid << "\n";
+//     }
+// }
+
+// void HomePage::poll_children()
+// {
+//     for (AppSlot& a : apps_) {
+//         if (a.pid <= 0) continue;
+//         int status = 0;
+//         pid_t r = waitpid((pid_t)a.pid, &status, WNOHANG);   // 0 = still running
+//         if (r == (pid_t)a.pid || (r < 0 && errno != EINTR)) {
+//             std::cout << "[Home] " << a.path << " exited (pid " << a.pid
+//                       << ", status " << status << ")\n";
+//             a.pid = 0;
+//             a.set_open(false);                                // removes the highlight
+//         }
+//     }
+// }
 // #include "home_page.h"
 
 

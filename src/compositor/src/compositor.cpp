@@ -29,6 +29,9 @@
 #include <climits>
 #include <time.h>
 #include "builtin_client.h"
+#include "luma-shell-protocol.h"
+
+using namespace std;
 
 extern uint8_t* g_fb_ptr; extern uint32_t g_fb_pitch, g_fb_w, g_fb_h;
 
@@ -44,7 +47,11 @@ static std::mutex comp_fb_mutex;
 // static std::atomic<bool> sdl_thread_running{false};
 // static std::thread sdl_thread;
 
-using namespace std;
+
+
+static void shell_announce(my_surface*);
+static void shell_removed(my_surface*);
+static void shell_minimize_surface(LumaCompositor*, my_surface*);
 
 CompositorInput* getCompositorInput()
 {
@@ -497,19 +504,27 @@ void DrawCursor(LumaCompositor* comp, my_surface* surface)
     UpdateFrameBuffer(comp, surface, true);
 }
 
-void raise_surface(LumaCompositor* compositor, my_surface* surface)
+static void restack(LumaCompositor* c)
 {
-    if((compositor == nullptr) || (surface == nullptr))
+    std::stable_partition(c->surfaces.begin(), c->surfaces.end(),
+                          [](my_surface* s) { return s->background; });
+}
+
+void raise_surface(LumaCompositor* c, my_surface* s)
+{
+    if (!c || !s || s->background)
+    {
+        return;
+    }
+    auto it = std::find(c->surfaces.begin(), c->surfaces.end(), s);
+    if (it == c->surfaces.end())
     {
         return;
     }
 
-    auto it = std::find(compositor->surfaces.begin(), compositor->surfaces.end(), surface);
-    if (it != compositor->surfaces.end())
-    {
-        compositor->surfaces.erase(it);
-        compositor->surfaces.push_back(surface);  // now topmost
-    }
+    c->surfaces.erase(it);
+    c->surfaces.push_back(s);
+    restack(c);
 }
 
 void compositor_repaint(LumaCompositor* comp)
@@ -754,33 +769,17 @@ static const struct wl_keyboard_interface keyboard_impl = {
 //     return nullptr;
 // }
 
-static void keyboard_resource_destroy(struct wl_resource *resource)
+static void keyboard_resource_destroy(struct wl_resource* resource)
 {
-    std::cout << "[LumaCompositor] keyboard_resource_destroy, resource= "<<resource<<std::endl;
     LumaSeat* seat = (LumaSeat*)wl_resource_get_user_data(resource);
-
-    if(seat != nullptr)
+    wl_list_remove(wl_resource_get_link(resource));
+    if (seat && seat->compositor && seat->compositor->keyboard_resource == resource)
     {
-        LumaCompositor* compositor = seat->compositor;
-        if(compositor != nullptr)
-        {
-            if(compositor->keyboard_resource != nullptr)
-            {
-                std::scoped_lock lk(compositor->kbd_mutex); // adapt to your object layout
-                wl_list_remove(wl_resource_get_link(compositor->keyboard_resource));
-                // Also clear compositor-side pointer if it was the focused one
-                // Acquire the mutex before modifying
-
-                if (compositor->keyboard_resource == resource)
-                {
-                    compositor->keyboard_resource = nullptr;
-                }
-            }
-        }
+        seat->compositor->keyboard_resource = nullptr;
     }
-    // nothing stored as user_data currently
     wl_resource_set_user_data(resource, nullptr);
 }
+
 
 void safe_send_keyboard_enter(LumaCompositor* compositor,
                               struct wl_resource* keyboard_focused_surface,
@@ -896,21 +895,14 @@ static const struct wl_pointer_interface pointer_impl = {
     .release = wl_pointer_interface_release,
 };
 
-static void pointer_resource_destroy(struct wl_resource *resource)
+static void pointer_resource_destroy(struct wl_resource* resource)
 {
-    std::cout << "[LumaCompositor] pointer_resource_destroy\n";
     LumaSeat* seat = (LumaSeat*)wl_resource_get_user_data(resource);
-
-
-    if((seat != nullptr) && (seat->compositor != nullptr) && (seat->compositor->pointer_resource != nullptr))
-    {
-        wl_list_remove(wl_resource_get_link(seat->compositor->pointer_resource));
-    }
-
-    // nothing stored as user_data currently
+    wl_list_remove(wl_resource_get_link(resource));
+    if (seat && seat->compositor && seat->compositor->pointer_resource == resource)
+        seat->compositor->pointer_resource = nullptr;
     wl_resource_set_user_data(resource, nullptr);
 }
-
 
 static void seat_get_pointer(struct wl_client *client, struct wl_resource *seat_res, uint32_t id)
 {
@@ -1280,6 +1272,11 @@ static void surface_commit(wl_client* client, wl_resource* surface_res)
     // Surface becomes visible on first commit
     surf->mapped = true;
 
+    if (surf->is_xdg_toplevel && surf->win_id == 0)
+    {
+        shell_announce(surf);
+    }
+
     // Nothing to render yet if no buffer is attached
     if (!surf->buffer_res)
     {
@@ -1396,6 +1393,14 @@ static void surface_resource_destroy(struct wl_resource *resource)
 
     my_surface* surf = static_cast<my_surface*>(wl_resource_get_user_data(resource));
     if (!surf) return;
+
+    shell_removed(surf);
+    LumaCompositor* c = surf->compositor;
+    if (c->keyboard_focused_surface == resource) c->keyboard_focused_surface = nullptr;
+    if (c->pointer_focused_surface  == resource) c->pointer_focused_surface  = nullptr;
+    if (c->moving_surface    == surf) { c->moving_surface    = nullptr; c->move_grab_active   = false; }
+    if (c->resizing_surface  == surf) { c->resizing_surface  = nullptr; c->resize_grab_active = false; }
+    if (c->cursor_surface    == surf) c->cursor_surface = nullptr;
 
     std::cout << "[LumaCompositor] surface_destroy_cb\n";
 
@@ -1582,14 +1587,17 @@ static void xdg_toplevel_set_parent(struct wl_client*, struct wl_resource*, stru
     std::cout << "[LumaCompositor] xdg_toplevel_set_parent\n";
 }
 
-static void xdg_toplevel_set_title(struct wl_client*, struct wl_resource*, const char* title)
+static void xdg_toplevel_set_title(struct wl_client*, struct wl_resource* res, const char* title)
 {
-    std::cout << "[LumaCompositor] xdg_toplevel_set_title, title = "<<title<<std::endl;
+    if (auto* s = (my_surface*)wl_resource_get_user_data(res)) s->title = title;
 }
 
-static void xdg_toplevel_set_app_id(struct wl_client*, struct wl_resource*, const char*) 
+static void xdg_toplevel_set_app_id(struct wl_client*, struct wl_resource* res, const char* id)
 {
-    std::cout << "[LumaCompositor] xdg_toplevel_set_app_id\n";
+    if (auto* s = (my_surface*)wl_resource_get_user_data(res)) {
+        s->app_id = id;
+        s->background = (s->app_id == "luma_home");
+    }
 }
 
 static void xdg_toplevel_show_window_menu(struct wl_client *client,
@@ -1798,17 +1806,26 @@ static void xdg_toplevel_unset_fullscreen(struct wl_client*, struct wl_resource*
     std::cout << "[LumaCompositor] xdg_toplevel_unset_fullscreen\n";
 }
 
+// static void xdg_toplevel_set_minimized(struct wl_client*, struct wl_resource* res)
+// {
+//     std::cout << "[LumaCompositor] xdg_toplevel_set_minimized\n";
+
+//     my_surface* surf = (my_surface*)wl_resource_get_user_data(res);
+//     if (!surf || !surf->compositor) return;
+//     LumaCompositor* comp = surf->compositor;
+//     surf->minimized = true;
+//     if (comp->keyboard_focused_surface == surf->resource) comp->keyboard_focused_surface = nullptr;
+//     comp->needs_repaint = true;
+//     compositor_repaint(comp);
+// }
+
 static void xdg_toplevel_set_minimized(struct wl_client*, struct wl_resource* res)
 {
-    std::cout << "[LumaCompositor] xdg_toplevel_set_minimized\n";
-
-    my_surface* surf = (my_surface*)wl_resource_get_user_data(res);
-    if (!surf || !surf->compositor) return;
-    LumaCompositor* comp = surf->compositor;
-    surf->minimized = true;
-    if (comp->keyboard_focused_surface == surf->resource) comp->keyboard_focused_surface = nullptr;
-    comp->needs_repaint = true;
-    compositor_repaint(comp);
+    auto* s = (my_surface*)wl_resource_get_user_data(res);
+    if (s && s->compositor)
+    {
+        shell_minimize_surface(s->compositor, s);
+    }
 }
 
 static const struct xdg_toplevel_interface xdg_toplevel_impl = {
@@ -2235,21 +2252,16 @@ static void compositor_create_surface(struct wl_client* client, struct wl_resour
     }
 
     my_surface* surf = new my_surface();
-    int surfaceX = 0;
-    int surfaceY = 0;
-
-    // int n = clientNo;                          // before the clientNo++ line
-    // int surfaceX = (n == 1) ? 0 : 80 + 30 * ((n - 2) % 6);
-    // int surfaceY = (n == 1) ? 0 : 60 + 30 * ((n - 2) % 6);
+    static int clientNo = 1;
+    int n = clientNo++;
+    int surfaceX = (n == 1) ? 0 : 80 + 30 * ((n - 2) % 8);
+    int surfaceY = (n == 1) ? 0 : 60 + 30 * ((n - 2) % 8);
+    surf->clientName = "Client_" + std::to_string(n);
 
     surf->x = surfaceX;
     surf->y = surfaceY;
     surf->pending_x = surfaceX;
     surf->pending_y = surfaceY;
-
-    static int clientNo = 1;
-    surf->clientName = "Client_" + std::to_string(clientNo);
-    clientNo++;
 
 
     comp->surfaces.push_back(surf);
@@ -2502,6 +2514,125 @@ static void capture_boot_screen(LumaCompositor* comp)
         memcpy(&bg_cache[(size_t)y * W], g_fb_ptr + (size_t)y * g_fb_pitch, (size_t)w * 4);
 }
 
+// ---------------- luma_shell ----------------
+static std::vector<wl_resource*> g_shell;
+static uint32_t g_next_win_id = 1;
+
+static my_surface* shell_find(LumaCompositor* c, uint32_t id)
+{
+    for (auto* s : c->surfaces) if (s->win_id == id) return s;
+    return nullptr;
+}
+
+static void shell_send_state(my_surface* s)
+{
+    bool focused = s->compositor->keyboard_focused_surface == s->resource;
+    for (auto* r : g_shell)
+        luma_shell_send_window_state(r, s->win_id, s->minimized ? 1 : 0, focused ? 1 : 0);
+}
+
+void shell_broadcast_all(LumaCompositor* c)
+{
+    for (auto* s : c->surfaces) if (s->win_id) shell_send_state(s);
+    wl_display_flush_clients(c->display);
+}
+
+static void shell_announce(my_surface* s)
+{
+    s->win_id = g_next_win_id++;
+    if (s->background) restack(s->compositor);
+    for (auto* r : g_shell)
+        luma_shell_send_window_added(r, s->win_id, s->app_id.c_str(), s->title.c_str());
+    shell_send_state(s);
+    wl_display_flush_clients(s->compositor->display);
+}
+
+static void shell_removed(my_surface* s)
+{
+    if (!s->win_id) return;
+    for (auto* r : g_shell) luma_shell_send_window_removed(r, s->win_id);
+    s->win_id = 0;
+    wl_display_flush_clients(s->compositor->display);
+}
+
+static void shell_focus(LumaCompositor* c, my_surface* s)
+{
+    if (c->keyboard_focused_surface == s->resource) return;
+    if (c->keyboard_focused_surface)
+        compositorInput.SendKeyboardLeaveEvent(c, c->keyboard_focused_surface);
+    c->keyboard_focused_surface = s->resource;
+    compositorInput.SendKeyboardEnterEvent(c, s->resource);
+}
+
+static void shell_minimize_surface(LumaCompositor* c, my_surface* s)
+{
+    s->minimized = true;
+    if (c->keyboard_focused_surface == s->resource) {
+        compositorInput.SendKeyboardLeaveEvent(c, s->resource);
+        c->keyboard_focused_surface = nullptr;
+    }
+    if (c->pointer_focused_surface == s->resource) c->pointer_focused_surface = nullptr;
+    c->needs_repaint = true;
+    compositor_repaint(c);
+    shell_broadcast_all(c);
+}
+
+static void shell_activate_req(wl_client*, wl_resource* res, uint32_t id)
+{
+    auto* c = (LumaCompositor*)wl_resource_get_user_data(res);
+    my_surface* s = shell_find(c, id);
+    if (!s) return;
+    s->minimized = false;
+    raise_surface(c, s);
+    shell_focus(c, s);
+    c->needs_repaint = true;
+    compositor_repaint(c);
+    shell_broadcast_all(c);
+}
+
+static void shell_minimize_req(wl_client*, wl_resource* res, uint32_t id)
+{
+    auto* c = (LumaCompositor*)wl_resource_get_user_data(res);
+    if (my_surface* s = shell_find(c, id)) shell_minimize_surface(c, s);
+}
+
+static void shell_close_req(wl_client*, wl_resource* res, uint32_t id)
+{
+    auto* c = (LumaCompositor*)wl_resource_get_user_data(res);
+    my_surface* s = shell_find(c, id);
+    if (s && s->toplevel_res) {
+        xdg_toplevel_send_close(s->toplevel_res);
+        wl_display_flush_clients(c->display);
+    }
+}
+
+static const struct luma_shell_interface shell_impl = {
+    .activate = shell_activate_req,
+    .minimize = shell_minimize_req,
+    .close    = shell_close_req,
+};
+
+static void shell_resource_gone(wl_resource* r)
+{
+    g_shell.erase(std::remove(g_shell.begin(), g_shell.end(), r), g_shell.end());
+}
+
+static void bind_luma_shell(wl_client* client, void* data, uint32_t, uint32_t id)
+{
+    auto* c = (LumaCompositor*)data;
+    wl_resource* res = wl_resource_create(client, &luma_shell_interface, 1, id);
+    if (!res) { wl_client_post_no_memory(client); return; }
+    wl_resource_set_implementation(res, &shell_impl, c, shell_resource_gone);
+    g_shell.push_back(res);
+
+    for (auto* s : c->surfaces) {                    // windows that existed before this bind
+        if (!s->win_id) continue;
+        luma_shell_send_window_added(res, s->win_id, s->app_id.c_str(), s->title.c_str());
+        luma_shell_send_window_state(res, s->win_id, s->minimized ? 1 : 0,
+            c->keyboard_focused_surface == s->resource ? 1 : 0);
+    }
+}
+
 bool luma_init(LumaCompositor* comp)
 {
     std::cout << "[LumaCompositor] init: output_width=" << comp->output_width
@@ -2595,7 +2726,7 @@ bool luma_init(LumaCompositor* comp)
                                                 4,                          // version from your xdg-shell.xml
                                                 comp, bind_xdg_wm_base);
 
-
+    wl_global_create(comp->display, &luma_shell_interface, 1, comp, bind_luma_shell);
 
     compositorInput.Initialize(comp);
     std::cout << "[LumaCompositor] compositorInput Initialize " << std::endl;

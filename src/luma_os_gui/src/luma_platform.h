@@ -12,6 +12,12 @@
 #include <span>
 #include <chrono>
 
+#ifdef LUMA_HOME
+#include "luma_shell_client.h"
+#endif
+
+inline const char* g_app_id = "luma_app";
+
 struct WlGlobals {
     wl_display* dpy = nullptr; wl_registry* reg = nullptr;
     wl_compositor* comp = nullptr; wl_shm* shm = nullptr;
@@ -205,6 +211,9 @@ inline const wl_registry_listener reg_l = {
         else if (!strcmp(i, wl_shm_interface.name))   g.shm  = (wl_shm*)wl_registry_bind(r, name, &wl_shm_interface, 1);
         else if (!strcmp(i, xdg_wm_base_interface.name)) { g.wm = (xdg_wm_base*)wl_registry_bind(r, name, &xdg_wm_base_interface, 1); xdg_wm_base_add_listener(g.wm, &wm_l, nullptr); }
         else if (!strcmp(i, wl_seat_interface.name))  { g.seat = (wl_seat*)wl_registry_bind(r, name, &wl_seat_interface, 4); wl_seat_add_listener(g.seat, &seat_l, nullptr); }
+#ifdef LUMA_HOME
+        else if (!strcmp(i, luma_shell_interface.name)) ShellClient::get().bind(r, name);
+#endif
     },
     [](void*, wl_registry*, uint32_t) {},
 };

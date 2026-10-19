@@ -24,6 +24,7 @@ class LumaWindow;
 inline LumaWindow* g_win = nullptr;
 
 inline uint32_t g_last_serial = 0;
+inline const char* g_app_id = "luma_app";
 // ---------- input ----------
 inline float g_px = 0, g_py = 0;
 
@@ -92,11 +93,15 @@ public:
         tl_ = xdg_surface_get_toplevel(xs_);
         xdg_toplevel_add_listener(tl_, &tl_l, this);
         xdg_toplevel_set_title(tl_, "Luma Slint");
+        xdg_toplevel_set_app_id(tl_, g_app_id);
         make_buffer();
         wl_surface_commit(surf_);
     }
     void resize_to(uint32_t w, uint32_t h) {
-        if (buf_ && w == size_.width && h == size_.height) return;
+        if (buf_ && w == size_.width && h == size_.height)
+        {
+            return;
+        }
 
         std::cout<<"Somebody calling resize_to, width = "<<w<<", height = "<<h<<", current width = "<<size_.width<<", height = "<<size_.height<<std::endl;
         size_ = slint::PhysicalSize({w, h});
@@ -116,16 +121,14 @@ public:
         dirty_ = false;
 
 
-        // auto ws = window().size();                        // what Slint will render at
-        // if (ws.width != size_.width || ws.height != size_.height)
-        //     resize_to(ws.width, ws.height);
+        auto ws = window().size();                        // what Slint will render at
+        if (ws.width != size_.width || ws.height != size_.height)
+            resize_to(ws.width, ws.height);
 
         dirty_ = false;
         int w = size_.width, h = size_.height;
         renderer_.render(std::span<slint::Rgb8Pixel>(scratch_), w);
 
-        // int w = size_.width, h = size_.height;
-        // renderer_.render(std::span<slint::Rgb8Pixel>(scratch_), w);
         // Rgb8 -> XRGB8888 (whole frame; optimize later using the returned dirty region)
         for (size_t i = 0, n = (size_t)w * h; i < n; i++) {
             const auto& p = scratch_[i];

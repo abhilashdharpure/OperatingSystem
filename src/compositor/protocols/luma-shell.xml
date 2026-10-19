@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="luma_shell">
+  <interface name="luma_shell" version="1">
+    <description summary="window list for the desktop shell"/>
+
+    <request name="activate">
+      <arg name="id" type="uint"/>
+    </request>
+    <request name="minimize">
+      <arg name="id" type="uint"/>
+    </request>
+    <request name="close">
+      <arg name="id" type="uint"/>
+    </request>
+
+    <event name="window_added">
+      <arg name="id" type="uint"/>
+      <arg name="app_id" type="string"/>
+      <arg name="title" type="string"/>
+    </event>
+    <event name="window_state">
+      <arg name="id" type="uint"/>
+      <arg name="minimized" type="uint"/>
+      <arg name="focused" type="uint"/>
+    </event>
+    <event name="window_removed">
+      <arg name="id" type="uint"/>
+    </event>
+  </interface>
+</protocol>

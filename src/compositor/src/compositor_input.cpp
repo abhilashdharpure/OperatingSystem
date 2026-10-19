@@ -241,6 +241,12 @@ void handle_pointer_button(CompositorInput* input, LumaCompositor* comp, int x, 
     if (under)
     {
         wl_resource* new_surf_res = under->resource;
+
+        if (state == WL_POINTER_BUTTON_STATE_PRESSED) {
+            raise_surface(comp, under);          // no-op for the home screen
+            comp->needs_repaint = true;
+        }
+
         if (new_surf_res != prev)
         {
             if( state == WL_POINTER_BUTTON_STATE_PRESSED)
@@ -251,6 +257,7 @@ void handle_pointer_button(CompositorInput* input, LumaCompositor* comp, int x, 
                     // set new focus and notify
                     comp->keyboard_focused_surface = new_surf_res;
                     input->SendKeyboardEnterEvent(comp, comp->keyboard_focused_surface);
+                    shell_broadcast_all(comp);
                 // }
                 // else
                 // {
@@ -575,32 +582,21 @@ void CompositorInput::SendMouseMoveEvent(LumaCompositor* compositor, double gx, 
 
 void SendButtonEvent(LumaCompositor* compositor, uint32_t time_ms, uint32_t button, uint32_t state)
 {
-
-    if (button == BTN_LEFT && state == WL_POINTER_BUTTON_STATE_RELEASED)
-    {
-        compositor->move_grab_active   = false;
-        compositor->moving_surface     = nullptr;
-        compositor->resize_grab_active = false;
-        compositor->resizing_surface   = nullptr;
+    if (button == BTN_LEFT && state == WL_POINTER_BUTTON_STATE_RELEASED) {
+        compositor->move_grab_active   = false;  compositor->moving_surface   = nullptr;
+        compositor->resize_grab_active = false;  compositor->resizing_surface = nullptr;
     }
+    if (button != BTN_LEFT && button != BTN_RIGHT) return;
 
-    if(button == BTN_LEFT)
-    {
-        // handle_pointer_button(this, compositor, (int)compositor->cursor_x, (int)compositor->cursor_y, button, state);
-
-        uint32_t serial = wl_display_next_serial(compositor->display);
-
-        wl_resource* focused_pointer = get_focused_pointer(compositor);
-        if(focused_pointer)
-        {
-            // std::cout << "[Input] wl_pointer_send_button serial = "<<serial <<", button = "<<button<<", state = "<<state<<std::endl;
-            //if (focused_pointer != compositor->pointer_focused_surface) continue;
-            wl_pointer_send_button(focused_pointer, serial, time_ms, button, state);
-            wl_pointer_send_frame(focused_pointer);
-            wl_display_flush_clients(compositor->display);
-        }
-
+    uint32_t serial = wl_display_next_serial(compositor->display);
+    if (wl_resource* p = get_focused_pointer(compositor)) {
+        wl_pointer_send_button(p, serial, time_ms, button, state);
+        wl_pointer_send_frame(p);
+        wl_display_flush_clients(compositor->display);
+    }
+    if (button == BTN_LEFT) {
         compositor->last_press_serial = serial;
-        handle_pointer_button(getCompositorInput(), compositor, (int)compositor->cursor_x, (int)compositor->cursor_y, button, state);
+        handle_pointer_button(getCompositorInput(), compositor,
+                              (int)compositor->cursor_x, (int)compositor->cursor_y, button, state);
     }
 }
