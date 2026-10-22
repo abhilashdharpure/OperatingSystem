@@ -32,7 +32,7 @@ class LumaWindow : public slint::platform::WindowAdapter {
 public:
     slint::platform::SoftwareRenderer renderer_{
         slint::platform::SoftwareRenderer::RepaintBufferType::NewBuffer};
-    slint::PhysicalSize size_{{800, 400}};
+    slint::PhysicalSize size_{{900, 500}};
     bool dirty_ = true, configured_ = false, frame_pending_ = false, closed_ = false;
     bool maximized_ = false;
 
@@ -59,8 +59,6 @@ public:
         wl_shm_pool_destroy(pool);
         close(fd);
         scratch_.assign((size_t)w * h, slint::Rgb8Pixel{});
-        // renderer_.set_repaint_buffer_type(slint::platform::SoftwareRenderer::RepaintBufferType::NewBuffer);
-        // renderer_.set_repaint_buffer_type(slint::platform::SoftwareRenderer::RepaintBufferType::ReusedBuffer);
         dirty_ = true;
     }
 
@@ -82,7 +80,9 @@ public:
                 if (w > 0 && h > 0 &&
                     ((uint32_t)w != self->size_.width || (uint32_t)h != self->size_.height)) {
                     self->resize_to((uint32_t)w, (uint32_t)h);
-                    self->window().set_size(self->size_);
+                    self->window().set_size(
+                    slint::PhysicalSize({(uint32_t)w,
+                    (uint32_t)h}));
                 }
             },
             /*close*/ [](void* d, xdg_toplevel*) { ((LumaWindow*)d)->closed_ = true; }
@@ -97,22 +97,24 @@ public:
         make_buffer();
         wl_surface_commit(surf_);
     }
-    void resize_to(uint32_t w, uint32_t h) {
-        if (buf_ && w == size_.width && h == size_.height)
-        {
-            return;
-        }
 
-        std::cout<<"Somebody calling resize_to, width = "<<w<<", height = "<<h<<", current width = "<<size_.width<<", height = "<<size_.height<<std::endl;
+    void resize_to(uint32_t w, uint32_t h)
+    {
         size_ = slint::PhysicalSize({w, h});
-        make_buffer();                 // also reallocates scratch_ from size_
+
+        make_buffer();
+        slint::LogicalSize newSize(
+            {static_cast<float>(w), static_cast<float>(h)}
+        );
+
+        window().dispatch_resize_event(newSize);
+
+        dirty_ = true;
     }
 
     // Slint asks the adapter to resize (preferred size, layout constraints). Match signature to the header.
-    void set_size(slint::PhysicalSize size) override{
-
-        std::cout<<"File manageer set_size"<<std::endl;
-
+    void set_size(slint::PhysicalSize size) override
+    {
         resize_to(size.width, size.height);
     }
 

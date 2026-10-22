@@ -59,7 +59,7 @@ struct LumaCompositor
     double cursor_h = 0.0;
     bool mouse_pressed = false;
     int output_width =  1024; //1920;
-    int output_height = 786; //1080;
+    int output_height = 768; //1080;
 
     int32_t focus_x = 0;
     int32_t focus_y = 0;

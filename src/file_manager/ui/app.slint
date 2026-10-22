@@ -6,13 +6,20 @@ export { FileManagerState, WindowControl, FileEntry, Place }
 
 export component AppWindow inherits Window {
     default-font-family: "DejaVu Sans";
-    title: "Files";
-    preferred-width: 800px;
-    preferred-height: 400px;
+    preferred-width: 900px;
+    preferred-height: 500px;
     background: #121921;
 
-    VerticalLayout {
-        TitleBar { title: "Files"; }
-        FileManagerPage { vertical-stretch: 1; }
+    Rectangle {
+        width: parent.width;
+        height: parent.height;
+         
+        VerticalLayout {
+            width: parent.width;
+            height: parent.height;
+             
+            TitleBar { title: "Files"; }
+            FileManagerPage { vertical-stretch: 1; }
+        }
     }
 }
