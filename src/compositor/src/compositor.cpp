@@ -46,6 +46,11 @@ static std::vector<uint32_t> bg_cache;
 static std::mutex comp_fb_mutex;
 // static std::atomic<bool> sdl_thread_running{false};
 // static std::thread sdl_thread;
+static const int CUR_W = 11, CUR_H = 12;
+
+static std::vector<uint32_t> scene_fb;        // composed windows, no cursor
+static bool g_cursor_dirty = false;
+static int  g_last_cx = -1, g_last_cy = -1;   // where the cursor is currently drawn
 
 
 
@@ -58,53 +63,119 @@ CompositorInput* getCompositorInput()
     return &compositorInput;
 }
 
+struct CursorShape { const char* const* rows; int w, h, hx, hy; };
+
 static const char* const k_arrow[12] = {
     "X          ", "XX         ", "X.X        ", "X..X       ",
     "X...X      ", "X....X     ", "X.....X    ", "X......X   ",
     "X.......X  ", "X....XXXXX ", "X..X..X    ", "XX  X..X   "};
-static const int CUR_W = 11, CUR_H = 12;
+static const char* const k_horiz[7] = {
+    "   X       X   ", "  XX       XX  ", " X.XXXXXXXXX.X ", "X.............X",
+    " X.XXXXXXXXX.X ", "  XX       XX  ", "   X       X   "};
+static const char* const k_vert[15] = {
+    "   X   ", "  X.X  ", " X...X ", "XXX.XXX", "  X.X  ", "  X.X  ", "  X.X  ", "  X.X  ",
+    "  X.X  ", "  X.X  ", "  X.X  ", "XXX.XXX", " X...X ", "  X.X  ", "   X   "};
 
-static std::vector<uint32_t> scene_fb;        // composed windows, no cursor
-static bool g_cursor_dirty = false;
-static int  g_last_cx = -1, g_last_cy = -1;   // where the cursor is currently drawn
+static char g_nwse[15][16], g_nesw[15][16];
+static const char* g_nwse_rows[15];
+static const char* g_nesw_rows[15];
+static CursorShape g_shapes[5];                 // 0 arrow, 1 horizontal, 2 vertical, 3 NW-SE, 4 NE-SW
 
-static void draw_default_cursor(LumaCompositor* comp)     // into comp_framebuffer (full repaint)
+static void cursors_init()
 {
-    int cx = (int)comp->cursor_x, cy = (int)comp->cursor_y;
-    for (int y = 0; y < CUR_H; y++)
-        for (int x = 0; x < CUR_W; x++) {
-            char c = k_arrow[y][x];
-            if (c == ' ') continue;
-            int px = cx + x, py = cy + y;
-            if (px < 0 || py < 0 || px >= comp->output_width || py >= comp->output_height) continue;
-            comp_framebuffer[(size_t)py * comp->output_width + px] = (c == 'X') ? 0xFF000000 : 0xFFFFFFFF;
+    for (int y = 0; y < 15; y++) {
+        for (int x = 0; x < 15; x++) {
+            char c = ' ';
+            int d = x - y;
+            if (d == 0) c = '.'; else if (d == 1 || d == -1) c = 'X';
+            bool h1 = (y == 0 && x <= 6)  || (x == 0 && y <= 6);
+            bool h2 = (y == 14 && x >= 8) || (x == 14 && y >= 8);
+            bool w1 = (y == 1 && x >= 1 && x <= 5)   || (x == 1 && y >= 1 && y <= 5);
+            bool w2 = (y == 13 && x >= 9 && x <= 13) || (x == 13 && y >= 9 && y <= 13);
+            if ((w1 || w2) && c == ' ') c = '.';
+            if (h1 || h2) c = 'X';
+            g_nwse[y][x] = c;
+            g_nesw[y][14 - x] = c;
         }
+        g_nwse[y][15] = g_nesw[y][15] = 0;
+        g_nwse_rows[y] = g_nwse[y];
+        g_nesw_rows[y] = g_nesw[y];
+    }
+    g_shapes[0] = { k_arrow,     11, 12, 0, 0 };
+    g_shapes[1] = { k_horiz,     15,  7, 7, 3 };
+    g_shapes[2] = { k_vert,       7, 15, 3, 7 };
+    g_shapes[3] = { g_nwse_rows, 15, 15, 7, 7 };
+    g_shapes[4] = { g_nesw_rows, 15, 15, 7, 7 };
 }
 
-static void cursor_fast_update(LumaCompositor* comp)      // straight into /dev/fb0
+static int shape_from_edges(int m)              // 1 top, 2 bottom, 4 left, 8 right
+{
+    if (m == 5 || m == 10) return 3;
+    if (m == 9 || m == 6)  return 4;
+    if (m & 12) return 1;
+    if (m & 3)  return 2;
+    return 0;
+}
+
+static int pick_cursor(LumaCompositor* c)
+{
+    if (c->move_grab_active)   return 0;
+    if (c->resize_grab_active) return shape_from_edges((int)c->resize_edges);
+    int cx = (int)c->cursor_x, cy = (int)c->cursor_y;
+    my_surface* s = compositor_surface_at(c, cx, cy);
+    if (!s || !s->is_xdg_toplevel || s->background || s->is_maximized) return 0;
+    const int B = 8;
+    int lx = cx - s->x, ly = cy - s->y;
+    int m = (ly < B ? 1 : 0) | (ly >= s->height - B ? 2 : 0) | (lx < B ? 4 : 0) | (lx >= s->width - B ? 8 : 0);
+    return shape_from_edges(m);
+}
+
+static int  g_last_ox = 0, g_last_oy = 0, g_last_shape = 0;
+static bool g_have_last = false;
+
+static void cursor_blit(uint8_t* base, size_t pitch, int maxw, int maxh,
+                        const CursorShape& s, int ox, int oy)
+{
+    for (int y = 0; y < s.h; y++) {
+        int py = oy + y; if (py < 0 || py >= maxh) continue;
+        uint32_t* row = (uint32_t*)(base + (size_t)py * pitch);
+        for (int x = 0; x < s.w; x++) {
+            char c = s.rows[y][x]; int px = ox + x;
+            if (c == ' ' || px < 0 || px >= maxw) continue;
+            row[px] = (c == 'X') ? 0xFF000000 : 0xFFFFFFFF;
+        }
+    }
+}
+
+static void draw_default_cursor(LumaCompositor* comp)       // into comp_framebuffer
+{
+    int sh = pick_cursor(comp);
+    const CursorShape& s = g_shapes[sh];
+    int ox = (int)comp->cursor_x - s.hx, oy = (int)comp->cursor_y - s.hy;
+    cursor_blit((uint8_t*)comp_framebuffer.data(), (size_t)comp->output_width * 4,
+                comp->output_width, comp->output_height, s, ox, oy);
+    g_last_ox = ox; g_last_oy = oy; g_last_shape = sh; g_have_last = true;
+}
+
+static void cursor_fast_update(LumaCompositor* comp)        // straight into /dev/fb0
 {
     if (!g_fb_ptr || scene_fb.empty()) return;
     int W = comp->output_width;
     int maxw = std::min<int>(W, g_fb_w), maxh = std::min<int>(comp->output_height, g_fb_h);
 
-    if (g_last_cx >= 0) {                                  // erase the old cursor from the scene copy
-        int x0 = std::max(0, g_last_cx), x1 = std::min(maxw, g_last_cx + CUR_W);
-        int y0 = std::max(0, g_last_cy), y1 = std::min(maxh, g_last_cy + CUR_H);
+    if (g_have_last) {                                      // restore what was under the old cursor
+        const CursorShape& o = g_shapes[g_last_shape];
+        int x0 = std::max(0, g_last_ox), x1 = std::min(maxw, g_last_ox + o.w);
+        int y0 = std::max(0, g_last_oy), y1 = std::min(maxh, g_last_oy + o.h);
         for (int y = y0; y < y1 && x1 > x0; y++)
             memcpy(g_fb_ptr + (size_t)y * g_fb_pitch + (size_t)x0 * 4,
                    &scene_fb[(size_t)y * W + x0], (size_t)(x1 - x0) * 4);
     }
-    int cx = (int)comp->cursor_x, cy = (int)comp->cursor_y;
-    for (int y = 0; y < CUR_H; y++) {
-        int py = cy + y; if (py < 0 || py >= maxh) continue;
-        uint32_t* row = (uint32_t*)(g_fb_ptr + (size_t)py * g_fb_pitch);
-        for (int x = 0; x < CUR_W; x++) {
-            char c = k_arrow[y][x]; int px = cx + x;
-            if (c == ' ' || px < 0 || px >= maxw) continue;
-            row[px] = (c == 'X') ? 0xFF000000 : 0xFFFFFFFF;
-        }
-    }
-    g_last_cx = cx; g_last_cy = cy;
+    int sh = pick_cursor(comp);
+    const CursorShape& s = g_shapes[sh];
+    int ox = (int)comp->cursor_x - s.hx, oy = (int)comp->cursor_y - s.hy;
+    cursor_blit(g_fb_ptr, g_fb_pitch, maxw, maxh, s, ox, oy);
+    g_last_ox = ox; g_last_oy = oy; g_last_shape = sh; g_have_last = true;
 }
 
 void compositor_present(LumaCompositor* comp)
@@ -501,6 +572,7 @@ void UpdateFrameBuffer(LumaCompositor* comp, my_surface* surface, bool isCursor)
 
 void DrawCursor(LumaCompositor* comp, my_surface* surface)
 {
+    g_have_last = false;
     UpdateFrameBuffer(comp, surface, true);
 }
 
@@ -608,7 +680,7 @@ void compositor_repaint(LumaCompositor* comp)
             draw_default_cursor(comp);
     }
     fb_flush(comp);
-    g_last_cx = (int)comp->cursor_x;  g_last_cy = (int)comp->cursor_y;
+    // g_last_cx = (int)comp->cursor_x;  g_last_cy = (int)comp->cursor_y;
 }
 
 inline int clamp_int(int v, int lo, int hi) {
@@ -621,99 +693,136 @@ inline bool has_edge(toplevel_edges v, toplevel_edges e) {
     return (static_cast<uint32_t>(v) & static_cast<uint32_t>(e)) != 0;
 }
 
-void handle_resize_motion(LumaCompositor *comp)
+void handle_resize_motion(LumaCompositor* comp)
 {
-    if (!comp->resize_grab_active || !comp->resizing_surface)
-    {
-        return;
-    }
+    if (!comp->resize_grab_active || !comp->resizing_surface) return;
+    my_surface* surf = comp->resizing_surface;
+    if (!surf->xdg_surface_res || !surf->toplevel_res) return;
+    if (surf->pending_configured) return;       // wait until the client committed the last configure
 
-    my_surface *surf = comp->resizing_surface;
+    int edges = (int)comp->resize_edges;        // 1 top, 2 bottom, 4 left, 8 right
+    int dx = (int)(comp->cursor_x - comp->grab_start_x);
+    int dy = (int)(comp->cursor_y - comp->grab_start_y);
+    int new_x = (int)comp->window_start_x, new_y = (int)comp->window_start_y;
+    int new_w = (int)comp->window_start_w, new_h = (int)comp->window_start_h;
 
-    if(surf->xdg_surface_res == nullptr)
-    {   
-        return;
-    }
+    if (edges & 1)      { new_h -= dy; new_y += dy; }
+    else if (edges & 2) { new_h += dy; }
+    if (edges & 4)      { new_w -= dx; new_x += dx; }
+    else if (edges & 8) { new_w += dx; }
 
-    auto edges = comp->resize_edges;
+    new_w = clamp_int(new_w, surf->min_width,  std::min(surf->max_width,  comp->output_width));
+    new_h = clamp_int(new_h, surf->min_height, std::min(surf->max_height, comp->output_height));
+    if (edges & 4) new_x = (int)comp->window_start_x + (int)comp->window_start_w - new_w;   // opposite edge stays put
+    if (edges & 1) new_y = (int)comp->window_start_y + (int)comp->window_start_h - new_h;
 
-    int dx = comp->cursor_x - comp->grab_start_x;
-    int dy = comp->cursor_y - comp->grab_start_y;
+    if (new_w == surf->pending_width && new_h == surf->pending_height &&
+        new_x == surf->pending_x && new_y == surf->pending_y) return;
 
-    // Start from initial geometry
-    int new_x = comp->window_start_x;
-    int new_y = comp->window_start_y;
-    int new_w = comp->window_start_w;
-    int new_h = comp->window_start_h;
+    surf->pending_width = new_w;  surf->pending_height = new_h;
+    surf->pending_x = new_x;      surf->pending_y = new_y;
+    surf->pending_configured = true;
 
-    // vertical adjustments
-    if (has_edge(edges, toplevel_edges::TOP))
-    {
-        // dragging top edge: moving top down increases dy -> reduce height, move y down
-        new_h = comp->window_start_h - dy;
-        new_y = comp->window_start_y + dy;
-    }
-    else if (has_edge(edges, toplevel_edges::BOTTOM))
-    {
-        // dragging bottom edge: moving cursor down increases dy -> increase height
-        new_h = comp->window_start_h + dy;
-    }
-
-    // Removing padding from height
-    new_h = new_h - (2 * surf->window_geom_y) + 1;
-
-    // horizontal adjustments
-    if (has_edge(edges, toplevel_edges::LEFT)) {
-        // dragging left edge: moving cursor right increases dx -> reduce width, move x right
-        new_w = comp->window_start_w - dx;
-        new_x = comp->window_start_x + dx;
-    } else if (has_edge(edges, toplevel_edges::RIGHT)) {
-        // dragging right edge
-        new_w = comp->window_start_w + dx;
-    }
-
-    // Removing padding from width
-    new_w = new_w - (2 * surf->window_geom_x) + 1;
-
-    // Clamp to client's min/max
-    new_w = clamp_int(new_w, surf->min_width, surf->max_width);
-    new_h = clamp_int(new_h, surf->min_height, surf->max_height);
-
-    // Optionally enforce an absolute minimum to avoid degenerate sizes
-    const int ABS_MIN = 32;
-    new_w = clamp_int(new_w, ABS_MIN, INT_MAX);
-    new_h = clamp_int(new_h, ABS_MIN, INT_MAX);
-
-
-    // Update pending on surface
-    bool changed = false;
-    if (surf->pending_width != new_w) { surf->pending_width = new_w; changed = true; }
-    if (surf->pending_height != new_h) { surf->pending_height = new_h; changed = true; }
-    if (surf->pending_x != new_x) { surf->pending_x = new_x; changed = true; }
-    if (surf->pending_y != new_y) { surf->pending_y = new_y; changed = true; }
-
-    // Only send configure if something changed
-    // if (changed && surf->pending_configured == false)
-    if (changed)
-    {
-        surf->pending_configured = true;
-
-        // std::cout<<"Resizing,  width = "<<surf->pending_width<<", height = "<<surf->pending_height<<", new_x = "<<new_x<<", new_y = "<<new_y<<", new_w = "<<new_w<<", new_h = "<<new_h<<std::endl;
-        send_toplevel_configure(surf->toplevel_res,
-                                surf->pending_width,
-                                surf->pending_height,
-                                /*activated=*/true,
-                                /*resizing=*/true,
-                                /*maximized=*/false,
-                                /*fullscreen=*/false);
-
-        uint32_t serial = wl_display_next_serial(comp->display);
-        xdg_surface_send_configure(surf->xdg_surface_res, serial);
-        wl_display_flush_clients(comp->display);
-
-        surf->outstanding_configure_serial = serial;
-    }
+    send_toplevel_configure(surf->toplevel_res, new_w, new_h, true, true, false, false);
+    uint32_t serial = wl_display_next_serial(comp->display);
+    xdg_surface_send_configure(surf->xdg_surface_res, serial);
+    wl_display_flush_clients(comp->display);
+    surf->outstanding_configure_serial = serial;
 }
+
+// void handle_resize_motion(LumaCompositor *comp)
+// {
+//     if (!comp->resize_grab_active || !comp->resizing_surface)
+//     {
+//         return;
+//     }
+
+//     my_surface *surf = comp->resizing_surface;
+
+//     if(surf->xdg_surface_res == nullptr)
+//     {   
+//         return;
+//     }
+
+//     auto edges = comp->resize_edges;
+
+//     int dx = comp->cursor_x - comp->grab_start_x;
+//     int dy = comp->cursor_y - comp->grab_start_y;
+
+//     // Start from initial geometry
+//     int new_x = comp->window_start_x;
+//     int new_y = comp->window_start_y;
+//     int new_w = comp->window_start_w;
+//     int new_h = comp->window_start_h;
+
+//     // vertical adjustments
+//     if (has_edge(edges, toplevel_edges::TOP))
+//     {
+//         // dragging top edge: moving top down increases dy -> reduce height, move y down
+//         new_h = comp->window_start_h - dy;
+//         new_y = comp->window_start_y + dy;
+//     }
+//     else if (has_edge(edges, toplevel_edges::BOTTOM))
+//     {
+//         // dragging bottom edge: moving cursor down increases dy -> increase height
+//         new_h = comp->window_start_h + dy;
+//     }
+
+//     // Removing padding from height
+//     new_h = new_h - (2 * surf->window_geom_y) + 1;
+
+//     // horizontal adjustments
+//     if (has_edge(edges, toplevel_edges::LEFT)) {
+//         // dragging left edge: moving cursor right increases dx -> reduce width, move x right
+//         new_w = comp->window_start_w - dx;
+//         new_x = comp->window_start_x + dx;
+//     } else if (has_edge(edges, toplevel_edges::RIGHT)) {
+//         // dragging right edge
+//         new_w = comp->window_start_w + dx;
+//     }
+
+//     // Removing padding from width
+//     new_w = new_w - (2 * surf->window_geom_x) + 1;
+
+//     // Clamp to client's min/max
+//     new_w = clamp_int(new_w, surf->min_width, surf->max_width);
+//     new_h = clamp_int(new_h, surf->min_height, surf->max_height);
+
+//     // Optionally enforce an absolute minimum to avoid degenerate sizes
+//     const int ABS_MIN = 32;
+//     new_w = clamp_int(new_w, ABS_MIN, INT_MAX);
+//     new_h = clamp_int(new_h, ABS_MIN, INT_MAX);
+
+
+//     // Update pending on surface
+//     bool changed = false;
+//     if (surf->pending_width != new_w) { surf->pending_width = new_w; changed = true; }
+//     if (surf->pending_height != new_h) { surf->pending_height = new_h; changed = true; }
+//     if (surf->pending_x != new_x) { surf->pending_x = new_x; changed = true; }
+//     if (surf->pending_y != new_y) { surf->pending_y = new_y; changed = true; }
+
+//     // Only send configure if something changed
+//     // if (changed && surf->pending_configured == false)
+//     if (changed)
+//     {
+//         surf->pending_configured = true;
+
+//         // std::cout<<"Resizing,  width = "<<surf->pending_width<<", height = "<<surf->pending_height<<", new_x = "<<new_x<<", new_y = "<<new_y<<", new_w = "<<new_w<<", new_h = "<<new_h<<std::endl;
+//         send_toplevel_configure(surf->toplevel_res,
+//                                 surf->pending_width,
+//                                 surf->pending_height,
+//                                 /*activated=*/true,
+//                                 /*resizing=*/true,
+//                                 /*maximized=*/false,
+//                                 /*fullscreen=*/false);
+
+//         uint32_t serial = wl_display_next_serial(comp->display);
+//         xdg_surface_send_configure(surf->xdg_surface_res, serial);
+//         wl_display_flush_clients(comp->display);
+
+//         surf->outstanding_configure_serial = serial;
+//     }
+// }
 
 
 static void pointer_handle_motion(LumaCompositor* comp)       // window dragging
@@ -1311,24 +1420,12 @@ static void surface_commit(wl_client* client, wl_resource* surface_res)
         // now committed a buffer that matches that requested size, apply pending geometry.
         if (surf->configured)
         {
-            // If client honored the requested size, adopt pending_x/pending_y.
-            if (surf->width == surf->pending_width && surf->height == surf->pending_height)
-            {
+            bool grabbing = comp->resize_grab_active && comp->resizing_surface == surf;
+            bool size_ok  = surf->width == surf->pending_width && surf->height == surf->pending_height;
+            if (size_ok || !grabbing) {
                 surf->x = surf->pending_x;
                 surf->y = surf->pending_y;
                 surf->configured = false;
-            }
-            else
-            {
-                // Policy choice: accept the client's chosen size and apply pending position anyway,
-                // or wait for a matching buffer. Most compositors accept the client's buffer size.
-                // Accepting client's size:
-                surf->x = surf->pending_x;
-                surf->y = surf->pending_y;
-                surf->configured = false;
-
-                // If you want stricter behaviour, set pending_configure remain true
-                // until widths match.
             }
         }
 
@@ -1352,6 +1449,10 @@ static void surface_commit(wl_client* client, wl_resource* surface_res)
     // std::cout << "[LumaCompositor] surface_commit... pending_configured set to false\n";
 
     surf->pending_configured = false;
+    if (comp->resize_grab_active && comp->resizing_surface == surf)
+    {
+        handle_resize_motion(comp);                  // catch up with the cursor
+    }
     // wl_display_flush_clients(comp->display);
 
     comp->needs_repaint = true;
@@ -1597,6 +1698,11 @@ static void xdg_toplevel_set_app_id(struct wl_client*, struct wl_resource* res, 
     if (auto* s = (my_surface*)wl_resource_get_user_data(res)) {
         s->app_id = id;
         s->background = (s->app_id == "luma_home");
+
+        if (s->background)
+        {
+            s->x = s->y = s->pending_x = s->pending_y = 0;
+        }
     }
 }
 
@@ -2406,8 +2512,7 @@ static void wl_output_handle_bind(struct wl_client* client, void* data,
 
     // mode: since v1
     int mode_flags = WL_OUTPUT_MODE_CURRENT | WL_OUTPUT_MODE_PREFERRED;
-    wl_output_send_mode(resource, mode_flags,
-                        client_output->width, client_output->height,
+    wl_output_send_mode(resource, mode_flags, state->output_width, state->output_height,
                         client_output->refresh_rate);
 
     // scale: since v3 (some implementations accept v2 or v3 - check your generated headers)
@@ -2638,6 +2743,14 @@ bool luma_init(LumaCompositor* comp)
 {
     std::cout << "[LumaCompositor] init: output_width=" << comp->output_width
           << " output_height=" << comp->output_height << std::endl;
+
+    if (g_fb_w && g_fb_h)
+    {
+        comp->output_width = g_fb_w;
+        comp->output_height = g_fb_h;
+    }
+
+    cursors_init();
 
     comp->xkb_ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
     if (!comp->xkb_ctx) {

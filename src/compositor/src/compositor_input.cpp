@@ -204,6 +204,11 @@ static my_surface* hit_test_surface(LumaCompositor* comp, int32_t x, int32_t y)
     return nullptr;
 }
 
+my_surface* compositor_surface_at(LumaCompositor* c, int x, int y)
+{
+    return hit_test_surface(c, x, y);
+}
+
 // returns keyboard wl_resource* for the client that owns `surface_res` (or nullptr)
 static wl_resource* get_keyboard_for_surface_client(LumaCompositor* comp, wl_resource* surface_res)
 {

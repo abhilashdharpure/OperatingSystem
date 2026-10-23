@@ -27,6 +27,7 @@ inline uint32_t g_last_serial = 0;
 inline const char* g_app_id = "luma_app";
 // ---------- input ----------
 inline float g_px = 0, g_py = 0;
+uint32_t resize_edge_ = XDG_TOPLEVEL_RESIZE_EDGE_NONE;
 
 class LumaWindow : public slint::platform::WindowAdapter {
 public:
@@ -154,6 +155,56 @@ public:
                                                 slint::PointerEventButton::Left);
         window().dispatch_pointer_exit_event();
     }
+
+    uint32_t hit_test_resize_edge(double x, double y)
+    {
+        constexpr int BORDER = 8;
+
+        bool left   = x < BORDER;
+        bool right  = x >= (double)size_.width  - BORDER;
+        bool top    = y < BORDER;
+        bool bottom = y >= (double)size_.height - BORDER;
+
+        if (left && top)
+            return XDG_TOPLEVEL_RESIZE_EDGE_TOP_LEFT;
+
+        if (right && top)
+            return XDG_TOPLEVEL_RESIZE_EDGE_TOP_RIGHT;
+
+        if (left && bottom)
+            return XDG_TOPLEVEL_RESIZE_EDGE_BOTTOM_LEFT;
+
+        if (right && bottom)
+            return XDG_TOPLEVEL_RESIZE_EDGE_BOTTOM_RIGHT;
+
+        if (left)
+            return XDG_TOPLEVEL_RESIZE_EDGE_LEFT;
+
+        if (right)
+            return XDG_TOPLEVEL_RESIZE_EDGE_RIGHT;
+
+        if (top)
+            return XDG_TOPLEVEL_RESIZE_EDGE_TOP;
+
+        if (bottom)
+            return XDG_TOPLEVEL_RESIZE_EDGE_BOTTOM;
+
+        return XDG_TOPLEVEL_RESIZE_EDGE_NONE;
+    }
+
+    void begin_resize(uint32_t edges)
+    {
+        if (!tl_ || !g.seat)
+            return;
+
+        xdg_toplevel_resize(
+            tl_,
+            g.seat,
+            g_last_serial,
+            edges
+        );
+    }
+
     void toggle_maximize()
     {
         if (!tl_) return;
@@ -187,13 +238,46 @@ inline const wl_pointer_listener ptr_l = {
         g_px = wl_fixed_to_double(x); g_py = wl_fixed_to_double(y);
         g_win->window().dispatch_pointer_move_event(slint::LogicalPosition({g_px, g_py})); },
 
-    /*button*/ [](void*, wl_pointer*, uint32_t serial, uint32_t, uint32_t btn, uint32_t state) {
-        g_last_serial = serial;                       // before dispatching to Slint
-        auto b = btn == 0x111 ? slint::PointerEventButton::Right
-            : btn == 0x112 ? slint::PointerEventButton::Middle : slint::PointerEventButton::Left;
+    // /*button*/ [](void*, wl_pointer*, uint32_t serial, uint32_t, uint32_t btn, uint32_t state) {
+    //     g_last_serial = serial;                       // before dispatching to Slint
+    //     auto b = btn == 0x111 ? slint::PointerEventButton::Right
+    //         : btn == 0x112 ? slint::PointerEventButton::Middle : slint::PointerEventButton::Left;
+    //     slint::LogicalPosition p({g_px, g_py});
+    //     if (state == WL_POINTER_BUTTON_STATE_PRESSED) g_win->window().dispatch_pointer_press_event(p, b);
+    //     else g_win->window().dispatch_pointer_release_event(p, b); },
+
+
+    /*button*/
+    [](void*, wl_pointer*, uint32_t serial,
+    uint32_t, uint32_t btn, uint32_t state)
+    {
+        g_last_serial = serial;
+
+        auto b =
+            btn == 0x111 ? slint::PointerEventButton::Right :
+            btn == 0x112 ? slint::PointerEventButton::Middle :
+                        slint::PointerEventButton::Left;
+
         slint::LogicalPosition p({g_px, g_py});
-        if (state == WL_POINTER_BUTTON_STATE_PRESSED) g_win->window().dispatch_pointer_press_event(p, b);
-        else g_win->window().dispatch_pointer_release_event(p, b); },
+
+        if (state == WL_POINTER_BUTTON_STATE_PRESSED)
+        {
+            uint32_t edge =
+                g_win->hit_test_resize_edge(g_px, g_py);
+
+            if (edge != XDG_TOPLEVEL_RESIZE_EDGE_NONE)
+            {
+                g_win->begin_resize(edge);
+                return;
+            }
+
+            g_win->window().dispatch_pointer_press_event(p, b);
+        }
+        else
+        {
+            g_win->window().dispatch_pointer_release_event(p, b);
+        }
+    },
     /*axis*/          [](void*, wl_pointer*, uint32_t, uint32_t, wl_fixed_t) {},
     /*frame*/         [](void*, wl_pointer*) {},
     /*axis_source*/   [](void*, wl_pointer*, uint32_t) {},

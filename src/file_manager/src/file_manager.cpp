@@ -64,6 +64,7 @@ FileManager::FileManager(slint::ComponentHandle<AppWindow> ui, IFileBackend& bac
     places->push_back(Place{ "bin",  "/bin" });
     places->push_back(Place{ "tmp",  "/tmp" });
     places->push_back(Place{ "dev",  "/dev" });
+    places->push_back(Place{ "boot",  "/boot" });
     state.set_places(places);
 
     state.on_navigate([this](slint::SharedString p) { navigate(std::string(p)); });

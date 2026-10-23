@@ -15,3 +15,4 @@ void compositor_repaint(LumaCompositor*);
 uint32_t get_ticks(void);
 void handle_mouse_move(LumaCompositor* comp, double sx, double sy);
 CompositorInput* getCompositorInput();
+my_surface* compositor_surface_at(LumaCompositor*, int x, int y);

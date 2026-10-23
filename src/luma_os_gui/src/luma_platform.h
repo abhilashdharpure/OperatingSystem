@@ -17,6 +17,7 @@
 #endif
 
 inline const char* g_app_id = "luma_app";
+inline bool g_fill_output = false;     // home screen sets this
 
 struct WlGlobals {
     wl_display* dpy = nullptr; wl_registry* reg = nullptr;
