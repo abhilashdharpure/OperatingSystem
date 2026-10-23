@@ -2004,9 +2004,6 @@ static void xdg_surface_get_toplevel(struct wl_client* client, struct wl_resourc
     surf->is_xdg_toplevel = true;
     surf->xdg_surface_res = resource; 
 
-    // send_toplevel_configure(surf->toplevel_res, 1024, 768, /*activated=*/true,
-    //                     /*resizing=*/false, /*maximized=*/false, /*fullscreen=*/false);
-
     send_toplevel_configure(surf->toplevel_res, 0, 0, /*activated=*/true,
                         /*resizing=*/false, /*maximized=*/false, /*fullscreen=*/false);
     uint32_t serial = wl_display_next_serial(wl_client_get_display(client));
