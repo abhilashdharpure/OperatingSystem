@@ -11,13 +11,16 @@
 #include <vector>
 #include <span>
 #include <chrono>
+#include <algorithm>
 
 struct WlGlobals {
     wl_display* dpy = nullptr; wl_registry* reg = nullptr;
     wl_compositor* comp = nullptr; wl_shm* shm = nullptr;
     xdg_wm_base* wm = nullptr; wl_seat* seat = nullptr;
+    int out_w = 0, out_h = 0;          // from wl_output
 };
 inline WlGlobals g;
+inline bool g_fill_output = false;     // home screen sets this
 
 class LumaWindow;
 
@@ -38,8 +41,17 @@ public:
     bool maximized_ = false;
 
     wl_surface* surf_ = nullptr; xdg_surface* xs_ = nullptr; xdg_toplevel* tl_ = nullptr;
-    wl_buffer* buf_ = nullptr; uint32_t* shm_px_ = nullptr; size_t shm_size_ = 0;
+    wl_buffer* buf_ = nullptr;
+    uint32_t* shm_px_ = nullptr;
+    size_t shm_size_ = 0;
     std::vector<slint::Rgb8Pixel> scratch_;
+
+
+    bool resizable_ = true;
+    uint32_t cap_w_ = 1024, cap_h_ = 768;       // pool capacity = screen size
+    wl_shm_pool* pool_ = nullptr;
+    wl_buffer*   old_buf_ = nullptr;
+    uint32_t     buf_w_ = 0, buf_h_ = 0;
 
     // --- WindowAdapter interface ---
     slint::platform::AbstractRenderer& renderer() override { return renderer_; }
@@ -48,19 +60,45 @@ public:
     void set_visible(bool v) override { if (v && !surf_) create_surface(); }
 
     // --- Wayland setup ---
-    void make_buffer() {
-        int w = size_.width, h = size_.height;
-        if (buf_) wl_buffer_destroy(buf_);
-        shm_size_ = (size_t)w * h * 4;
+    LumaWindow() {
+        if (g.out_w > 0 && g.out_h > 0) { cap_w_ = g.out_w; cap_h_ = g.out_h; }
+        if (g_fill_output && g.out_w > 0) {
+            size_ = slint::PhysicalSize({(uint32_t)g.out_w, (uint32_t)g.out_h});
+            resizable_ = false;
+        }
+    }
+
+    void ensure_pool() {
+        if (pool_) return;
+        size_t bytes = (size_t)cap_w_ * cap_h_ * 4;
         int fd = (int)syscall(SYS_memfd_create, "slint-shm", 0);
-        ftruncate(fd, shm_size_);
-        shm_px_ = (uint32_t*)mmap(nullptr, shm_size_, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-        wl_shm_pool* pool = wl_shm_create_pool(g.shm, fd, shm_size_);
-        buf_ = wl_shm_pool_create_buffer(pool, 0, w, h, w * 4, WL_SHM_FORMAT_XRGB8888);
-        wl_shm_pool_destroy(pool);
-        close(fd);
-        scratch_.assign((size_t)w * h, slint::Rgb8Pixel{});
+        ftruncate(fd, bytes);
+        shm_px_ = (uint32_t*)mmap(nullptr, bytes, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+        pool_ = wl_shm_create_pool(g.shm, fd, bytes);
+        close(fd);                              // the pool stays alive: never wl_shm_pool_destroy it
+    }
+
+    void ensure_buffer() {                      // only called from draw()
+        if (buf_ && buf_w_ == size_.width && buf_h_ == size_.height) return;
+        ensure_pool();
+        old_buf_ = buf_;                        // destroyed after the new one is committed
+        buf_ = wl_shm_pool_create_buffer(pool_, 0, size_.width, size_.height,
+                                         size_.width * 4, WL_SHM_FORMAT_XRGB8888);
+        buf_w_ = size_.width; buf_h_ = size_.height;
+        scratch_.assign((size_t)buf_w_ * buf_h_, slint::Rgb8Pixel{});
+    }
+
+    void apply_size(uint32_t w, uint32_t h) {   // no buffer work here, so a drag creates nothing per event
+        w = std::clamp<uint32_t>(w, 64, cap_w_);
+        h = std::clamp<uint32_t>(h, 64, cap_h_);
+        size_ = slint::PhysicalSize({w, h});
+        window().dispatch_resize_event(slint::LogicalSize({(float)w, (float)h}));
         dirty_ = true;
+    }
+
+    void set_size(slint::PhysicalSize s) override
+    {
+        apply_size(s.width, s.height);
     }
 
     void create_surface() {
@@ -78,12 +116,10 @@ public:
                     if (*s == XDG_TOPLEVEL_STATE_MAXIMIZED) self->maximized_ = true;
 
                 // w == 0 or h == 0 means "pick your own size"
-                if (w > 0 && h > 0 &&
-                    ((uint32_t)w != self->size_.width || (uint32_t)h != self->size_.height)) {
-                    self->resize_to((uint32_t)w, (uint32_t)h);
-                    self->window().set_size(
-                    slint::PhysicalSize({(uint32_t)w,
-                    (uint32_t)h}));
+
+                if (w > 0 && h > 0) 
+                {
+                    self->apply_size((uint32_t)w, (uint32_t)h);
                 }
             },
             /*close*/ [](void* d, xdg_toplevel*) { ((LumaWindow*)d)->closed_ = true; }
@@ -95,57 +131,28 @@ public:
         xdg_toplevel_add_listener(tl_, &tl_l, this);
         xdg_toplevel_set_title(tl_, "Luma Slint");
         xdg_toplevel_set_app_id(tl_, g_app_id);
-        make_buffer();
         wl_surface_commit(surf_);
     }
 
-    void resize_to(uint32_t w, uint32_t h)
-    {
-        size_ = slint::PhysicalSize({w, h});
-
-        make_buffer();
-        slint::LogicalSize newSize(
-            {static_cast<float>(w), static_cast<float>(h)}
-        );
-
-        window().dispatch_resize_event(newSize);
-
-        dirty_ = true;
-    }
-
-    // Slint asks the adapter to resize (preferred size, layout constraints). Match signature to the header.
-    void set_size(slint::PhysicalSize size) override
-    {
-        resize_to(size.width, size.height);
-    }
-
     void draw() {
-        if (!configured_ || frame_pending_ || !buf_) return;
-        dirty_ = false;
-
-
-        auto ws = window().size();                        // what Slint will render at
-        if (ws.width != size_.width || ws.height != size_.height)
-            resize_to(ws.width, ws.height);
-
+        if (!configured_ || frame_pending_) return;
+        ensure_buffer();
         dirty_ = false;
         int w = size_.width, h = size_.height;
         renderer_.render(std::span<slint::Rgb8Pixel>(scratch_), w);
-
-        // Rgb8 -> XRGB8888 (whole frame; optimize later using the returned dirty region)
         for (size_t i = 0, n = (size_t)w * h; i < n; i++) {
             const auto& p = scratch_[i];
             shm_px_[i] = 0xFF000000u | (p.r << 16) | (p.g << 8) | p.b;
         }
         static const wl_callback_listener cb_l = { [](void* d, wl_callback* cb, uint32_t) {
-            wl_callback_destroy(cb); ((LumaWindow*)d)->frame_pending_ = false;
-        }};
+            wl_callback_destroy(cb); ((LumaWindow*)d)->frame_pending_ = false; } };
         wl_callback* cb = wl_surface_frame(surf_);
         wl_callback_add_listener(cb, &cb_l, this);
         frame_pending_ = true;
         wl_surface_attach(surf_, buf_, 0, 0);
         wl_surface_damage(surf_, 0, 0, w, h);
         wl_surface_commit(surf_);
+        if (old_buf_) { wl_buffer_destroy(old_buf_); old_buf_ = nullptr; }   // after the commit
     }
 
     void begin_move() {
@@ -158,6 +165,11 @@ public:
 
     uint32_t hit_test_resize_edge(double x, double y)
     {
+        if (!resizable_ || maximized_ || !tl_)
+        {
+            return XDG_TOPLEVEL_RESIZE_EDGE_NONE;
+        }
+
         constexpr int BORDER = 8;
 
         bool left   = x < BORDER;
@@ -237,15 +249,6 @@ inline const wl_pointer_listener ptr_l = {
     /*motion*/ [](void*, wl_pointer*, uint32_t, wl_fixed_t x, wl_fixed_t y) {
         g_px = wl_fixed_to_double(x); g_py = wl_fixed_to_double(y);
         g_win->window().dispatch_pointer_move_event(slint::LogicalPosition({g_px, g_py})); },
-
-    // /*button*/ [](void*, wl_pointer*, uint32_t serial, uint32_t, uint32_t btn, uint32_t state) {
-    //     g_last_serial = serial;                       // before dispatching to Slint
-    //     auto b = btn == 0x111 ? slint::PointerEventButton::Right
-    //         : btn == 0x112 ? slint::PointerEventButton::Middle : slint::PointerEventButton::Left;
-    //     slint::LogicalPosition p({g_px, g_py});
-    //     if (state == WL_POINTER_BUTTON_STATE_PRESSED) g_win->window().dispatch_pointer_press_event(p, b);
-    //     else g_win->window().dispatch_pointer_release_event(p, b); },
-
 
     /*button*/
     [](void*, wl_pointer*, uint32_t serial,
@@ -334,6 +337,16 @@ inline const wl_seat_listener seat_l = {
     [](void*, wl_seat*, const char*) {},
 };
 
+inline const wl_output_listener out_l = {
+    /*geometry*/    [](void*, wl_output*, int32_t, int32_t, int32_t, int32_t, int32_t, const char*, const char*, int32_t) {},
+    /*mode*/        [](void*, wl_output*, uint32_t flags, int32_t w, int32_t h, int32_t) {
+                        if (flags & WL_OUTPUT_MODE_CURRENT) { g.out_w = w; g.out_h = h; } },
+    /*done*/        [](void*, wl_output*) {},
+    /*scale*/       [](void*, wl_output*, int32_t) {},
+    /*name*/        [](void*, wl_output*, const char*) {},
+    /*description*/ [](void*, wl_output*, const char*) {},
+};
+
 inline const xdg_wm_base_listener wm_l = { [](void*, xdg_wm_base* b, uint32_t s) { xdg_wm_base_pong(b, s); } };
 inline const wl_registry_listener reg_l = {
     [](void*, wl_registry* r, uint32_t name, const char* i, uint32_t v) {
@@ -341,6 +354,10 @@ inline const wl_registry_listener reg_l = {
         else if (!strcmp(i, wl_shm_interface.name))   g.shm  = (wl_shm*)wl_registry_bind(r, name, &wl_shm_interface, 1);
         else if (!strcmp(i, xdg_wm_base_interface.name)) { g.wm = (xdg_wm_base*)wl_registry_bind(r, name, &xdg_wm_base_interface, 1); xdg_wm_base_add_listener(g.wm, &wm_l, nullptr); }
         else if (!strcmp(i, wl_seat_interface.name))  { g.seat = (wl_seat*)wl_registry_bind(r, name, &wl_seat_interface, 4); wl_seat_add_listener(g.seat, &seat_l, nullptr); }
+        else if (!strcmp(i, wl_output_interface.name)) {
+            auto* o = (wl_output*)wl_registry_bind(r, name, &wl_output_interface, v < 4 ? v : 4);
+            wl_output_add_listener(o, &out_l, nullptr);
+        }
     },
     [](void*, wl_registry*, uint32_t) {},
 };
