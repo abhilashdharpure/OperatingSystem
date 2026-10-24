@@ -48,6 +48,13 @@ HomePage::HomePage(slint::ComponentHandle<AppWindow> ui)
     s.on_battery_clicked([this]() { on_battery_clicked(); });
     s.on_volume_clicked([this]() { on_volume_clicked(); });
 
+    s.on_wifi_toggled([this](bool on) { std::cout << "[Home] wifi " << on << "\n"; /* kernel call here */ });
+    s.on_volume_changed([this](int v) { std::cout << "[Home] volume " << v << "\n"; /* kernel call here */ });
+    s.on_mute_toggled([this](bool m) { std::cout << "[Home] mute " << m << "\n"; });
+    s.on_lock_now([this] { std::cout << "[Home] lock\n"; });
+    s.on_restart_requested([this] { std::cout << "[Home] restart\n"; });
+    s.on_shutdown_requested([this] { std::cout << "[Home] shutdown\n"; });
+
     ShellClient::get().on_change = [this] { refresh(); };
     reaper_.start(slint::TimerMode::Repeated, std::chrono::milliseconds(500), [this] { reap(); });
     refresh();  
@@ -188,17 +195,44 @@ void HomePage::on_power_off_clicked()
     std::cout<<"HomePage::on_power_off_clicked()"<<std::endl;
 }
 
-void HomePage::on_internet_clicked()
-{
-    std::cout<<"HomePage::on_internet_clicked()"<<std::endl;
-}
-
 void HomePage::on_battery_clicked()
 {
-    std::cout<<"HomePage::on_battery_clicked()"<<std::endl;
+    set_battery(87, false);               // TODO: read from the kernel
+}
+
+void HomePage::on_internet_clicked()
+{
+    set_network(true, "Luma-Net");        // TODO: read from the kernel
 }
 
 void HomePage::on_volume_clicked()
 {
-    std::cout<<"HomePage::on_volume_clicked()"<<std::endl;
+    set_volume_ui(50, false);             // TODO: read from the kernel
+}
+
+void HomePage::set_battery(int percent, bool charging)
+{
+    if (auto ui = ui_.lock()) {
+        auto& s = (*ui)->global<HomeState>();
+        s.set_battery_percent(percent);
+        s.set_battery_charging(charging);
+    }
+}
+
+void HomePage::set_network(bool on, const std::string& name)
+{
+    if (auto ui = ui_.lock()) {
+        auto& s = (*ui)->global<HomeState>();
+        s.set_wifi_on(on);
+        s.set_wifi_name(slint::SharedString(name));
+    }
+}
+
+void HomePage::set_volume_ui(int percent, bool muted)
+{
+    if (auto ui = ui_.lock()) {
+        auto& s = (*ui)->global<HomeState>();
+        s.set_volume(percent);
+        s.set_muted(muted);
+    }
 }

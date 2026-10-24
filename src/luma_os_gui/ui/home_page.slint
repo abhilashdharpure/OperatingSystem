@@ -2,19 +2,40 @@ import { Button, LineEdit } from "std-widgets.slint";
 export struct AppState { running: int, minimized: bool, focused: bool }
 
 export global HomeState {
-    in property <string> greeting: "Welcome";   // C++ -> UI
-    in property <int> clicks: 0;                // C++ -> UI
+    in property <string> greeting: "Welcome to Luma OS";   // C++ -> UI
 
     in property <[AppState]> apps;               // dock slot index = app index
     callback app-clicked(int);                   // restore, focus, or launch
     callback app-new-instance(int);              // always start another instance
 
 
+
+    // Tray Icons
     callback lock_clicked();
     callback power_off_clicked();
     callback internet_clicked();
     callback battery_clicked();
     callback volume_clicked();
+
+    in-out property <int> active-panel: 0;      // 0 none, 1 lock, 2 battery, 3 internet, 4 volume, 5 power
+
+    // data pushed from C++ (kernel later)
+    in property <int> battery-percent: 100;
+    in property <bool> battery-charging: false;
+    in property <string> wifi-name: "Not connected";
+    in-out property <bool> wifi-on: true;
+    in-out property <int> volume: 50;
+    in-out property <bool> muted: false;
+
+
+
+    // Menu events to C++
+    callback wifi-toggled(bool);
+    callback volume-changed(int);
+    callback mute-toggled(bool);
+    callback lock-now();
+    callback restart-requested();
+    callback shutdown-requested();
 
 
     in-out property <bool> settings-open: false;
@@ -89,15 +110,19 @@ component AppIcon inherits Rectangle {
     }
 }
 
-component SmallIcon inherits Rectangle {
+component TrayIcon inherits Rectangle {
     in property <image> icon;
     in property <AppState> app-state;
+    in property <bool> selected;
+    in property <length> size;
+
     callback activated();
 
-    width: 30px;
-    height: 30px;
+    width: size;
+    height: size;
     border-radius: 8px;
     background: ta.pressed ? #2b6aa8 :
+                root.selected ? #3d5a80 :
                 root.app-state.running > 0 ? (root.app-state.minimized ? #2a3340 : #1f4f80) :
                 ta.has-hover ? #4a4a4a : transparent;
     animate background { duration: 120ms; }
@@ -165,6 +190,195 @@ export component RoundedLineEdit inherits Rectangle {
     }
 }
 
+component PanelButton inherits Rectangle {
+    in property <string> label;
+    in property <color> base: #2c4057;
+    callback clicked();
+
+    height: 32px;
+    border-radius: 6px;
+    background: ta.pressed ? root.base.darker(0.2) : ta.has-hover ? root.base.brighter(0.2) : root.base;
+    ta := TouchArea { clicked => { root.clicked(); } }
+    Text {
+        width: parent.width;
+        height: parent.height;
+        text: root.label;
+        color: white;
+        font-size: 13px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+component ToggleSwitch inherits Rectangle {
+    in property <bool> checked;          // the parent owns the value
+    callback toggled(bool);
+
+    width: 42px;
+    height: 22px;
+    border-radius: 11px;
+    background: root.checked ? #3b82f6 : #55606c;
+    animate background { duration: 120ms; }
+    Rectangle {
+        x: root.checked ? parent.width - self.width - 2px : 2px;
+        y: 2px;
+        width: 18px;
+        height: 18px;
+        border-radius: 9px;
+        background: white;
+        animate x { duration: 120ms; }
+    }
+    TouchArea { clicked => { root.toggled(!root.checked); } }
+}
+
+component PanelSlider inherits Rectangle {
+    in property <int> value;             // 0..100
+    callback changed(int);
+
+    height: 24px;
+    Rectangle {
+        y: (parent.height - self.height) / 2;
+        height: 6px;
+        border-radius: 3px;
+        background: #3b4a5a;
+        Rectangle {
+            width: parent.width * root.value / 100;
+            border-radius: 3px;
+            background: #7cc4ff;
+        }
+    }
+    Rectangle {
+        x: (parent.width - self.width) * root.value / 100;
+        y: (parent.height - self.height) / 2;
+        width: 16px;
+        height: 16px;
+        border-radius: 8px;
+        background: white;
+    }
+    ta := TouchArea {
+        pointer-event(e) => {
+            if (e.kind == PointerEventKind.down || (e.kind == PointerEventKind.move && self.pressed)) {
+                root.changed(Math.round(Math.clamp(self.mouse-x / self.width * 100, 0, 100)));
+            }
+        }
+    }
+}
+
+component PanelTitle inherits Text {
+    color: #d7e0ea;
+    font-size: 15px;
+}
+
+component LockPanel inherits VerticalLayout {
+    padding: 12px;
+    spacing: 10px;
+    PanelTitle { text: "Lock"; }
+    Text { text: "Lock the screen and require sign-in."; color: #9fb0c0; font-size: 12px; wrap: word-wrap; }
+    PanelButton {
+        label: "Lock now";
+        clicked => { HomeState.active-panel = 0; HomeState.lock-now(); }
+    }
+}
+
+component BatteryPanel inherits VerticalLayout {
+    padding: 12px;
+    spacing: 10px;
+    PanelTitle { text: "Battery"; }
+    Text { text: "\{HomeState.battery-percent}%"; color: white; font-size: 26px; }
+    Rectangle {
+        height: 10px;
+        border-radius: 5px;
+        background: #3b4a5a;
+        Rectangle {
+            width: parent.width * HomeState.battery-percent / 100;
+            border-radius: 5px;
+            background: HomeState.battery-percent <= 20 ? #e05252 : #4cc38a;
+        }
+    }
+    Text {
+        text: HomeState.battery-charging ? "Charging" : "On battery";
+        color: #9fb0c0;
+        font-size: 12px;
+    }
+}
+
+component InternetPanel inherits VerticalLayout {
+    padding: 12px;
+    spacing: 10px;
+    PanelTitle { text: "Network"; }
+    HorizontalLayout {
+        Text { text: "Wi-Fi"; color: white; font-size: 13px; vertical-alignment: center; horizontal-stretch: 1; }
+        ToggleSwitch {
+            checked: HomeState.wifi-on;
+            toggled(v) => { HomeState.wifi-on = v; HomeState.wifi-toggled(v); }
+        }
+    }
+    Text {
+        text: HomeState.wifi-on ? HomeState.wifi-name : "Wi-Fi is off";
+        color: #9fb0c0;
+        font-size: 12px;
+        overflow: elide;
+    }
+}
+
+component VolumePanel inherits VerticalLayout {
+    padding: 12px;
+    spacing: 8px;
+    PanelTitle { text: "Volume"; }
+    Text { text: HomeState.muted ? "Muted" : "\{HomeState.volume}%"; color: white; font-size: 22px; }
+    PanelSlider {
+        value: HomeState.volume;
+        changed(v) => { HomeState.volume = v; HomeState.volume-changed(v); }
+    }
+    HorizontalLayout {
+        Text { text: "Mute"; color: white; font-size: 13px; vertical-alignment: center; horizontal-stretch: 1; }
+        ToggleSwitch {
+            checked: HomeState.muted;
+            toggled(v) => { HomeState.muted = v; HomeState.mute-toggled(v); }
+        }
+    }
+}
+
+component PowerPanel inherits VerticalLayout {
+    padding: 12px;
+    spacing: 8px;
+    PanelTitle { text: "Power"; }
+    PanelButton {
+        label: "Lock";
+        clicked => { HomeState.active-panel = 0; HomeState.lock-now(); }
+    }
+    PanelButton {
+        label: "Restart";
+        clicked => { HomeState.active-panel = 0; HomeState.restart-requested(); }
+    }
+    PanelButton {
+        label: "Shut down";
+        base: #a33a3a;
+        clicked => { HomeState.active-panel = 0; HomeState.shutdown-requested(); }
+    }
+}
+
+// The one shared place. Only the content changes.
+component PopupHost inherits Rectangle {
+    width: 260px;
+    height: HomeState.active-panel == 1 ? 120px :
+            HomeState.active-panel == 2 ? 140px :
+            HomeState.active-panel == 3 ? 130px :
+            HomeState.active-panel == 4 ? 170px : 170px;
+    background: #1f2a36;
+    border-radius: 12px;
+    border-width: 1px;
+    border-color: #ffffff30;
+
+    TouchArea { }                          // swallow clicks so they don't close the panel
+
+    if HomeState.active-panel == 1 : LockPanel { }
+    if HomeState.active-panel == 2 : BatteryPanel { }
+    if HomeState.active-panel == 3 : InternetPanel { }
+    if HomeState.active-panel == 4 : VolumePanel { }
+    if HomeState.active-panel == 5 : PowerPanel { }
+}
+
 export component HomePage inherits Rectangle {
     background: #024f9c;
 
@@ -188,9 +402,7 @@ export component HomePage inherits Rectangle {
             background: #0e0d0d;
             
             HorizontalLayout {
-                padding: 5px; 
                 spacing: 8px;
-
 
                 Spacer { width: 250px; }
 
@@ -202,51 +414,54 @@ export component HomePage inherits Rectangle {
                 Rectangle {
                     y: (parent.height - self.height) / 2;
                     width: 200px;
-                    height: 40px;
+                    height: 26px;
                     border-radius: 10px;
-                    background: #bde993;
+                    background: #666765;
 
                     HorizontalLayout {
-                        padding: 5px;
+                        padding: 0px;
                         spacing: 8px;
 
-                        SmallIcon {
+                        TrayIcon {
+                            size: 26px;
                             icon: @image-url("../resources/icons/lock.png");
                             activated => { HomeState.lock_clicked(); }
                         }
 
 
-                        SmallIcon {
+                        TrayIcon {
+                            size: 26px;
                             icon: @image-url("../resources/icons/battery.png");
                             activated => { HomeState.battery_clicked(); }
                         }
 
-                        SmallIcon {
+                        TrayIcon {
+                            size: 26px;
                             icon: @image-url("../resources/icons/internet.png");
                             activated => { HomeState.internet_clicked(); }
                         }
 
 
-                        SmallIcon {
+                        TrayIcon {
+                            size: 26px;
                             icon: @image-url("../resources/icons/volume.png");
                             activated => { HomeState.volume_clicked(); }
                         }
 
-                        SmallIcon {
+                        TrayIcon {
+                            size: 26px;
                             icon: @image-url("../resources/icons/power-button.png");
                             activated => { HomeState.power_off_clicked(); }
                         }
                     }
                 }
 
+                Spacer { width: 10px; }
+
             }
         }
 
-
         Text { text: HomeState.greeting; color: white; font-size: 20px; }
-        Text { text: "Clicks: \{HomeState.clicks}"; color: white; }
-        //Button { text: "Say hello"; clicked => { HomeState.say-hello(HomeState.user-name); } }
-        //Button { text: "Settings"; clicked => { HomeState.open-settings(); } }
 
         Rectangle {
             width: parent.width;
@@ -345,35 +560,70 @@ export component HomePage inherits Rectangle {
                         padding: 5px;
                         spacing: 8px;
 
-                        SmallIcon {
+                        TrayIcon {
                             icon: @image-url("../resources/icons/lock.png");
-                            activated => { HomeState.lock_clicked(); }
+                            size: 30px;
+                            selected: HomeState.active-panel == 1;
+                            activated => {
+                                HomeState.active-panel = HomeState.active-panel == 1 ? 0 : 1;
+                                if (HomeState.active-panel == 1) { HomeState.lock_clicked(); }
+                            }
                         }
-
-
-                        SmallIcon {
+                        TrayIcon {
                             icon: @image-url("../resources/icons/battery.png");
-                            activated => { HomeState.battery_clicked(); }
+                            size: 30px;
+                            selected: HomeState.active-panel == 2;
+                            activated => {
+                                HomeState.active-panel = HomeState.active-panel == 2 ? 0 : 2;
+                                if (HomeState.active-panel == 2) { HomeState.battery_clicked(); }
+                            }
                         }
-
-                        SmallIcon {
+                        TrayIcon {
                             icon: @image-url("../resources/icons/internet.png");
-                            activated => { HomeState.internet_clicked(); }
+                            size: 30px;
+                            selected: HomeState.active-panel == 3;
+                            activated => {
+                                HomeState.active-panel = HomeState.active-panel == 3 ? 0 : 3;
+                                if (HomeState.active-panel == 3) { HomeState.internet_clicked(); }
+                            }
                         }
-
-
-                        SmallIcon {
+                        TrayIcon {
                             icon: @image-url("../resources/icons/volume.png");
-                            activated => { HomeState.volume_clicked(); }
+                            size: 30px;
+                            selected: HomeState.active-panel == 4;
+                            activated => {
+                                HomeState.active-panel = HomeState.active-panel == 4 ? 0 : 4;
+                                if (HomeState.active-panel == 4) { HomeState.volume_clicked(); }
+                            }
                         }
-
-                        SmallIcon {
+                        TrayIcon {
                             icon: @image-url("../resources/icons/power-button.png");
-                            activated => { HomeState.power_off_clicked(); }
+                            size: 30px;
+                            selected: HomeState.active-panel == 5;
+                            activated => {
+                                HomeState.active-panel = HomeState.active-panel == 5 ? 0 : 5;
+                                if (HomeState.active-panel == 5) { HomeState.power_off_clicked(); }
+                            }
                         }
                     }
                 }
             }
         }
+    }
+
+    property <length> tray-strip: 52px;      // height of the bottom strip that holds the tray
+
+    // click anywhere above the tray strip closes the panel
+    if HomeState.active-panel != 0 : TouchArea {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height - root.tray-strip;
+        clicked => { HomeState.active-panel = 0; }
+    }
+
+    if HomeState.active-panel != 0 : PopupHost {
+        x: parent.width - self.width - 12px;
+        y: parent.height - self.height - root.tray-strip - 6px;
     }
 }

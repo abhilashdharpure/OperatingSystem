@@ -29,6 +29,9 @@ private:
     void on_battery_clicked();
     void on_volume_clicked();
 
+    void set_battery(int percent, bool charging);
+    void set_network(bool on, const std::string& name);
+    void set_volume_ui(int percent, bool muted);
 
     slint::ComponentWeakHandle<AppWindow>          ui_;
     std::vector<AppDef>                            apps_;
