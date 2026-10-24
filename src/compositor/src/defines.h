@@ -159,8 +159,8 @@ struct my_output {
     wl_resource* resource = nullptr;
     LumaCompositor* state = nullptr;
 
-    int width = 1200; //1920;
-    int height = 800; //1080;
+    int width = 1450; //1920;
+    int height = 765; //1080;
     int scale = 1;
     int refresh_rate = 60000;
     // You can extend with position, transform, etc.

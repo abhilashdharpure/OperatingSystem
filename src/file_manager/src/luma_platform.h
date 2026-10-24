@@ -48,7 +48,7 @@ public:
 
 
     bool resizable_ = true;
-    uint32_t cap_w_ = 1200, cap_h_ = 700;       // pool capacity = screen size
+    uint32_t cap_w_ = 1450, cap_h_ = 765;       // pool capacity = screen size
     wl_shm_pool* pool_ = nullptr;
     wl_buffer*   old_buf_ = nullptr;
     uint32_t     buf_w_ = 0, buf_h_ = 0;

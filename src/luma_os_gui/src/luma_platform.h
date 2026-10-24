@@ -30,7 +30,7 @@ class LumaWindow : public slint::platform::WindowAdapter {
 public:
     slint::platform::SoftwareRenderer renderer_{
         slint::platform::SoftwareRenderer::RepaintBufferType::ReusedBuffer};
-    slint::PhysicalSize size_{{1200, 700}};
+    slint::PhysicalSize size_{{1450, 765}};
     bool dirty_ = true, configured_ = false, frame_pending_ = false, closed_ = false;
 
     wl_surface* surf_ = nullptr; xdg_surface* xs_ = nullptr; xdg_toplevel* tl_ = nullptr;

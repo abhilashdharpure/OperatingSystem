@@ -75,7 +75,7 @@ void compositor_init(void)
     mouse_y = fb_dev.height / 2;
 
     // Allocate backbuffer
-    static uint32_t backbuffer_static[1200 * 700];
+    static uint32_t backbuffer_static[1450 * 765];
     backbuffer = backbuffer_static;
     log_info("COMPOSITOR", "Backbuffer using static buffer at %p", backbuffer);
     log_info("COMPOSITOR", "Backbuffer allocated for %dx%d", fb_dev.width, fb_dev.height);

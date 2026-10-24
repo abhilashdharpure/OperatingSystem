@@ -23,6 +23,13 @@ private:
     void launch(int i);
     void reap();
 
+    void on_lock_clicked();
+    void on_power_off_clicked();
+    void on_internet_clicked();
+    void on_battery_clicked();
+    void on_volume_clicked();
+
+
     slint::ComponentWeakHandle<AppWindow>          ui_;
     std::vector<AppDef>                            apps_;
     std::shared_ptr<slint::VectorModel<AppState>>  model_;

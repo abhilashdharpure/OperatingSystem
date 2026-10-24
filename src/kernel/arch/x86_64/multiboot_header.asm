@@ -16,8 +16,8 @@ header_start:
     dw 5                  ; type = 5
     dw 0                  ; flags = 0
     dd 20                 ; size = 20 bytes
-    dd 1200               ; width
-    dd 700                ; height
+    dd 1440               ; width
+    dd 810                ; height
     dd 32                 ; bpp
 
     ; --- End tag ---

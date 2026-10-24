@@ -40,6 +40,14 @@ HomePage::HomePage(slint::ComponentHandle<AppWindow> ui)
     s.on_app_clicked([this](int i) { click(i); });
     s.on_app_new_instance([this](int i) { launch(i); });
 
+    s.on_app_new_instance([this](int i) { launch(i); });
+
+    s.on_lock_clicked([this]() { on_lock_clicked(); });
+    s.on_power_off_clicked([this]() { on_power_off_clicked(); });
+    s.on_internet_clicked([this]() { on_internet_clicked(); });
+    s.on_battery_clicked([this]() { on_battery_clicked(); });
+    s.on_volume_clicked([this]() { on_volume_clicked(); });
+
     ShellClient::get().on_change = [this] { refresh(); };
     reaper_.start(slint::TimerMode::Repeated, std::chrono::milliseconds(500), [this] { reap(); });
     refresh();  
@@ -170,137 +178,27 @@ void HomePage::reap()
     }
 }
 
-// void HomePage::launch(int i)
-// {
-//     AppSlot& a = apps_[i];
-//     if (a.pid > 0) {
-//         // TODO: Right now we are just supporting one instance per icon.
-//         std::cout << "[Home] " << a.path << " already running (pid " << a.pid << ")\n";
-//         return;                                    // one instance per icon
-//     }
-//     long pid = spawn_path(a.path.c_str());
-//     if (pid > 0) {
-//         a.pid = pid;
-//         a.set_open(true);
-//     } else {
-//         std::cout << "[Home] spawn failed for " << a.path << " rc=" << pid << "\n";
-//     }
-// }
+void HomePage::on_lock_clicked()
+{
+    std::cout<<"HomePage::on_lock_clicked()"<<std::endl;
+}
 
-// void HomePage::poll_children()
-// {
-//     for (AppSlot& a : apps_) {
-//         if (a.pid <= 0) continue;
-//         int status = 0;
-//         pid_t r = waitpid((pid_t)a.pid, &status, WNOHANG);   // 0 = still running
-//         if (r == (pid_t)a.pid || (r < 0 && errno != EINTR)) {
-//             std::cout << "[Home] " << a.path << " exited (pid " << a.pid
-//                       << ", status " << status << ")\n";
-//             a.pid = 0;
-//             a.set_open(false);                                // removes the highlight
-//         }
-//     }
-// }
-// #include "home_page.h"
+void HomePage::on_power_off_clicked()
+{
+    std::cout<<"HomePage::on_power_off_clicked()"<<std::endl;
+}
 
+void HomePage::on_internet_clicked()
+{
+    std::cout<<"HomePage::on_internet_clicked()"<<std::endl;
+}
 
+void HomePage::on_battery_clicked()
+{
+    std::cout<<"HomePage::on_battery_clicked()"<<std::endl;
+}
 
-// HomePage::HomePage(slint::ComponentHandle<AppWindow> ui) : ui_(ui)
-// {
-//     std::cout<<"Home page: construct!"<<std::endl;
-
-//     auto& state = ui->global<HomeState>();
-//     state.set_greeting("Hello from C++");
-
-//     // UI -> C++ callbacks. Capture 'this' and use the weak handle inside.
-//     state.on_say_hello([this](slint::SharedString name)
-//     {
-//         if (auto ui = ui_.lock()) {
-//             ++clicks_;
-//             auto& s = (*ui)->global<HomeState>();
-//             s.set_clicks(clicks_);
-//             s.set_greeting(slint::SharedString("Hello, " + std::string(name)));
-//         }
-//     });
-
-//     state.on_open_settings([this]
-//     {
-//         std::cout<<"Home page: on_open_settings called!"<<std::endl;
-
-//         if (auto ui = ui_.lock()) {
-//             (*ui)->set_current_page(1);
-//             auto &s = (*ui)->global<HomeState>();
-//             s.set_settings_open(true);
-//         }
-//     });
-    
-
-//     state.on_open_file_manager([this]
-//     {
-//         std::cout<<"Home page: on_open_file_manager called!"<<std::endl;
-
-//         long pid = spawn_path("/bin/file_manager");
-
-//         if (pid > 0) {
-//             if (auto ui = ui_.lock()) {
-//                 auto &s = (*ui)->global<HomeState>();
-//                 s.set_file_manager_open(true);
-//             }
-//         }
-//     });
-
-
-//     state.on_open_terminal([this]
-//     {
-//         std::cout<<"Home page: terminal click called!"<<std::endl;
-
-//         long pid = spawn_path("/bin/client");
-
-//         if (pid > 0) {
-//             if (auto ui = ui_.lock()) {
-//                 auto &s = (*ui)->global<HomeState>();
-//                 s.set_terminal_open(true);
-//             }
-//         }
-//     });
-
-
-//     state.on_open_music([this]
-//     {
-//         std::cout<<"Home page: open_music click called!"<<std::endl;
-
-//         long pid = spawn_path("/bin/client");
-
-//         if (pid > 0) {
-//             if (auto ui = ui_.lock()) {
-//                 auto &s = (*ui)->global<HomeState>();
-//                 s.set_music_open(true);
-//             }
-//         }
-//     });
-// }
-
-// void HomePage::set_user(const std::string& name)
-// {
-//     if (auto ui = ui_.lock())
-//     {
-//         (*ui)->global<HomeState>().set_user_name(slint::SharedString(name));
-//     }
-// }
-
-// std::string HomePage::user() const
-// {
-//     if (auto ui = ui_.lock())
-//     {
-//         return std::string((*ui)->global<HomeState>().get_user_name());
-//     }
-//     return {};
-// }
-
-// long HomePage::spawn_path(const char* path)
-// {
-//     char* argv[] = { (char*)path, NULL };
-//     char* envp[] = { (char*)"XDG_RUNTIME_DIR=/tmp",
-//                      (char*)"WAYLAND_DISPLAY=wayland-0", NULL };
-//     return syscall(SYS_spawn, path, argv, envp, 0);   /* 0: init reaps via wait4 */
-// }
+void HomePage::on_volume_clicked()
+{
+    std::cout<<"HomePage::on_volume_clicked()"<<std::endl;
+}
