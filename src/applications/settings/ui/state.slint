@@ -1,0 +1,33 @@
+export struct InfoLine { key: string, value: string }
+
+export global SettingsState {
+    in-out property <int> page: 0;      // 0 Display 1 Appearance 2 Sound 3 Network 4 Power 5 Input 6 About
+
+    in property <[InfoLine]> display-info;
+    in property <[InfoLine]> network-info;
+    in property <[InfoLine]> power-info;
+    in property <[InfoLine]> about-info;
+
+    in-out property <int> accent: 0;
+    in-out property <int> wallpaper: 0;
+    out property <[color]> accents: [#3b82f6, #10b981, #f59e0b, #ec4899, #8b5cf6];
+    out property <color> accent-color: accents[accent];
+
+    in-out property <int> volume: 50;
+    in-out property <bool> muted: false;
+
+    in-out property <bool> wifi-on: true;
+    in property <string> network-status: "No network adapter";
+
+    in property <bool> battery-present: false;
+    in property <int> battery-percent: 0;
+    in property <bool> battery-charging: false;
+    in property <bool> ac-online: false;
+    in property <string> battery-time: "";
+
+    in-out property <int> pointer-speed: 50;      // 0..100, C++ maps to a multiplier
+    in-out property <int> key-repeat-rate: 50;
+
+    callback setting-changed(string, string);     // key, value: one generic path to C++
+    callback page-opened(int);
+}

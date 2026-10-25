@@ -11,22 +11,6 @@ enum { APP_FILES = 0, APP_SETTINGS, APP_TERMINAL, APP_MUSIC };
 HomePage::HomePage(slint::ComponentHandle<AppWindow> ui)
     : ui_(ui), model_(std::make_shared<slint::VectorModel<AppState>>())
 {
-    // auto& s = ui->global<HomeState>();
-
-    // apps_[APP_FILES]    = { "/bin/file_manager", 0, [this](bool v){ if (auto u = ui_.lock()) (*u)->global<HomeState>().set_file_manager_open(v); } };
-    // apps_[APP_SETTINGS] = { "/bin/settings",     0, [this](bool v){ if (auto u = ui_.lock()) (*u)->global<HomeState>().set_settings_open(v); } };
-    // apps_[APP_TERMINAL] = { "/bin/terminal",     0, [this](bool v){ if (auto u = ui_.lock()) (*u)->global<HomeState>().set_terminal_open(v); } };
-    // apps_[APP_MUSIC]    = { "/bin/music",        0, [this](bool v){ if (auto u = ui_.lock()) (*u)->global<HomeState>().set_music_open(v); } };
-
-    // s.on_open_file_manager([this] { launch(APP_FILES); });
-    // s.on_open_settings    ([this] { launch(APP_SETTINGS); });
-    // s.on_open_terminal    ([this] { launch(APP_TERMINAL); });
-    // s.on_open_music       ([this] { launch(APP_MUSIC); });
-
-    // // Check for exited children every 300 ms
-    // reaper_.start(slint::TimerMode::Repeated, std::chrono::milliseconds(300),
-    //               [this] { poll_children(); });
-
     apps_ = {
         { "file_manager", "/bin/file_manager", {} },
         { "settings",     "/bin/settings",     {} },

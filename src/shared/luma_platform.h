@@ -30,7 +30,11 @@ inline uint32_t g_last_serial = 0;
 inline const char* g_app_id = "luma_app";
 // ---------- input ----------
 inline float g_px = 0, g_py = 0;
-uint32_t resize_edge_ = XDG_TOPLEVEL_RESIZE_EDGE_NONE;
+
+inline uint32_t    g_app_w = 900, g_app_h = 500;
+inline const char* g_app_title = "Luma";
+inline void (*g_global_hook)(wl_registry*, uint32_t name, const char* iface, uint32_t ver) = nullptr;
+
 
 class LumaWindow : public slint::platform::WindowAdapter {
 public:
@@ -61,6 +65,7 @@ public:
 
     // --- Wayland setup ---
     LumaWindow() {
+        size_ = slint::PhysicalSize({g_app_w, g_app_h});
         if (g.out_w > 0 && g.out_h > 0) { cap_w_ = g.out_w; cap_h_ = g.out_h; }
         if (g_fill_output && g.out_w > 0) {
             size_ = slint::PhysicalSize({(uint32_t)g.out_w, (uint32_t)g.out_h});
@@ -129,7 +134,7 @@ public:
         xdg_surface_add_listener(xs_, &xs_l, this);
         tl_ = xdg_surface_get_toplevel(xs_);
         xdg_toplevel_add_listener(tl_, &tl_l, this);
-        xdg_toplevel_set_title(tl_, "Luma Slint");
+        xdg_toplevel_set_title(tl_, g_app_title);
         xdg_toplevel_set_app_id(tl_, g_app_id);
         wl_surface_commit(surf_);
     }

@@ -11,5 +11,7 @@ cp src/compositor/build/luma-compositor build/x86_64_debug/root/bin/comp
 # cp src/client/build/client build/x86_64_debug/root/bin/client
 cp src/luma_os_gui/build/luma_os_gui.stripped image/root/bin/luma_os_gui
 cp src/luma_os_gui/build/luma_os_gui.stripped build/x86_64_debug/root/bin/luma_os_gui
-cp src/file_manager/build/file_manager.stripped image/root/bin/file_manager
-cp src/file_manager/build/file_manager.stripped build/x86_64_debug/root/bin/file_manager
+cp src/applications/file_manager/build/file_manager.stripped image/root/bin/file_manager
+cp src/applications/file_manager/build/file_manager.stripped build/x86_64_debug/root/bin/file_manager
+cp src/applications/settings/build/settings.stripped image/root/bin/settings
+cp src/applications/settings/build/settings.stripped build/x86_64_debug/root/bin/settings

@@ -32,6 +32,7 @@ target_env = Environment(
         '.', 'src', generated_dir,
         os.path.join(sysroot, 'usr/include'),
         os.path.join(sysroot, 'usr/include/slint'),   # slint.h, slint-platform.h
+        '../shared',
     ],
     LIBPATH = [os.path.join(sysroot, 'usr/lib'), os.path.join(sysroot, 'usr/lib64')],
 
@@ -65,12 +66,21 @@ target_env = Environment(
 # 1) .slint -> app.h (embedded glyphs for the software renderer)
 # ---------------------------------------------------------------
 slint_files = Glob('ui/*.slint')
+
+shared_ui = os.path.abspath('../shared/ui')
+
 app_h = host_env.Command(
     os.path.join(generated_dir, 'app.h'),
     'ui/app.slint',
-    f'{slint_compiler} $SOURCE -f cpp -I ui --style fluent '
-    f'--embed-resources embed-for-software-renderer -o $TARGET',
+    f'{slint_compiler} $SOURCE '
+    f'-f cpp '
+    f'-I {os.path.abspath("ui")} '
+    f'-I {shared_ui} '
+    f'--style fluent '
+    f'--embed-resources embed-for-software-renderer '
+    f'-o $TARGET',
 )
+
 host_env.Depends(app_h, slint_files)
 
 # ---------------------------------------------------------------

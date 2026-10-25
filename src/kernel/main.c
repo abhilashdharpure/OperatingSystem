@@ -252,13 +252,6 @@ void parse_multiboot2_framebuffer(multiboot2_info_t* mbi, VbeModeInfo* fb)
             fb->green_mask = 8;
             fb->blue_mask  = 0;
 
-            // log_info("FB",
-            //     "Framebuffer at %p %ux%u pitch=%u bpp=%u",
-            //     fb->framebuffer,
-            //     fb->width,
-            //     fb->height,
-            //     fb->pitch,
-            //     fb->bpp);
             return;
         }
 

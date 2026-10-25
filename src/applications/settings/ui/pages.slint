@@ -1,0 +1,192 @@
+import { ToggleSwitch, PanelSlider } from "widgets.slint";
+import { SettingsState, InfoLine } from "state.slint";
+
+component PageHeader inherits Text { color: white; font-size: 20px; }
+
+component NavItem inherits Rectangle {
+    in property <string> label;
+    in property <bool> selected;
+    in property <color> accent;
+    callback clicked();
+    height: 34px;
+    border-radius: 6px;
+    background: root.selected ? root.accent : ta.has-hover ? #2a3a4b : transparent;
+    ta := TouchArea { clicked => { root.clicked(); } }
+    Text {
+        x: 12px; width: parent.width - 24px; height: parent.height;
+        text: root.label; color: white; font-size: 13px; vertical-alignment: center;
+    }
+}
+
+component SettingRow inherits Rectangle {
+    in property <string> label;
+    in property <string> hint;
+    in property <length> control-width: 42px;     // set it to the control's own width
+    height: 56px;
+    HorizontalLayout {
+        padding-left: 4px; padding-right: 4px; spacing: 12px;
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            Text { text: root.label; color: white; font-size: 14px; }
+            if root.hint != "" : Text { text: root.hint; color: #8ea0b2; font-size: 11px; }
+        }
+        VerticalLayout {
+            width: root.control-width;
+            alignment: center;
+            @children
+        }
+    }
+}
+
+component InfoList inherits VerticalLayout {
+    in property <[InfoLine]> lines;
+    spacing: 2px;
+    for line in root.lines : Rectangle {
+        height: 30px;
+        HorizontalLayout {
+            padding-left: 4px; padding-right: 4px;
+            Text { width: 150px; text: line.key; color: #8ea0b2; font-size: 13px; vertical-alignment: center; }
+            Text { horizontal-stretch: 1; text: line.value; color: white; font-size: 13px; vertical-alignment: center; overflow: elide; }
+        }
+    }
+}
+
+component Swatch inherits Rectangle {
+    in property <brush> fill;
+    in property <bool> selected;
+    callback clicked();
+    width: 44px; height: 44px; border-radius: 8px;
+    background: root.fill;
+    border-width: root.selected ? 3px : 1px;
+    border-color: root.selected ? white : #ffffff30;
+    TouchArea { clicked => { root.clicked(); } }
+}
+
+export component DisplayPage inherits VerticalLayout {
+    spacing: 10px; alignment: start;
+    PageHeader { text: "Display"; }
+    InfoList { lines: SettingsState.display-info; }
+    Text {
+        text: "Resolution is read-only until a display driver can change modes.";
+        color: #8ea0b2; font-size: 12px; wrap: word-wrap;
+    }
+}
+
+export component AppearancePage inherits VerticalLayout {
+    spacing: 12px; alignment: start;
+    property <[brush]> wallpapers: [
+        @linear-gradient(180deg, #101a2c 0%, #2a3d5c 100%),
+        @linear-gradient(180deg, #1b1b2f 0%, #5c2a4a 100%),
+        @linear-gradient(180deg, #0f2a22 0%, #1f5c47 100%),
+        @linear-gradient(180deg, #202020 0%, #404040 100%),
+    ];
+    PageHeader { text: "Appearance"; }
+    Text { text: "Accent colour"; color: #8ea0b2; font-size: 12px; }
+    HorizontalLayout {
+        height: 48px; spacing: 10px; alignment: start;
+        for c[i] in SettingsState.accents : Swatch {
+            fill: c;
+            selected: SettingsState.accent == i;
+            clicked => { SettingsState.accent = i; SettingsState.setting-changed("appearance.accent", "\{i}"); }
+        }
+    }
+    Text { text: "Wallpaper"; color: #8ea0b2; font-size: 12px; }
+    HorizontalLayout {
+        height: 48px; spacing: 10px; alignment: start;
+        for w[i] in root.wallpapers : Swatch {
+            fill: w;
+            selected: SettingsState.wallpaper == i;
+            clicked => { SettingsState.wallpaper = i; SettingsState.setting-changed("appearance.wallpaper", "\{i}"); }
+        }
+    }
+}
+
+export component SoundPage inherits VerticalLayout {
+    spacing: 4px; alignment: start;
+    PageHeader { text: "Sound"; }
+    SettingRow {
+        label: "Output volume";
+        hint: SettingsState.muted ? "Muted" : "\{SettingsState.volume}%";
+        control-width: 220px;
+        PanelSlider {
+            value: SettingsState.volume;
+            changed(v) => { SettingsState.volume = v; SettingsState.setting-changed("sound.volume", "\{v}"); }
+        }
+    }
+    SettingRow {
+        label: "Mute";
+        ToggleSwitch {
+            checked: SettingsState.muted;
+            toggled(v) => { SettingsState.muted = v; SettingsState.setting-changed("sound.muted", v ? "1" : "0"); }
+        }
+    }
+    Text { text: "No audio device yet: values are stored but nothing plays."; color: #8ea0b2; font-size: 12px; }
+}
+
+export component NetworkPage inherits VerticalLayout {
+    spacing: 4px; alignment: start;
+    PageHeader { text: "Network"; }
+    SettingRow {
+        label: "Wi-Fi";
+        hint: SettingsState.network-status;
+        ToggleSwitch {
+            checked: SettingsState.wifi-on;
+            toggled(v) => { SettingsState.wifi-on = v; SettingsState.setting-changed("network.wifi", v ? "1" : "0"); }
+        }
+    }
+    InfoList { lines: SettingsState.network-info; }
+}
+
+export component PowerPage inherits VerticalLayout {
+    spacing: 10px; alignment: start;
+    PageHeader { text: "Power & battery"; }
+    if !SettingsState.battery-present : Text {
+        text: "No battery detected. This device is running on mains power.";
+        color: #9fb0c0; font-size: 13px; wrap: word-wrap;
+    }
+    if SettingsState.battery-present : VerticalLayout {
+        spacing: 8px;
+        Text { text: "\{SettingsState.battery-percent}%"; color: white; font-size: 34px; }
+        Rectangle {
+            height: 12px; border-radius: 6px; background: #3b4a5a;
+            Rectangle {
+                width: parent.width * SettingsState.battery-percent / 100;
+                border-radius: 6px;
+                background: (SettingsState.battery-percent <= 20 && !SettingsState.battery-charging) ? #e05252 : #4cc38a;
+            }
+        }
+        Text { text: SettingsState.battery-charging ? "Charging" : "On battery"; color: white; font-size: 14px; }
+        Text { text: SettingsState.battery-time; color: #9fb0c0; font-size: 12px; }
+        Text { text: SettingsState.ac-online ? "Power adapter: connected" : "Power adapter: not connected"; color: #9fb0c0; font-size: 12px; }
+    }
+    InfoList { lines: SettingsState.power-info; }
+}
+
+export component InputPage inherits VerticalLayout {
+    spacing: 4px; alignment: start;
+    PageHeader { text: "Keyboard & mouse"; }
+    SettingRow {
+        label: "Pointer speed"; hint: "\{SettingsState.pointer-speed}%"; control-width: 220px;
+        PanelSlider {
+            value: SettingsState.pointer-speed;
+            changed(v) => { SettingsState.pointer-speed = v; SettingsState.setting-changed("input.pointer_speed", "\{v}"); }
+        }
+    }
+    SettingRow {
+        label: "Key repeat rate"; hint: "\{SettingsState.key-repeat-rate}%"; control-width: 220px;
+        PanelSlider {
+            value: SettingsState.key-repeat-rate;
+            changed(v) => { SettingsState.key-repeat-rate = v; SettingsState.setting-changed("input.key_repeat", "\{v}"); }
+        }
+    }
+    Text { text: "Keyboard layout: US (the only layout compiled in)."; color: #8ea0b2; font-size: 12px; }
+}
+
+export component AboutPage inherits VerticalLayout {
+    spacing: 10px; alignment: start;
+    PageHeader { text: "About"; }
+    InfoList { lines: SettingsState.about-info; }
+}
+
+export { NavItem }

@@ -1,4 +1,6 @@
 import { Button, LineEdit } from "std-widgets.slint";
+import { ToggleSwitch, PanelSlider, PanelButton } from "widgets.slint";
+
 export struct AppState { running: int, minimized: bool, focused: bool }
 
 export global HomeState {
@@ -190,79 +192,7 @@ export component RoundedLineEdit inherits Rectangle {
     }
 }
 
-component PanelButton inherits Rectangle {
-    in property <string> label;
-    in property <color> base: #2c4057;
-    callback clicked();
 
-    height: 32px;
-    border-radius: 6px;
-    background: ta.pressed ? root.base.darker(0.2) : ta.has-hover ? root.base.brighter(0.2) : root.base;
-    ta := TouchArea { clicked => { root.clicked(); } }
-    Text {
-        width: parent.width;
-        height: parent.height;
-        text: root.label;
-        color: white;
-        font-size: 13px;
-        horizontal-alignment: center;
-        vertical-alignment: center;
-    }
-}
-
-component ToggleSwitch inherits Rectangle {
-    in property <bool> checked;          // the parent owns the value
-    callback toggled(bool);
-
-    width: 42px;
-    height: 22px;
-    border-radius: 11px;
-    background: root.checked ? #3b82f6 : #55606c;
-    animate background { duration: 120ms; }
-    Rectangle {
-        x: root.checked ? parent.width - self.width - 2px : 2px;
-        y: 2px;
-        width: 18px;
-        height: 18px;
-        border-radius: 9px;
-        background: white;
-        animate x { duration: 120ms; }
-    }
-    TouchArea { clicked => { root.toggled(!root.checked); } }
-}
-
-component PanelSlider inherits Rectangle {
-    in property <int> value;             // 0..100
-    callback changed(int);
-
-    height: 24px;
-    Rectangle {
-        y: (parent.height - self.height) / 2;
-        height: 6px;
-        border-radius: 3px;
-        background: #3b4a5a;
-        Rectangle {
-            width: parent.width * root.value / 100;
-            border-radius: 3px;
-            background: #7cc4ff;
-        }
-    }
-    Rectangle {
-        x: (parent.width - self.width) * root.value / 100;
-        y: (parent.height - self.height) / 2;
-        width: 16px;
-        height: 16px;
-        border-radius: 8px;
-        background: white;
-    }
-    ta := TouchArea {
-        pointer-event(e) => {
-            if (e.kind == PointerEventKind.down || (e.kind == PointerEventKind.move && self.pressed)) {
-                root.changed(Math.round(Math.clamp(self.mouse-x / self.width * 100, 0, 100)));
-            }
-        }
-    }
-}
 
 component PanelTitle inherits Text {
     color: #d7e0ea;

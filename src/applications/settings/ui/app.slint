@@ -1,0 +1,44 @@
+import { TitleBar, WindowControl } from "title_bar.slint";
+import { SettingsState, InfoLine } from "state.slint";
+import { NavItem, DisplayPage, AppearancePage, SoundPage, NetworkPage, PowerPage, InputPage, AboutPage } from "pages.slint";
+
+export { SettingsState, InfoLine, WindowControl }
+
+export component SettingsWindow inherits Window {
+    default-font-family: "DejaVu Sans";
+    preferred-width: 820px;
+    preferred-height: 520px;
+    background: #17212b;
+
+    property <[string]> nav: ["Display", "Appearance", "Sound", "Network", "Power", "Input", "About"];
+
+    VerticalLayout {
+        TitleBar { title: "Settings"; }
+        HorizontalLayout {
+            vertical-stretch: 1;
+            Rectangle {
+                width: 190px; background: #1b2631;
+                VerticalLayout {
+                    padding: 10px; spacing: 4px; alignment: start;
+                    for name[i] in root.nav : NavItem {
+                        label: name;
+                        selected: SettingsState.page == i;
+                        accent: SettingsState.accent-color;
+                        clicked => { SettingsState.page = i; SettingsState.page-opened(i); }
+                    }
+                }
+            }
+            VerticalLayout {
+                padding: 24px;
+                horizontal-stretch: 1;
+                if SettingsState.page == 0 : DisplayPage { }
+                if SettingsState.page == 1 : AppearancePage { }
+                if SettingsState.page == 2 : SoundPage { }
+                if SettingsState.page == 3 : NetworkPage { }
+                if SettingsState.page == 4 : PowerPage { }
+                if SettingsState.page == 5 : InputPage { }
+                if SettingsState.page == 6 : AboutPage { }
+            }
+        }
+    }
+}
