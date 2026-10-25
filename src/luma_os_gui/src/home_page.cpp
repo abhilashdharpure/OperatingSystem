@@ -3,6 +3,8 @@
 #include "home_page.h"
 #include "process/spawn.h"
 #include <iostream>
+#include "luma_settings_client.h"
+#include <cstdlib>
 
 enum { APP_FILES = 0, APP_SETTINGS, APP_TERMINAL, APP_MUSIC };
 
@@ -38,6 +40,15 @@ HomePage::HomePage(slint::ComponentHandle<AppWindow> ui)
     s.on_lock_now([this] { std::cout << "[Home] lock\n"; });
     s.on_restart_requested([this] { std::cout << "[Home] restart\n"; });
     s.on_shutdown_requested([this] { std::cout << "[Home] shutdown\n"; });
+
+    auto& sc = SettingsClient::get();
+    sc.on_changed = [this](const std::string& k, const std::string& v) { apply_setting(k, v); };
+    for (auto& [k, v] : sc.cache) apply_setting(k, v);
+
+    // make the tray panel changes flow back to Settings too:
+    s.on_volume_changed([](int v)   { SettingsClient::get().set_settings("sound.volume", std::to_string(v)); });
+    s.on_mute_toggled  ([](bool m)  { SettingsClient::get().set_settings("sound.muted",  m ? "1" : "0"); });
+    s.on_wifi_toggled  ([](bool on) { SettingsClient::get().set_settings("network.wifi", on ? "1" : "0"); });
 
     ShellClient::get().on_change = [this] { refresh(); };
     reaper_.start(slint::TimerMode::Repeated, std::chrono::milliseconds(500), [this] { reap(); });
@@ -220,3 +231,17 @@ void HomePage::set_volume_ui(int percent, bool muted)
         s.set_muted(muted);
     }
 }
+
+void HomePage::apply_setting(const std::string& k, const std::string& v)
+{
+    std::cout<<"HomePage::apply_setting Key: "<<k<<", value : "<<v<<std::endl;
+    auto ui = ui_.lock(); if (!ui) return;
+    int n = std::atoi(v.c_str());
+    auto& s = (*ui)->global<HomeState>();
+    if      (k == "appearance.accent")    (*ui)->global<Theme>().set_accent(n);
+    else if (k == "appearance.wallpaper") (*ui)->global<Theme>().set_wallpaper(n);
+    else if (k == "sound.volume")         s.set_volume(n);
+    else if (k == "sound.muted")          s.set_muted(n != 0);
+    else if (k == "network.wifi")         s.set_wifi_on(n != 0);
+}
+

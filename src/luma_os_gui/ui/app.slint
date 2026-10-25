@@ -1,9 +1,10 @@
 import { HomePage, HomeState } from "home_page.slint";
 import { SettingsPage, SettingsState } from "settings_page.slint";
+import { Theme } from "theme.slint";
 
 // Exported so slint-compiler generates C++ classes for them in app.h
 export { HomeState }
-export { SettingsState }
+export { SettingsState, Theme}
 
 export component AppWindow inherits Window {
     default-font-family: "DejaVu Sans";

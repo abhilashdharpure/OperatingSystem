@@ -3,6 +3,9 @@
 #include <cmath>
 #include <cstdio>
 
+#include "luma_settings_client.h"
+#include <cstdlib>
+
 static slint::SharedString S(const std::string& s) { return slint::SharedString(s); }
 
 std::shared_ptr<slint::Model<InfoLine>> SettingsController::to_model(const std::vector<InfoRow>& rows)
@@ -30,6 +33,10 @@ SettingsController::SettingsController(slint::ComponentHandle<SettingsWindow> ui
 
     refresh_display(); refresh_network(); refresh_battery(); refresh_about();
     timer_.start(slint::TimerMode::Repeated, std::chrono::seconds(5), [this] { refresh_battery(); });
+
+    auto& sc = SettingsClient::get();
+    sc.on_changed = [this](const std::string& k, const std::string& v) { apply_remote(k, v); };
+    for (auto& [k, v] : sc.cache) apply_remote(k, v);
 }
 
 void SettingsController::refresh_display()
@@ -99,4 +106,17 @@ void SettingsController::refresh_network()
 void SettingsController::refresh_about()
 {
     with_state([&](auto& s) { s.set_about_info(to_model(be_.read_about())); });
+}
+
+
+void SettingsController::apply_remote(const std::string& k, const std::string& v)
+{
+    auto ui = ui_.lock(); if (!ui) return;
+    int n = std::atoi(v.c_str());
+    auto& s = (*ui)->global<SettingsState>();
+    if      (k == "appearance.accent")    (*ui)->global<Theme>().set_accent(n);
+    else if (k == "appearance.wallpaper") (*ui)->global<Theme>().set_wallpaper(n);
+    else if (k == "sound.volume")         s.set_volume(n);
+    else if (k == "sound.muted")          s.set_muted(n != 0);
+    else if (k == "network.wifi")         s.set_wifi_on(n != 0);
 }

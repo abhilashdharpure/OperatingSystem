@@ -110,6 +110,7 @@ protocols = [
     project_root.File('protocols/xdg-shell.xml'),
     project_root.File('protocols/wayland.xml'),
     project_root.File('protocols/luma-shell.xml'),
+    project_root.File('protocols/luma_settings.xml'),
 ]
 
 generated_sources = []
@@ -140,6 +141,11 @@ luma_client_h = generated_dir_node.File(
 'luma-shell-client-protocol.h'
 )
 
+
+luma_settings_h = generated_dir_node.File(
+'luma-settings-client-protocol.h'
+)
+
 host_env.Command(
     xdg_client_h,
     project_root.File('protocols/xdg-shell.xml'),
@@ -149,6 +155,12 @@ host_env.Command(
 host_env.Command(
     luma_client_h,
     project_root.File('protocols/luma-shell.xml'),
+    f'{wayland_scanner} client-header $SOURCE $TARGET'
+)
+
+host_env.Command(
+    luma_settings_h,
+    project_root.File('protocols/luma-settings.xml'),
     f'{wayland_scanner} client-header $SOURCE $TARGET'
 )
 

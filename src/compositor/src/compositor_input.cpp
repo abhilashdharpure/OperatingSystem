@@ -16,6 +16,7 @@ static constexpr int SCREEN_HEIGHT_TEMP = 1080;
 int count = 1;
 
 static double g_pdx = 0, g_pdy = 0;
+double g_pointer_scale = 1.0;                              // near g_pdx / g_pdy
 
 
 void SendButtonEvent(LumaCompositor* compositor, uint32_t time_ms, uint32_t button, uint32_t state);
@@ -110,8 +111,8 @@ static int keyboard_fd_handler(
 static void flush_motion(LumaCompositor* c)
 {
     if (g_pdx == 0 && g_pdy == 0) return;
-    c->cursor_x = std::clamp(c->cursor_x + g_pdx, 0.0, (double)c->output_width  - 1);
-    c->cursor_y = std::clamp(c->cursor_y + g_pdy, 0.0, (double)c->output_height - 1);
+    c->cursor_x = std::clamp(c->cursor_x + g_pdx * g_pointer_scale, 0.0, (double)c->output_width  - 1);
+    c->cursor_y = std::clamp(c->cursor_y + g_pdy * g_pointer_scale, 0.0, (double)c->output_height - 1);
     g_pdx = g_pdy = 0;
     handle_mouse_move(c, c->cursor_x, c->cursor_y);      // sends at most one motion event per batch
 }

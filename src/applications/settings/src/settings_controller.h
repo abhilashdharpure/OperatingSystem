@@ -12,6 +12,7 @@ private:
     void refresh_battery();
     void refresh_network();
     void refresh_about();
+    void apply_remote(const std::string&, const std::string&);
     static std::shared_ptr<slint::Model<InfoLine>> to_model(const std::vector<InfoRow>& rows);
 
     template <class F> void with_state(F&& f) {

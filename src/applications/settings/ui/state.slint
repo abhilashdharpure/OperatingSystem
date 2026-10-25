@@ -8,11 +8,6 @@ export global SettingsState {
     in property <[InfoLine]> power-info;
     in property <[InfoLine]> about-info;
 
-    in-out property <int> accent: 0;
-    in-out property <int> wallpaper: 0;
-    out property <[color]> accents: [#3b82f6, #10b981, #f59e0b, #ec4899, #8b5cf6];
-    out property <color> accent-color: accents[accent];
-
     in-out property <int> volume: 50;
     in-out property <bool> muted: false;
 

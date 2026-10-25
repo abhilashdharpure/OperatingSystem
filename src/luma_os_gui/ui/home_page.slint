@@ -1,5 +1,6 @@
 import { Button, LineEdit } from "std-widgets.slint";
 import { ToggleSwitch, PanelSlider, PanelButton } from "widgets.slint";
+import { Theme } from "theme.slint";
 
 export struct AppState { running: int, minimized: bool, focused: bool }
 
@@ -310,7 +311,8 @@ component PopupHost inherits Rectangle {
 }
 
 export component HomePage inherits Rectangle {
-    background: #024f9c;
+    //background: #024f9c;
+    background: Theme.wallpaper-brush;
 
     /*
     Image {

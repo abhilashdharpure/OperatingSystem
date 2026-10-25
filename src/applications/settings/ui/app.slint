@@ -1,8 +1,9 @@
 import { TitleBar, WindowControl } from "title_bar.slint";
 import { SettingsState, InfoLine } from "state.slint";
 import { NavItem, DisplayPage, AppearancePage, SoundPage, NetworkPage, PowerPage, InputPage, AboutPage } from "pages.slint";
+import { Theme } from "theme.slint";
 
-export { SettingsState, InfoLine, WindowControl }
+export { SettingsState, InfoLine, WindowControl, Theme }
 
 export component SettingsWindow inherits Window {
     default-font-family: "DejaVu Sans";
@@ -23,7 +24,7 @@ export component SettingsWindow inherits Window {
                     for name[i] in root.nav : NavItem {
                         label: name;
                         selected: SettingsState.page == i;
-                        accent: SettingsState.accent-color;
+                        accent: Theme.accent-color;
                         clicked => { SettingsState.page = i; SettingsState.page-opened(i); }
                     }
                 }

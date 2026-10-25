@@ -33,6 +33,8 @@ private:
     void set_network(bool on, const std::string& name);
     void set_volume_ui(int percent, bool muted);
 
+    void apply_setting(const std::string&, const std::string&);
+
     slint::ComponentWeakHandle<AppWindow>          ui_;
     std::vector<AppDef>                            apps_;
     std::shared_ptr<slint::VectorModel<AppState>>  model_;

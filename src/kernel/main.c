@@ -9,7 +9,8 @@
 #include <debug.h>
 #include <boot/bootparams.h>
 #include "drivers/input/input.h"
-#include "drivers/input/input_manager.h"
+#include "drivers/input/input.h"
+#include "drivers/display/display.h"
 #include "compositor/compositor.h"
 #include <arch/x86_64/io.h>
 
@@ -44,6 +45,7 @@ extern uint32_t mb_info_ptr;
 
 BootParams   g_bootParams;
 static VbeModeInfo  g_fbInfo;
+// fb_device_t fb_dev;
 
 extern uint64_t pml4_table[];      // defined in paging_tables.asm
 extern uint64_t *kernel_pml4_virt; // defined in paging_bootstrap.c
@@ -374,6 +376,9 @@ void start(BootParams* bootParams, VbeModeInfo* fb_info)
 
     fb_init(fb_info);
     gfx_init();            // initialize graphics layer
+
+    display_devices_init();
+    battery_devices_init();
 
     log_info("MAIN", "Framebuffer ready: %ux%u", fb_dev.width, fb_dev.height);
 

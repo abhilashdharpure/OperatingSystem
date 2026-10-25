@@ -3,9 +3,9 @@
 #include "hal/vfs.h"
 #include "debug.h"
 #include "paging.h"
+#include "drivers/display/display.h"
 
 VbeModeInfo fb;
-fb_device_t fb_dev;
 
 extern uint64_t *kernel_pml4_virt;
 

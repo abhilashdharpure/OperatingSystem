@@ -8,6 +8,7 @@
 #include <map>
 #include <sys/utsname.h>
 #include <unistd.h>
+#include "luma_settings_client.h"
 
 using KV = std::map<std::string, std::string>;
 
@@ -82,12 +83,12 @@ public:
     bool read_display(DisplayInfo& d) override
     {
         KV m = read_kv("/dev/display0");
-        if (!m.empty()) {
-            d.width = geti(m, "width");  d.height = geti(m, "height");
+        if (!m.empty() && geti(m, "width") > 0) {
+             d.width = geti(m, "width");  d.height = geti(m, "height");
             d.bpp = geti(m, "bpp");      d.pitch = geti(m, "pitch");
             d.refresh_mhz = geti(m, "refresh_mhz");
             if (m.count("name")) d.name = m["name"];
-        } else if (g.out_w > 0) {                                 // fallback: what the compositor reports
+        } else if (g.out_w > 0) {
             d.width = g.out_w; d.height = g.out_h; d.bpp = 32;
         } else return false;
 
@@ -140,6 +141,7 @@ public:
         values_[key] = value;
         std::printf("[settings] %s = %s\n", key.c_str(), value.c_str());
         // TODO: forward to the compositor / home (see section 5) or to a kernel device.
+        SettingsClient::get().set_settings(key.c_str(), value.c_str());
     }
 
 private:

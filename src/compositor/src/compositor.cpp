@@ -30,6 +30,8 @@
 #include <time.h>
 #include "builtin_client.h"
 #include "luma-shell-protocol.h"
+#include "luma_settings-protocol.h"
+#include <map>
 
 using namespace std;
 
@@ -41,6 +43,8 @@ CompositorInput compositorInput;
 
 static std::vector<uint32_t> comp_framebuffer; // stored as ARGB8888 (32-bit words)
 static std::vector<uint32_t> bg_cache;
+static std::vector<wl_resource*> g_settings;
+static std::map<std::string, std::string> g_setting_values;
 
 
 static std::mutex comp_fb_mutex;
@@ -52,7 +56,7 @@ static std::vector<uint32_t> scene_fb;        // composed windows, no cursor
 static bool g_cursor_dirty = false;
 static int  g_last_cx = -1, g_last_cy = -1;   // where the cursor is currently drawn
 
-
+extern double g_pointer_scale;
 
 static void shell_announce(my_surface*);
 static void shell_removed(my_surface*);
@@ -2736,6 +2740,74 @@ static void bind_luma_shell(wl_client* client, void* data, uint32_t, uint32_t id
     }
 }
 
+
+// ---------------- luma_settings ----------------
+
+static double pointer_scale_from(int v)           // 0..100 -> 0.25x .. 3x, 50 = 1x
+{
+    v = std::clamp(v, 0, 100);
+    return v <= 50 ? 0.25 + 0.75 * v / 50.0 : 1.0 + 2.0 * (v - 50) / 50.0;
+}
+
+static void settings_apply_local(const std::string& k, const std::string& v)
+{
+    if (k == "input.pointer_speed") g_pointer_scale = pointer_scale_from(atoi(v.c_str()));
+}
+
+static void settings_set_req(wl_client*, wl_resource* res, const char* key, const char* value)
+{
+    std::cout<<"COmpositor settings_set_req called, key = "<<key<<", value = "<<value<<std::endl;
+    if (!key || !value) return;
+    auto* c = (LumaCompositor*)wl_resource_get_user_data(res);
+    g_setting_values[key] = value;
+    settings_apply_local(key, value);
+
+    std::cout<<"COmpositor settings_set_req called before for = "<<key<<", value = "<<value<<", Map size = "<<g_settings.size()<<std::endl;
+
+    for (auto* r : g_settings)
+    {
+
+        std::cout<<"COmpositor settings_set_req called inside for = "<<key<<", value = "<<value<<", resource = "<<res<<std::endl;
+
+        if (r != res)
+        {
+            std::cout<<"COmpositor settings_set_req for loop , key = "<<key<<", value = "<<value<<std::endl;
+            luma_settings_send_changed(r, key, value);   // not back to the sender
+        }
+    }
+    wl_display_flush_clients(c->display);
+}
+
+static const struct luma_settings_interface settings_impl = { .set = settings_set_req };
+
+static void settings_resource_gone(wl_resource* r)
+{
+    std::cout<<"settings_resource_gone called for resource = "<<r<<std::endl;
+    g_settings.erase(std::remove(g_settings.begin(), g_settings.end(), r), g_settings.end());
+}
+
+static void bind_luma_settings(wl_client* client, void* data, uint32_t, uint32_t id)
+{
+    std::cout<<"bind_luma_settings start"<<std::endl;
+
+    auto* c = (LumaCompositor*)data;
+    wl_resource* res = wl_resource_create(client, &luma_settings_interface, 1, id);
+    if (!res) { wl_client_post_no_memory(client); return; }
+    wl_resource_set_implementation(res, &settings_impl, c, settings_resource_gone);
+    std::cout<<"bind_luma_settings inserting resource = "<<res<<std::endl;
+    g_settings.push_back(res);
+    for (auto& [k, v] : g_setting_values)                 // replay the current state
+        luma_settings_send_changed(res, k.c_str(), v.c_str());
+}
+
+
+
+
+
+
+
+
+
 bool luma_init(LumaCompositor* comp)
 {
     std::cout << "[LumaCompositor] init: output_width=" << comp->output_width
@@ -2838,6 +2910,7 @@ bool luma_init(LumaCompositor* comp)
                                                 comp, bind_xdg_wm_base);
 
     wl_global_create(comp->display, &luma_shell_interface, 1, comp, bind_luma_shell);
+    wl_global_create(comp->display, &luma_settings_interface, 1, comp, bind_luma_settings);
 
     compositorInput.Initialize(comp);
     std::cout << "[LumaCompositor] compositorInput Initialize " << std::endl;

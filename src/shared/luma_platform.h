@@ -363,6 +363,7 @@ inline const wl_registry_listener reg_l = {
             auto* o = (wl_output*)wl_registry_bind(r, name, &wl_output_interface, v < 4 ? v : 4);
             wl_output_add_listener(o, &out_l, nullptr);
         }
+        else if (g_global_hook) g_global_hook(r, name, i, v);
     },
     [](void*, wl_registry*, uint32_t) {},
 };

@@ -1,0 +1,17 @@
+<protocol name="luma_settings">
+
+  <interface name="luma_settings" version="1">
+
+    <request name="set">
+      <arg name="key" type="string"/>
+      <arg name="value" type="string"/>
+    </request>
+
+    <event name="changed">
+      <arg name="key" type="string"/>
+      <arg name="value" type="string"/>
+    </event>
+
+  </interface>
+
+</protocol>

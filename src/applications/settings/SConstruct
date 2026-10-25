@@ -69,6 +69,7 @@ target_env = Environment(
 slint_files = Glob('ui/*.slint')
 
 shared_ui = os.path.abspath('../../shared/ui')
+settings_files = Glob('../../shared/ui/*.slint')
 
 app_h = host_env.Command(
     os.path.join(generated_dir, 'app.h'),
@@ -82,7 +83,7 @@ app_h = host_env.Command(
     f'-o $TARGET',
 )
 
-host_env.Depends(app_h, slint_files)
+host_env.Depends(app_h, [slint_files, settings_files])
 
 # ---------------------------------------------------------------
 # 2) xdg-shell client glue (core wl_* interfaces come from libwayland-client)
@@ -96,20 +97,32 @@ xdg_code_c   = host_env.Command(
     xdg_xml, f'{wayland_scanner} private-code $SOURCE $TARGET')
 
 # ---------------------------------------------------------------
+# luma-settings client 
+# ---------------------------------------------------------------
+settings_xml      = 'protocols/luma_settings.xml'
+settings_client_h = host_env.Command(
+    os.path.join(generated_dir, 'luma-settings-client-protocol.h'),
+    settings_xml, f'{wayland_scanner} client-header $SOURCE $TARGET')
+settings_code_c   = host_env.Command(
+    os.path.join(generated_dir, 'luma-settings-protocol.c'),
+    settings_xml, f'{wayland_scanner} private-code $SOURCE $TARGET')
+
+
+# ---------------------------------------------------------------
 # 3) Compile and link
 # ---------------------------------------------------------------
 cpp_sources = Glob('src/*.cpp')                 # picks up main.cpp, home_page.cpp, and future pages
 objs = target_env.Object(cpp_sources)           # one object per source, named after the source
-target_env.Depends(objs, [app_h, xdg_client_h]) # generated headers must exist before compiling
+target_env.Depends(objs, [app_h, xdg_client_h, settings_client_h]) # generated headers must exist before compiling
 xdg_obj = target_env.Object(xdg_code_c)
+settings_obj = target_env.Object(settings_code_c)
 
 program = target_env.Program(
     target = os.path.join(build_dir, project_name),
-    source = objs + xdg_obj,
+    source = objs + xdg_obj + settings_obj,
 )
 
 VariantDir('build/obj', 'src', duplicate=0)
-cpp_sources = Glob('build/obj/*.cpp')
 
 # Stripped copy: much smaller, faster to load in your kernel ELF loader
 stripped = target_env.Command(
