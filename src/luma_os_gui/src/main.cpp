@@ -15,7 +15,7 @@ int main()
         if (!strcmp(i, luma_settings_interface.name)) SettingsClient::get().bind(r, n);
     };
     
-    if(!luma_start("luma_home", 0, 0, true))
+    if(!luma_start("luma_home", 1000, 750, true))
     {
         return 1;
     }

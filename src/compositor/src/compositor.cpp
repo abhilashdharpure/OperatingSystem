@@ -734,100 +734,6 @@ void handle_resize_motion(LumaCompositor* comp)
     surf->outstanding_configure_serial = serial;
 }
 
-// void handle_resize_motion(LumaCompositor *comp)
-// {
-//     if (!comp->resize_grab_active || !comp->resizing_surface)
-//     {
-//         return;
-//     }
-
-//     my_surface *surf = comp->resizing_surface;
-
-//     if(surf->xdg_surface_res == nullptr)
-//     {   
-//         return;
-//     }
-
-//     auto edges = comp->resize_edges;
-
-//     int dx = comp->cursor_x - comp->grab_start_x;
-//     int dy = comp->cursor_y - comp->grab_start_y;
-
-//     // Start from initial geometry
-//     int new_x = comp->window_start_x;
-//     int new_y = comp->window_start_y;
-//     int new_w = comp->window_start_w;
-//     int new_h = comp->window_start_h;
-
-//     // vertical adjustments
-//     if (has_edge(edges, toplevel_edges::TOP))
-//     {
-//         // dragging top edge: moving top down increases dy -> reduce height, move y down
-//         new_h = comp->window_start_h - dy;
-//         new_y = comp->window_start_y + dy;
-//     }
-//     else if (has_edge(edges, toplevel_edges::BOTTOM))
-//     {
-//         // dragging bottom edge: moving cursor down increases dy -> increase height
-//         new_h = comp->window_start_h + dy;
-//     }
-
-//     // Removing padding from height
-//     new_h = new_h - (2 * surf->window_geom_y) + 1;
-
-//     // horizontal adjustments
-//     if (has_edge(edges, toplevel_edges::LEFT)) {
-//         // dragging left edge: moving cursor right increases dx -> reduce width, move x right
-//         new_w = comp->window_start_w - dx;
-//         new_x = comp->window_start_x + dx;
-//     } else if (has_edge(edges, toplevel_edges::RIGHT)) {
-//         // dragging right edge
-//         new_w = comp->window_start_w + dx;
-//     }
-
-//     // Removing padding from width
-//     new_w = new_w - (2 * surf->window_geom_x) + 1;
-
-//     // Clamp to client's min/max
-//     new_w = clamp_int(new_w, surf->min_width, surf->max_width);
-//     new_h = clamp_int(new_h, surf->min_height, surf->max_height);
-
-//     // Optionally enforce an absolute minimum to avoid degenerate sizes
-//     const int ABS_MIN = 32;
-//     new_w = clamp_int(new_w, ABS_MIN, INT_MAX);
-//     new_h = clamp_int(new_h, ABS_MIN, INT_MAX);
-
-
-//     // Update pending on surface
-//     bool changed = false;
-//     if (surf->pending_width != new_w) { surf->pending_width = new_w; changed = true; }
-//     if (surf->pending_height != new_h) { surf->pending_height = new_h; changed = true; }
-//     if (surf->pending_x != new_x) { surf->pending_x = new_x; changed = true; }
-//     if (surf->pending_y != new_y) { surf->pending_y = new_y; changed = true; }
-
-//     // Only send configure if something changed
-//     // if (changed && surf->pending_configured == false)
-//     if (changed)
-//     {
-//         surf->pending_configured = true;
-
-//         // std::cout<<"Resizing,  width = "<<surf->pending_width<<", height = "<<surf->pending_height<<", new_x = "<<new_x<<", new_y = "<<new_y<<", new_w = "<<new_w<<", new_h = "<<new_h<<std::endl;
-//         send_toplevel_configure(surf->toplevel_res,
-//                                 surf->pending_width,
-//                                 surf->pending_height,
-//                                 /*activated=*/true,
-//                                 /*resizing=*/true,
-//                                 /*maximized=*/false,
-//                                 /*fullscreen=*/false);
-
-//         uint32_t serial = wl_display_next_serial(comp->display);
-//         xdg_surface_send_configure(surf->xdg_surface_res, serial);
-//         wl_display_flush_clients(comp->display);
-
-//         surf->outstanding_configure_serial = serial;
-//     }
-// }
-
 
 static void pointer_handle_motion(LumaCompositor* comp)       // window dragging
 {
@@ -867,20 +773,6 @@ static const struct wl_keyboard_interface keyboard_impl = {
     },
 };
 
-// wl_resource* seat_get_pointer(LumaSeat* seat, wl_client* client)
-// {
-//     std::cout << "[LumaCompositor] seat_get_pointer method\n";
-
-//     wl_resource* resource;
-//     wl_list_for_each(resource, &seat->pointers, link)
-//     {
-//         if (wl_resource_get_client(resource) == client)
-//         {
-//             return resource;
-//         }
-//     }
-//     return nullptr;
-// }
 
 static void keyboard_resource_destroy(struct wl_resource* resource)
 {
@@ -1163,49 +1055,6 @@ static void shm_pool_destroy_req(wl_client*, wl_resource* r)
 {
     wl_resource_destroy(r);
 }
-
-
-// static void shm_pool_destroy_req(struct wl_client* client, struct wl_resource* pool_res)
-// {
-//     std::cout << "[LumaCompositor] shm_pool_destroy_req\n";
-//     auto *pool = static_cast<shm_pool_data*>(wl_resource_get_user_data(pool_res));
-//     if (!pool) return;
-
-//     std::scoped_lock lk(pool->pool_mutex);
-//     pool->pending_unmap = true;
-
-//     bool any_live = false;
-//     for (shm_buffer* b : pool->buffers)
-//     {
-//         if (!b) continue;
-//         int refs = b->refcount.load(std::memory_order_acquire);
-//         if (refs > 0)
-//         {
-//             any_live = true;
-//             b->pending_destroy.store(true, std::memory_order_release);
-//         }
-//     }
-
-//     if (!any_live)
-//     {
-//         // safe to unmap now
-//         if (pool->data && pool->data != MAP_FAILED)
-//         {
-//             std::cout << "[LumaCompositor] shm_pool_destroy: unmapping pool data\n";
-//             munmap(pool->data, pool->size);
-//             pool->data = nullptr;
-//         }
-//         wl_resource_set_user_data(pool_res, nullptr);
-//         delete pool;
-//     }
-//     else
-//     {
-//         // keep pool alive; it will be unmapped when last buffer is freed (see maybe_cleanup_pool below)
-//         std::cout << "[LumaCompositor] shm_pool_destroy: deferring unmap, live buffers remain\n";
-//     }
-// }
-
-
 // shm_pool_create_buffer:   pool->refs++;   after "buf->pool = pool;"
 
 static void shm_pool_create_buffer(struct wl_client *client, struct wl_resource *pool_res,
@@ -2272,31 +2121,6 @@ static void xdg_wm_base_pong(struct wl_client*, struct wl_resource* res, uint32_
     }
 }
 
-// static void xdg_wm_base_pong(struct wl_client* client, struct wl_resource* surface, uint32_t)
-// {
-//     std::cout << "[LumaCompositor] xdg_wm_base_pong...\n";
-//     my_surface* surf = static_cast<my_surface*>(wl_resource_get_user_data(surface));
-//     std::cout << "[LumaCompositor] after surface in pong...\n";
-
-//     if (!surf) 
-//     {
-//         std::cout << "[LumaCompositor] xdg_wm_base_pong surf is NULL\n";
-//         return;
-//     }
-
-//     std::cout << "[LumaCompositor] after surface in pong 2..\n";
-
-//     if (!surf->compositor)
-//     {
-//         std::cout << "[LumaCompositor] xdg_wm_base_pong compositor is NULL\n";
-//         return;
-//     }
-
-//     std::cout << "[LumaCompositor] after surface in pong 3..\n";
-
-//     surf->compositor->is_pong_received = true;
-//     std::cout << "[LumaCompositor] after surface is_pong_received is true...\n";
-// }
 
 static const struct xdg_wm_base_interface xdg_wm_base_impl = {
     .destroy = xdg_wm_base_destroy,
@@ -2725,7 +2549,6 @@ static void shell_resource_gone(wl_resource* r)
 
 static void bind_luma_shell(wl_client* client, void* data, uint32_t, uint32_t id)
 {
-    std::cout << "[LumaCompositor] bind_luma_shell\n";
     auto* c = (LumaCompositor*)data;
     wl_resource* res = wl_resource_create(client, &luma_shell_interface, 1, id);
     if (!res) { wl_client_post_no_memory(client); return; }
@@ -2756,22 +2579,15 @@ static void settings_apply_local(const std::string& k, const std::string& v)
 
 static void settings_set_req(wl_client*, wl_resource* res, const char* key, const char* value)
 {
-    std::cout<<"COmpositor settings_set_req called, key = "<<key<<", value = "<<value<<std::endl;
     if (!key || !value) return;
     auto* c = (LumaCompositor*)wl_resource_get_user_data(res);
     g_setting_values[key] = value;
     settings_apply_local(key, value);
 
-    std::cout<<"COmpositor settings_set_req called before for = "<<key<<", value = "<<value<<", Map size = "<<g_settings.size()<<std::endl;
-
     for (auto* r : g_settings)
     {
-
-        std::cout<<"COmpositor settings_set_req called inside for = "<<key<<", value = "<<value<<", resource = "<<res<<std::endl;
-
         if (r != res)
         {
-            std::cout<<"COmpositor settings_set_req for loop , key = "<<key<<", value = "<<value<<std::endl;
             luma_settings_send_changed(r, key, value);   // not back to the sender
         }
     }
@@ -2782,31 +2598,19 @@ static const struct luma_settings_interface settings_impl = { .set = settings_se
 
 static void settings_resource_gone(wl_resource* r)
 {
-    std::cout<<"settings_resource_gone called for resource = "<<r<<std::endl;
     g_settings.erase(std::remove(g_settings.begin(), g_settings.end(), r), g_settings.end());
 }
 
 static void bind_luma_settings(wl_client* client, void* data, uint32_t, uint32_t id)
 {
-    std::cout<<"bind_luma_settings start"<<std::endl;
-
     auto* c = (LumaCompositor*)data;
     wl_resource* res = wl_resource_create(client, &luma_settings_interface, 1, id);
     if (!res) { wl_client_post_no_memory(client); return; }
     wl_resource_set_implementation(res, &settings_impl, c, settings_resource_gone);
-    std::cout<<"bind_luma_settings inserting resource = "<<res<<std::endl;
     g_settings.push_back(res);
     for (auto& [k, v] : g_setting_values)                 // replay the current state
         luma_settings_send_changed(res, k.c_str(), v.c_str());
 }
-
-
-
-
-
-
-
-
 
 bool luma_init(LumaCompositor* comp)
 {
