@@ -1,7 +1,7 @@
 // // home_page.cpp
 
 #include "home_page.h"
-#include "process/spawn.h"
+#include "luma_spawn.h"
 #include <iostream>
 #include "luma_settings_client.h"
 #include <cstdlib>
@@ -18,6 +18,10 @@ HomePage::HomePage(slint::ComponentHandle<AppWindow> ui)
         { "settings",     "/bin/settings",     {} },
         { "terminal",     "/bin/terminal",     {} },
         { "music",        "/bin/music",        {} },
+        { "menu",         "/bin/menu",         {} },
+        { "browser",      "/bin/browser",      {} },
+        { "photos",       "/bin/photos",       {} },
+        { "editor",       "/bin/editor",       {} },
     };
     for (size_t i = 0; i < apps_.size(); i++) model_->push_back(AppState{ 0, false, false });
 

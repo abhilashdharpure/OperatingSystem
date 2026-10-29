@@ -1,0 +1,8 @@
+export global EditorState {
+    in-out property <string> text;
+    in property <string> path;
+    in property <string> status: "";
+    in property <bool> dirty: false;
+    callback save();
+    callback text-edited();
+}

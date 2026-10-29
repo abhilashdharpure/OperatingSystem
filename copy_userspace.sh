@@ -15,3 +15,5 @@ cp src/applications/file_manager/build/file_manager.stripped image/root/bin/file
 cp src/applications/file_manager/build/file_manager.stripped build/x86_64_debug/root/bin/file_manager
 cp src/applications/settings/build/settings.stripped image/root/bin/settings
 cp src/applications/settings/build/settings.stripped build/x86_64_debug/root/bin/settings
+cp src/applications/editor/build/editor.stripped image/root/bin/editor
+cp src/applications/editor/build/editor.stripped build/x86_64_debug/root/bin/editor

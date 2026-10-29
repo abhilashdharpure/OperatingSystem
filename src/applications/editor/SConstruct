@@ -1,0 +1,134 @@
+import os
+
+project_name  = 'editor'
+build_dir     = 'build'
+generated_dir = os.path.join(build_dir, 'generated')
+
+workspace = os.path.expanduser('~/Project/OSDev/ToolchainWorkspace')
+prefix    = os.path.join(workspace, 'Install')
+sysroot   = os.path.join(workspace, 'Sysroot')
+
+cross           = os.path.join(prefix, 'bin', 'x86_64-linux-musl-')
+slint_compiler  = os.path.join(prefix, 'native', 'bin', 'slint-compiler')
+wayland_scanner = os.path.join(prefix, 'native', 'bin', 'wayland-scanner')
+
+# ---------------------------------------------------------------
+# Host environment (runs slint-compiler and wayland-scanner)
+# ENV is passed through so slint-compiler can find HOME / font config.
+# ---------------------------------------------------------------
+host_env = Environment(CC='gcc', CXX='g++', ENV=os.environ)
+
+# ---------------------------------------------------------------
+# Target environment (musl cross, static)
+# ---------------------------------------------------------------
+target_env = Environment(
+    CC   = cross + 'gcc',
+    CXX  = cross + 'g++',
+    LINK = cross + 'g++',
+    AR   = cross + 'ar',
+    RANLIB = cross + 'ranlib',
+
+    CPPPATH = [
+        '.', 'src', generated_dir,
+        os.path.join(sysroot, 'usr/include'),
+        os.path.join(sysroot, 'usr/include/slint'),   # slint.h, slint-platform.h
+        '../../shared',
+    ],
+
+    LIBPATH = [os.path.join(sysroot, 'usr/lib'), os.path.join(sysroot, 'usr/lib64')],
+
+    CCFLAGS = [
+        '--sysroot=' + sysroot,
+        '-g', '-O2',
+        '-fno-pie', '-fno-stack-protector',
+        '-ffunction-sections', '-fdata-sections',
+    ],
+    # Slint needs C++20 and exceptions/RTTI enabled
+    CXXFLAGS = ['-std=c++20'],
+
+    LINKFLAGS = [
+        '--sysroot=' + sysroot,
+        '-static', '-no-pie',
+        '-Wl,-T,' + os.path.abspath('linker.ld'),
+        '-Wl,--gc-sections',
+        '-Wl,--eh-frame-hdr',
+        '-Wl,-z,max-page-size=0x1000',
+        '-Wl,-z,common-page-size=0x1000',
+        '-Wl,-z,norelro',
+        '-Wl,-z,noseparate-code',
+        '-Wl,--build-id=none',
+    ],
+
+    # Order matters for static libs: slint first, its dependencies after it.
+    LIBS = ['slint_cpp', 'wayland-client', 'xkbcommon', 'ffi', 'stdc++', 'm', 'c'],
+)
+
+# ---------------------------------------------------------------
+# 1) .slint -> app.h (embedded glyphs for the software renderer)
+# ---------------------------------------------------------------
+slint_files = Glob('ui/*.slint')
+
+shared_ui = os.path.abspath('../../shared/ui')
+settings_files = Glob('../../shared/ui/*.slint')
+
+app_h = host_env.Command(
+    os.path.join(generated_dir, 'app.h'),
+    'ui/app.slint',
+    f'{slint_compiler} $SOURCE '
+    f'-f cpp '
+    f'-I {os.path.abspath("ui")} '
+    f'-I {shared_ui} '
+    f'--style fluent '
+    f'--embed-resources embed-for-software-renderer '
+    f'-o $TARGET',
+)
+
+host_env.Depends(app_h, [slint_files, settings_files])
+
+# ---------------------------------------------------------------
+# 2) xdg-shell client glue (core wl_* interfaces come from libwayland-client)
+# ---------------------------------------------------------------
+xdg_xml      = 'protocols/xdg-shell.xml'
+xdg_client_h = host_env.Command(
+    os.path.join(generated_dir, 'xdg-shell-client-protocol.h'),
+    xdg_xml, f'{wayland_scanner} client-header $SOURCE $TARGET')
+xdg_code_c   = host_env.Command(
+    os.path.join(generated_dir, 'xdg-shell-protocol.c'),
+    xdg_xml, f'{wayland_scanner} private-code $SOURCE $TARGET')
+
+# ---------------------------------------------------------------
+# luma-settings client 
+# ---------------------------------------------------------------
+settings_xml      = 'protocols/luma_settings.xml'
+settings_client_h = host_env.Command(
+    os.path.join(generated_dir, 'luma-settings-client-protocol.h'),
+    settings_xml, f'{wayland_scanner} client-header $SOURCE $TARGET')
+settings_code_c   = host_env.Command(
+    os.path.join(generated_dir, 'luma-settings-protocol.c'),
+    settings_xml, f'{wayland_scanner} private-code $SOURCE $TARGET')
+
+
+# ---------------------------------------------------------------
+# 3) Compile and link
+# ---------------------------------------------------------------
+cpp_sources = Glob('src/*.cpp')                 # picks up main.cpp, home_page.cpp, and future pages
+objs = target_env.Object(cpp_sources)           # one object per source, named after the source
+target_env.Depends(objs, [app_h, xdg_client_h, settings_client_h]) # generated headers must exist before compiling
+xdg_obj = target_env.Object(xdg_code_c)
+settings_obj = target_env.Object(settings_code_c)
+
+program = target_env.Program(
+    target = os.path.join(build_dir, project_name),
+    source = objs + xdg_obj + settings_obj,
+)
+
+VariantDir('build/obj', 'src', duplicate=0)
+
+# Stripped copy: much smaller, faster to load in your kernel ELF loader
+stripped = target_env.Command(
+    os.path.join(build_dir, project_name + '.stripped'),
+    program,
+    cross + 'strip -o $TARGET $SOURCE',
+)
+
+Default(program, stripped)

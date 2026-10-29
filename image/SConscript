@@ -282,8 +282,12 @@ def build_fat32_root_image(target, source, env):
 
     print("> creating FAT32 root image:", root_img)
 
-    # --- 1. Create empty image (adjust size here if needed) ---
-    size_mb = 64  # size of disk image
+    # --- 1. Create empty image, sized from the content ---
+    total = sum(f.stat().st_size for f in root_dir.glob('**/*') if f.is_file())
+    size_mb = max(256, int(total * 1.5 / (1024 * 1024)) + 32)
+    print(f"> root content {total // (1024*1024)} MiB -> image {size_mb} MiB")
+    if os.path.exists(root_img):
+        os.remove(root_img)                       # don't reuse stale data from an older image
     with open(root_img, 'wb') as f:
         f.truncate(size_mb * 1024 * 1024)
 
@@ -292,6 +296,7 @@ def build_fat32_root_image(target, source, env):
     # Change start=1MiB, end=100% if you want a different layout
     subprocess.check_call(['sudo', 'parted', root_img, '--script', 'mkpart', 'primary', 'fat32', '1MiB', '100%'])
     subprocess.check_call(['sudo', 'parted', root_img, '--script', 'set', '1', 'boot', 'on'])
+    
 
     # --- 3. Setup loop device ---
     loop_device = subprocess.check_output(['sudo', 'losetup', '--find', '--show', '-P', root_img], text=True).strip()
@@ -301,7 +306,7 @@ def build_fat32_root_image(target, source, env):
 
     try:
         # --- 4. Format FAT32 ---
-        subprocess.check_call(['sudo', 'mkfs.fat', '-F', '32', '-n', 'NBOS', partition_dev])
+        subprocess.check_call(['sudo', 'mkfs.fat', '-F', '32', '-s', '1', '-n', 'NBOS', partition_dev])
 
         # --- 5. Mount partition temporarily ---
         tmp = Path(root_img).with_suffix('.mnt')
@@ -329,25 +334,6 @@ def build_fat32_root_image(target, source, env):
         for f in root_dir.glob('**/*'):
             if f.is_dir():
                 continue
-            if f.is_file() and f != init_src:
-                dst = tmp / f.relative_to(root_dir)
-                dst.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(f, dst)
-
-        # # copy /usr (for xkbcommon, etc.)
-        # usr_src = Path('image/root/usr')
-        # usr_dst = workdir / 'usr'
-        # usr_dst.mkdir(parents=True, exist_ok=True)
-
-        # if usr_src.exists():
-        #     # Python 3.8+: dirs_exist_ok avoids errors if dirs already exist
-        #     shutil.copytree(usr_src, usr_dst, dirs_exist_ok=True)
-
-
-        # --- 7. Copy other root files ---
-        for f in root_dir.glob('**/*'):
-            if f.is_dir():
-                continue  # dirs handled by parents
             if f.is_file() and f != init_src:
                 dst = tmp / f.relative_to(root_dir)
                 dst.parent.mkdir(parents=True, exist_ok=True)

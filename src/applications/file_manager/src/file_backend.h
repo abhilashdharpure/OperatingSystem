@@ -18,6 +18,7 @@ public:
     virtual bool make_dir   (const std::string& path, std::string& err) = 0;
     virtual bool remove_path(const std::string& path, std::string& err) = 0;
     virtual bool rename_path(const std::string& from, const std::string& to, std::string& err) = 0;
+    virtual bool copy_path(const std::string& from, const std::string& to, std::string& err) = 0;
 };
 
 // Demo implementation with fake data, so the UI runs before the kernel side exists.

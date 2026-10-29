@@ -123,7 +123,7 @@ target_env.Append(CPPDEFINES=['LUMA_HOME'])          # only for the home app
 # ---------------------------------------------------------------
 cpp_sources = (
     Glob('src/*.cpp') +
-    Glob('src/process/*.cpp'))
+    Glob('../shared/*.cpp'))
 objs = target_env.Object(cpp_sources)           # one object per source, named after the source
 target_env.Depends(objs, [app_h, xdg_client_h, shell_client_h, settings_client_h])
 xdg_obj = target_env.Object(xdg_code_c)

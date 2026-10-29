@@ -10,6 +10,7 @@ export global FileManagerState {
     in property <string> status: "";
     in property <bool> can-go-back: false;
     in property <bool> can-go-forward: false;
+    in property <bool> can-paste: false;
 
     callback open-entry(int);            // double click on a row
     callback select-entry(int);          // single click on a row
@@ -21,6 +22,10 @@ export global FileManagerState {
     callback create-folder(string);
     callback rename-selected(string);
     callback delete-selected();
+    callback open-in-editor();
+    callback copy-selected();
+    callback cut-selected();
+    callback paste-here();
 }
 
 component ToolBtn inherits Rectangle {
@@ -74,6 +79,7 @@ component FileRow inherits Rectangle {
     in property <bool> selected;
     callback clicked();
     callback opened();
+    callback context(length, length);
 
     height: 28px;
     background: selected ? #2f5d9e : ta.has-hover ? #223040 : transparent;
@@ -81,6 +87,12 @@ component FileRow inherits Rectangle {
     ta := TouchArea {
         clicked => { root.clicked(); }
         double-clicked => { root.opened(); }
+        pointer-event(e) => {
+            if (e.kind == PointerEventKind.up && e.button == PointerEventButton.right) {
+                root.context(self.absolute-position.x + self.mouse-x,
+                             self.absolute-position.y + self.mouse-y);
+            }
+        }
     }
 
     HorizontalLayout {
@@ -124,6 +136,21 @@ component FileRow inherits Rectangle {
     }
 }
 
+
+component MenuItem inherits Rectangle {
+    in property <string> label;
+    in property <bool> enabled: true;
+    callback clicked();
+    height: 28px;
+    background: ta.has-hover && root.enabled ? #3d6fb5 : transparent;
+    opacity: root.enabled ? 1.0 : 0.4;
+    ta := TouchArea { enabled: root.enabled; clicked => { root.clicked(); } }
+    Text {
+        x: 12px; width: parent.width - 24px; height: parent.height;
+        text: root.label; color: white; font-size: 13px; vertical-alignment: center;
+    }
+}
+
 export component FileManagerPage inherits Rectangle {
     background: #17212b;
 
@@ -131,6 +158,9 @@ export component FileManagerPage inherits Rectangle {
     property <bool> dialog-open: false;
     property <int> dialog-mode: 0;               // 0 = new folder, 1 = rename
     property <string> dialog-text: "";
+    property <bool> menu-open: false;
+    property <length> menu-x: 0px;
+    property <length> menu-y: 0px;
 
     function open-dialog(mode: int, initial: string) {
         dialog-mode = mode;
@@ -195,6 +225,11 @@ export component FileManagerPage inherits Rectangle {
                     enabled: FileManagerState.selected-index >= 0;
                     clicked => { FileManagerState.delete-selected(); }
                 }
+                ToolBtn {
+                    label: "Paste";
+                    enabled: FileManagerState.can-paste;
+                    clicked => { FileManagerState.paste-here(); }
+                }
             }
         }
 
@@ -245,6 +280,12 @@ export component FileManagerPage inherits Rectangle {
                         selected: FileManagerState.selected-index == i;
                         clicked => { FileManagerState.select-entry(i); }
                         opened => { FileManagerState.open-entry(i); }
+                        context(x, y) => {
+                            FileManagerState.select-entry(i);
+                            root.menu-x = x;
+                            root.menu-y = y;
+                            root.menu-open = true;
+                        }
                     }
                 }
             }
@@ -310,4 +351,49 @@ export component FileManagerPage inherits Rectangle {
             }
         }
     }
+    if root.menu-open : TouchArea {                       // click outside closes it
+        width: parent.width;
+        height: parent.height;
+        pointer-event(e) => {
+            if (e.kind == PointerEventKind.down) { root.menu-open = false; }
+        }
+    }
+
+    if root.menu-open : Rectangle {
+        x: min(root.menu-x, parent.width - self.width - 4px);
+        y: min(root.menu-y, parent.height - self.height - 4px);
+        width: 170px;
+        height: 6 * 28px + 8px;
+        background: #22303f;
+        border-radius: 6px;
+        border-width: 1px;
+        border-color: #ffffff30;
+
+        TouchArea { }                                      // swallow clicks inside the menu
+
+        VerticalLayout {
+            padding: 4px;
+            MenuItem {
+                label: "Open in editor";
+                clicked => { root.menu-open = false; FileManagerState.open-in-editor(); }
+            }
+            MenuItem {
+                label: "Rename";
+                clicked => {
+                    root.menu-open = false;
+                    root.open-dialog(1, FileManagerState.entries[FileManagerState.selected-index].name);
+                }
+            }
+            MenuItem { label: "Copy"; clicked => { root.menu-open = false; FileManagerState.copy-selected(); } }
+            MenuItem { label: "Cut";  clicked => { root.menu-open = false; FileManagerState.cut-selected(); } }
+            MenuItem {
+                label: "Paste";
+                enabled: FileManagerState.can-paste;
+                clicked => { root.menu-open = false; FileManagerState.paste-here(); }
+            }
+            MenuItem { label: "Delete"; clicked => { root.menu-open = false; FileManagerState.delete-selected(); } }
+        }
+    }
+
 }
+

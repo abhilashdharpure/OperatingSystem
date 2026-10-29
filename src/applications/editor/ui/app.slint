@@ -1,0 +1,64 @@
+import { TextEdit } from "std-widgets.slint";
+import { TitleBar, WindowControl } from "title_bar.slint";
+import { EditorState } from "state.slint";
+
+export { EditorState, WindowControl }
+
+component ToolButton inherits Rectangle {
+    in property <string> label;
+    callback clicked();
+    height: 28px;
+    width: 64px;
+    border-radius: 4px;
+    background: ta.pressed ? #3d6fb5 : ta.has-hover ? #35506f : #2c4057;
+    ta := TouchArea { clicked => { root.clicked(); } }
+    Text { width: parent.width; height: parent.height; text: root.label; color: white; font-size: 13px;
+           horizontal-alignment: center; vertical-alignment: center; }
+}
+
+export component EditorWindow inherits Window {
+    default-font-family: "DejaVu Sans";
+    preferred-width: 760px;
+    preferred-height: 520px;
+    background: #17212b;
+
+    FocusScope {
+        key-pressed(e) => {
+            if (e.modifiers.control && e.text == "s") {
+                EditorState.save();
+                return accept;
+            }
+            return reject;
+        }
+
+        VerticalLayout {
+            TitleBar {
+                title: (EditorState.path == "" ? "Untitled" : EditorState.path)
+                       + (EditorState.dirty ? " *" : "");
+            }
+            Rectangle {
+                height: 40px;
+                background: #1f2d3a;
+                HorizontalLayout {
+                    padding: 6px; spacing: 6px; alignment: start;
+                    ToolButton { label: "Save"; clicked => { EditorState.save(); } }
+                }
+            }
+            TextEdit {
+                vertical-stretch: 1;
+                font-size: 14px;
+                text <=> EditorState.text;
+                edited(t) => { EditorState.text-edited(); }
+            }
+            Rectangle {
+                height: 24px;
+                background: #1f2d3a;
+                Text {
+                    x: 10px; width: parent.width - 20px; height: parent.height;
+                    text: EditorState.status; color: #b8c4d0; font-size: 12px;
+                    vertical-alignment: center; overflow: elide;
+                }
+            }
+        }
+    }
+}

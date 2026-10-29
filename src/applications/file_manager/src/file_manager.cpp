@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
+#include "luma_spawn.h"
 
 // ---------- path helpers ----------
 std::string FileManager::normalize(const std::string& in)
@@ -123,6 +124,18 @@ FileManager::FileManager(slint::ComponentHandle<AppWindow> ui, IFileBackend& bac
         reload();
         set_status("Deleted " + victim);
     });
+
+
+    state.on_open_entry([this](int i) {
+        if (i < 0 || i >= (int)rows_.size()) return;
+        if (rows_[i].is_dir) navigate(join(cwd_, rows_[i].name));
+        else { selected_ = i; open_in_editor(); }          // double click opens the editor
+    });
+
+    state.on_open_in_editor([this] { open_in_editor(); });
+    state.on_copy_selected([this]  { copy_selected(false); });
+    state.on_cut_selected([this]   { copy_selected(true); });
+    state.on_paste_here([this]     { paste_here(); });
 }
 
 void FileManager::navigate(const std::string& path, bool record_history)
@@ -189,4 +202,58 @@ void FileManager::update_nav_buttons()
 void FileManager::set_status(const std::string& text)
 {
     with_state([&](auto& s) { s.set_status(slint::SharedString(text)); });
+}
+
+std::string FileManager::base_name(const std::string& p)
+{
+    size_t pos = p.find_last_of('/');
+    return pos == std::string::npos ? p : p.substr(pos + 1);
+}
+
+void FileManager::open_in_editor()
+{
+    if (selected_ < 0 || selected_ >= (int)rows_.size() || rows_[selected_].is_dir) {
+        set_status("Select a file to open");
+        return;
+    }
+    std::string path = join(cwd_, rows_[selected_].name);
+    long pid = luma_spawn("/bin/editor", { path });
+    set_status(pid > 0 ? "Opened " + path + " in editor" : "Cannot start /bin/editor");
+}
+
+void FileManager::copy_selected(bool cut)
+{
+    if (selected_ < 0 || selected_ >= (int)rows_.size()) return;
+    if (rows_[selected_].is_dir) { set_status("Copying folders is not supported yet"); return; }
+    clip_path_ = join(cwd_, rows_[selected_].name);
+    clip_cut_  = cut;
+    with_state([&](auto& s) { s.set_can_paste(true); });
+    set_status((cut ? "Cut " : "Copied ") + base_name(clip_path_));
+}
+
+void FileManager::paste_here()
+{
+    if (clip_path_.empty()) return;
+    std::string name = base_name(clip_path_);
+    auto exists = [&](const std::string& n) {
+        for (auto& r : rows_) if (r.name == n) return true;
+        return false;
+    };
+    if (exists(name) && join(cwd_, name) == clip_path_ && clip_cut_) {   // cut and paste in the same folder
+        clip_path_.clear(); with_state([&](auto& s) { s.set_can_paste(false); });
+        return;
+    }
+    for (int k = 1; exists(name); k++)
+        name = "Copy" + std::to_string(k) + " of " + base_name(clip_path_);
+
+    std::string err, dest = join(cwd_, name);
+    bool ok = clip_cut_ ? be_.rename_path(clip_path_, dest, err)
+                        : be_.copy_path(clip_path_, dest, err);
+    if (!ok) { set_status((clip_cut_ ? "Move failed: " : "Copy failed: ") + err); return; }
+    if (clip_cut_) {
+        clip_path_.clear();
+        with_state([&](auto& s) { s.set_can_paste(false); });
+    }
+    reload(name);
+    set_status("Pasted " + name);
 }

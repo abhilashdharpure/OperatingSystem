@@ -21,6 +21,14 @@ private:
         if (auto ui = ui_.lock()) f((*ui)->global<FileManagerState>());
     }
 
+    void open_in_editor();
+    void copy_selected(bool cut);
+    void paste_here();
+    static std::string base_name(const std::string& path);
+
+    std::string clip_path_;
+    bool        clip_cut_ = false;
+
     static std::string normalize(const std::string& path);
     static std::string join(const std::string& dir, const std::string& name);
     static std::string parent_of(const std::string& path);
