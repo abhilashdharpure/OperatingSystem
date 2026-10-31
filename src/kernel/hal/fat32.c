@@ -537,11 +537,16 @@ static int node_flush(fat32_node_t *n)                  // size and first cluste
 
 static int node_truncate(fat32_node_t *n)
 {
-    if (n->first_cluster >= 2) fat_free_chain(n->fs, n->first_cluster);
+    uint32_t old = n->first_cluster;
     n->first_cluster = n->cur_cluster = 0;
     n->size = 0;
     n->seek_cluster = 0; n->seek_index = 0;
-    return node_flush(n);
+    if (node_flush(n) != 0) {                        // could not update the entry: change nothing
+        n->first_cluster = n->cur_cluster = old;
+        return -1;
+    }
+    if (old >= 2) fat_free_chain(n->fs, old);
+    return 0;
 }
 
 
@@ -554,12 +559,28 @@ static int fat32_open(struct file *f, int flags)
     if (!node) return -1;
     memset(node, 0, sizeof(*node));
 
+
+
     if (f->subpath && f->subpath[0] != '\0') {
         if (lookup_path(fs, f->subpath, node) == 0) {
-            if ((flags & O_CREAT) && (flags & O_EXCL)) { kfree(node); return -1; }
-            if ((flags & O_TRUNC) && (flags & O_ACCMODE) && !node->is_dir) node_truncate(node);
-        } else {
-            if (!(flags & O_CREAT) || fat32_create_file(fs, f->subpath, node) != 0) {
+            if ((flags & O_CREAT) && (flags & O_EXCL))
+            {
+                kfree(node);
+                return -1;
+            }
+            if ((flags & O_TRUNC) && (flags & O_ACCMODE) && !node->is_dir)
+            {
+                if (node_truncate(node) != 0)
+                {
+                    kfree(node);
+                    return -1;
+                }
+            }
+        }
+        else
+        {
+            if (!(flags & O_CREAT) || fat32_create_file(fs, f->subpath, node) != 0)
+            {
                 kfree(node);
                 return -1;
             }
@@ -876,8 +897,11 @@ static int fat_set(fat32_t *fs, uint32_t cl, uint32_t val)
     val = (old & 0xF0000000u) | (val & 0x0FFFFFFFu);    // keep the 4 reserved bits
     memcpy(fs->fat_cache + off, &val, 4);
 
-    for (uint32_t i = 0; i < fs->num_fats; i++)         // update every FAT copy
-        if (write_sector(fs, lba + i * fs->sectors_per_fat, fs->fat_cache) != 0) return -1;
+    for (uint32_t i = 0; i < fs->num_fats; i++)
+        if (write_sector(fs, lba + i * fs->sectors_per_fat, fs->fat_cache) != 0) {
+            fs->fat_cache_lba = 0xFFFFFFFF;          // memory no longer matches the disk
+            return -1;
+        }
     return 0;
 }
 

@@ -45,12 +45,27 @@ std::string FileManager::size_text(uint64_t b)
 
 std::string FileManager::kind_of(const FsEntry& e)
 {
-    if (e.is_dir) return "Folder";
+    if (e.is_dir)  return "Folder";
+    if (e.is_exec) return "Application";
     size_t dot = e.name.find_last_of('.');
     if (dot == std::string::npos || dot + 1 >= e.name.size()) return "File";
     std::string ext = e.name.substr(dot + 1);
     for (auto& c : ext) c = (char)std::toupper((unsigned char)c);
     return ext + " file";
+}
+
+int FileManager::icon_of(const FsEntry& e)
+{
+    if (e.is_dir)  return 1;
+    if (e.is_exec) return 3;
+    size_t dot = e.name.find_last_of('.');
+    if (dot == std::string::npos) return 0;
+    std::string x = e.name.substr(dot + 1);
+    for (auto& c : x) c = (char)std::tolower((unsigned char)c);
+    static const char* t[] = { "txt", "md", "log", "cfg", "conf", "ini", "json", "xml", "html",
+                               "css", "c", "h", "cpp", "hpp", "py", "sh", "slint", "csv", nullptr };
+    for (int i = 0; t[i]; i++) if (x == t[i]) return 2;
+    return 0;
 }
 
 // ---------- controller ----------
@@ -72,14 +87,19 @@ FileManager::FileManager(slint::ComponentHandle<AppWindow> ui, IFileBackend& bac
 
     state.on_select_entry([this](int i) {
         selected_ = i;
-        with_state([&](auto& s) { s.set_selected_index(i); });
+        bool ex = i >= 0 && i < (int)rows_.size() && rows_[i].is_exec;
+        with_state([&](auto& s) { s.set_selected_index(i); s.set_selected_is_exec(ex); });
     });
 
     state.on_open_entry([this](int i) {
         if (i < 0 || i >= (int)rows_.size()) return;
-        if (rows_[i].is_dir) navigate(join(cwd_, rows_[i].name));
-        else set_status("Open file: " + join(cwd_, rows_[i].name));   // TODO: launch via your spawn syscall
+        selected_ = i;
+        if (rows_[i].is_dir)       navigate(join(cwd_, rows_[i].name));
+        else if (rows_[i].is_exec) run_selected();            // apps run, text opens in the editor
+        else                       open_in_editor();
     });
+
+    state.on_run_selected([this] { run_selected(); });
 
     state.on_go_up([this] { navigate(parent_of(cwd_)); });
 
@@ -178,6 +198,7 @@ void FileManager::reload(const std::string& keep_selected_name)
             e.is_dir,
             slint::SharedString(e.is_dir ? "" : size_text(e.size)),
             slint::SharedString(kind_of(e)),
+            icon_of(e),
         });
         if (!keep_selected_name.empty() && e.name == keep_selected_name) selected_ = (int)i;
     }
@@ -186,6 +207,7 @@ void FileManager::reload(const std::string& keep_selected_name)
     with_state([&](auto& s) {
         s.set_current_path(slint::SharedString(cwd_));
         s.set_selected_index(selected_);
+        s.set_selected_is_exec(selected_ >= 0 && selected_ < (int)rows_.size() && rows_[selected_].is_exec);
     });
     update_nav_buttons();
     set_status(std::to_string(rows_.size()) + " items");
@@ -214,6 +236,12 @@ void FileManager::open_in_editor()
 {
     if (selected_ < 0 || selected_ >= (int)rows_.size() || rows_[selected_].is_dir) {
         set_status("Select a file to open");
+        return;
+    }
+    
+
+    if (selected_ >= 0 && selected_ < (int)rows_.size() && rows_[selected_].is_exec) {
+        set_status("This is an application: use Run");
         return;
     }
     std::string path = join(cwd_, rows_[selected_].name);
@@ -256,4 +284,20 @@ void FileManager::paste_here()
     }
     reload(name);
     set_status("Pasted " + name);
+}
+
+void FileManager::run_selected()
+{
+    if (selected_ < 0 || selected_ >= (int)rows_.size() || !rows_[selected_].is_exec) {
+        set_status("Not an application");
+        return;
+    }
+    const std::string& name = rows_[selected_].name;
+    if (name == "comp" || name == "init") {            // a second compositor or init would break the system
+        set_status("Refusing to start " + name + " a second time");
+        return;
+    }
+    std::string path = join(cwd_, name);
+    long pid = luma_spawn(path, {}, 1);                 // detached: the kernel reaps it
+    set_status(pid > 0 ? "Started " + path : "Cannot start " + path);
 }

@@ -25,6 +25,8 @@ private:
     void copy_selected(bool cut);
     void paste_here();
     static std::string base_name(const std::string& path);
+    void run_selected();
+    static int icon_of(const FsEntry& e);
 
     std::string clip_path_;
     bool        clip_cut_ = false;

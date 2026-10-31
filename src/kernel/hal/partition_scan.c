@@ -75,6 +75,7 @@ bool register_first_fat32_partition(void)
 
     memset(&sda1, 0, sizeof(sda1));
     sda1.read_sectors = disk->read_sectors;
+    sda1.write_sectors = disk->write_sectors;
     sda1.lba_base     = lba_base;            // partition base on disk
     sda1.sector_size  = disk->sector_size;
     sda1.private_data = disk->private_data;  // same ATA device

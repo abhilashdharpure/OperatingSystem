@@ -11,7 +11,9 @@ export global FileManagerState {
     in property <bool> can-go-back: false;
     in property <bool> can-go-forward: false;
     in property <bool> can-paste: false;
+    in property <bool> selected-is-exec: false;
 
+    callback run-selected();
     callback open-entry(int);            // double click on a row
     callback select-entry(int);          // single click on a row
     callback navigate(string);           // path bar Enter, or a sidebar place
@@ -74,6 +76,28 @@ component PlaceRow inherits Rectangle {
     }
 }
 
+component FileIcon inherits Rectangle {
+    in property <int> kind;            // 0 file, 1 folder, 2 text, 3 application
+    width: 18px;
+    height: 18px;
+
+    if root.kind == 1 : Rectangle {                                   // folder
+        Rectangle { x: 0px; y: 2px; width: 8px; height: 5px; border-radius: 1px; background: #d9a93a; }
+        Rectangle { x: 0px; y: 4px; width: 18px; height: 12px; border-radius: 2px; background: #f0c24b; }
+    }
+    if root.kind == 0 || root.kind == 2 : Rectangle {                 // document
+        Rectangle { x: 2px; y: 0px; width: 14px; height: 18px; border-radius: 2px; background: #e8eef5; }
+        if root.kind == 2 : Rectangle { x: 5px; y: 5px;  width: 8px; height: 1.5px; background: #8ea0b2; }
+        if root.kind == 2 : Rectangle { x: 5px; y: 9px;  width: 8px; height: 1.5px; background: #8ea0b2; }
+        if root.kind == 2 : Rectangle { x: 5px; y: 13px; width: 6px; height: 1.5px; background: #8ea0b2; }
+    }
+    if root.kind == 3 : Rectangle {                                   // application window
+        Rectangle { x: 0px; y: 1px; width: 18px; height: 16px; border-radius: 3px; background: #2d6cdf; }
+        Rectangle { x: 0px; y: 1px; width: 18px; height: 5px; border-radius: 3px; background: #1f4fb0; }
+        Rectangle { x: 3px; y: 9px; width: 12px; height: 5px; border-radius: 1px; background: #ffffff55; }
+    }
+}
+
 component FileRow inherits Rectangle {
     in property <FileEntry> entry;
     in property <bool> selected;
@@ -102,12 +126,14 @@ component FileRow inherits Rectangle {
 
         Rectangle {
             width: 16px;
+
             Rectangle {
-                y: (parent.height - self.height) / 2;
-                width: 14px;
-                height: 14px;
-                border-radius: 2px;
-                background: entry.is-dir ? #e6b94a : #9aa7b4;
+                width: 22px;
+                FileIcon {
+                    x: 2px;
+                    y: (parent.height - self.height) / 2;
+                    kind: root.entry.icon;
+                }
             }
         }
         Text {
@@ -363,7 +389,7 @@ export component FileManagerPage inherits Rectangle {
         x: min(root.menu-x, parent.width - self.width - 4px);
         y: min(root.menu-y, parent.height - self.height - 4px);
         width: 170px;
-        height: 6 * 28px + 8px;
+        height: (FileManagerState.selected-is-exec ? 7 : 6) * 28px + 8px;
         background: #22303f;
         border-radius: 6px;
         border-width: 1px;
@@ -373,8 +399,13 @@ export component FileManagerPage inherits Rectangle {
 
         VerticalLayout {
             padding: 4px;
+            if FileManagerState.selected-is-exec : MenuItem {
+                label: "Run";
+                clicked => { root.menu-open = false; FileManagerState.run-selected(); }
+            }
             MenuItem {
                 label: "Open in editor";
+                enabled: !FileManagerState.selected-is-exec;
                 clicked => { root.menu-open = false; FileManagerState.open-in-editor(); }
             }
             MenuItem {

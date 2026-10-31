@@ -5,8 +5,9 @@
 
 struct FsEntry {
     std::string name;
-    bool        is_dir = false;
-    uint64_t    size   = 0;
+    bool        is_dir  = false;
+    bool        is_exec = false;        // regular file that starts with the ELF magic
+    uint64_t    size    = 0;
 };
 
 // Implement this on top of your kernel (getdents / stat / mkdir / unlink / rename).
@@ -22,5 +23,5 @@ public:
 };
 
 // Demo implementation with fake data, so the UI runs before the kernel side exists.
-IFileBackend& demo_backend();
+// IFileBackend& demo_backend();
 IFileBackend& kernel_file_backend();

@@ -13,6 +13,28 @@ std::string join(const std::string& d, const std::string& n)
     return d == "/" ? "/" + n : d + "/" + n;
 }
 
+static bool has_text_ext(const std::string& n)
+{
+    static const char* ext[] = { "txt", "md", "log", "cfg", "conf", "ini", "json", "xml", "html",
+                                 "css", "c", "h", "cpp", "hpp", "py", "sh", "slint", "csv", nullptr };
+    size_t dot = n.find_last_of('.');
+    if (dot == std::string::npos) return false;
+    std::string e = n.substr(dot + 1);
+    for (auto& c : e) if (c >= 'A' && c <= 'Z') c = (char)(c + 32);
+    for (int i = 0; ext[i]; i++) if (e == ext[i]) return true;
+    return false;
+}
+
+static bool is_elf(const std::string& path)
+{
+    int fd = open(path.c_str(), O_RDONLY);
+    if (fd < 0) return false;
+    unsigned char m[4];
+    ssize_t n = read(fd, m, 4);
+    close(fd);
+    return n == 4 && m[0] == 0x7F && m[1] == 'E' && m[2] == 'L' && m[3] == 'F';
+}
+
 class KernelFileBackend : public IFileBackend {
 public:
     bool list_dir(const std::string& path, std::vector<FsEntry>& out, std::string& err) override
@@ -31,6 +53,11 @@ public:
             if (stat(join(path, n).c_str(), &st) == 0) {
                 fe.is_dir = S_ISDIR(st.st_mode);
                 fe.size   = (uint64_t)st.st_size;
+                if (!fe.is_dir && fe.size >= 8192 && !has_text_ext(n))
+                {
+                    fe.is_exec = is_elf(join(path, n));
+                }
+
             } else {
                 fe.is_dir = (e->d_type == DT_DIR);   // fall back when stat isn't available
             }
