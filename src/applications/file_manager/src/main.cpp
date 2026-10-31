@@ -15,7 +15,7 @@ int main()
 
     auto ui = AppWindow::create();
 
-    FileManager fm(ui, demo_backend());     // swap for your kernel-backed backend later
+    FileManager fm(ui, kernel_file_backend());
     fm.navigate("/");
 
 

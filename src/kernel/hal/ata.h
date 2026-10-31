@@ -36,3 +36,8 @@ void ata_init(void);
 
 // Block-layer wrapper
 int ata_read_sectors(block_device_t *bdev, uint32_t lba, uint32_t count, void *buf);
+int ata_write_sectors(
+    block_device_t *dev,
+    uint32_t lba,
+    uint32_t count,
+    const void *buf);

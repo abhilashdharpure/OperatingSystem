@@ -7,6 +7,7 @@ int main(int argc, char** argv)
     std::string path = argc > 1 ? argv[1] : "";
     if (!luma_start("editor", 760, 520)) return 1;
 
+    std::printf("[editor] argc=%d argv1=%s\n", argc, argc > 1 ? argv[1] : "(none)");
     auto ui = EditorWindow::create();
     EditorController editor(ui, path);
 

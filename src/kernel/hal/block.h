@@ -6,6 +6,7 @@
 typedef struct block_device {
     char name[16];
     int (*read_sectors)(struct block_device *dev, uint32_t lba, uint32_t count, void *buf);
+    int (*write_sectors)(struct block_device *b, uint32_t lba, uint32_t count, const void *buf);
     uint32_t lba_base;     // partition start LBA (0 for whole disk, 2048 for first partition, etc.)
     uint32_t sector_size;  // usually 512
     void *private_data;    // controller/driver specific

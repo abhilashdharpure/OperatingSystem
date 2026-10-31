@@ -1,4 +1,4 @@
-import { TextEdit } from "std-widgets.slint";
+import { TextEdit, LineEdit } from "std-widgets.slint";
 import { TitleBar, WindowControl } from "title_bar.slint";
 import { EditorState } from "state.slint";
 
@@ -51,12 +51,19 @@ export component EditorWindow inherits Window {
                 edited(t) => { EditorState.text-edited(); }
             }
             Rectangle {
-                height: 24px;
+                height: 40px;
                 background: #1f2d3a;
-                Text {
-                    x: 10px; width: parent.width - 20px; height: parent.height;
-                    text: EditorState.status; color: #b8c4d0; font-size: 12px;
-                    vertical-alignment: center; overflow: elide;
+                HorizontalLayout {
+                    padding: 6px; spacing: 6px;
+                    ToolButton { label: "New";  clicked => { EditorState.new-file(); } }
+                    ToolButton { label: "Open"; clicked => { EditorState.open-path(); } }
+                    LineEdit {
+                        horizontal-stretch: 1;
+                        placeholder-text: "/path/to/file.txt";
+                        text <=> EditorState.path;
+                        accepted(t) => { EditorState.save(); }
+                    }
+                    ToolButton { label: "Save"; clicked => { EditorState.save(); } }
                 }
             }
         }

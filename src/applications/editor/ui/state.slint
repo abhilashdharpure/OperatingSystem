@@ -1,8 +1,10 @@
 export global EditorState {
     in-out property <string> text;
-    in property <string> path;
+    in-out property <string> path;              // editable from the toolbar
     in property <string> status: "";
     in property <bool> dirty: false;
     callback save();
+    callback open-path();
+    callback new-file();
     callback text-edited();
 }

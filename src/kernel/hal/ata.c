@@ -5,6 +5,8 @@
 #include "debug.h"
 
 static int ata0_present = 0;
+#define ATA_CMD_WRITE_SECTORS 0x30
+#define ATA_CMD_CACHE_FLUSH   0xE7
 
 static ata_device_t ata0_master = {
     .device    = 0,          // master
@@ -39,6 +41,46 @@ static int ata_wait_drq(uint16_t io_base) {
         ata_io_wait_400ns(io_base);
     }
     return -1;
+}
+
+static int ata_write_sector(ata_device_t *ata, uint32_t lba, const void *buf)
+{
+    uint16_t io = ata->io_base;
+
+    if (ata_wait_bsy_clear(io) != 0) return -1;
+
+    outb(io + ATA_REG_DEVICE, 0xE0 | (ata->device << 4) | ((lba >> 24) & 0x0F));
+    ata_io_wait_400ns(io);
+
+    outb(io + ATA_REG_SECCNT, 1);
+    outb(io + ATA_REG_LBA_LO,  (uint8_t)(lba & 0xFF));
+    outb(io + ATA_REG_LBA_MID, (uint8_t)((lba >> 8) & 0xFF));
+    outb(io + ATA_REG_LBA_HI,  (uint8_t)((lba >> 16) & 0xFF));
+    outb(io + ATA_REG_COMMAND, ATA_CMD_WRITE_SECTORS);
+
+    if (ata_wait_drq(io) != 0) return -1;
+
+    const uint16_t *src = (const uint16_t *)buf;
+    for (int i = 0; i < 256; i++) outw(io + ATA_REG_DATA, src[i]);
+
+    ata_io_wait_400ns(io);                               // let BSY rise...
+    if (ata_wait_bsy_clear(io) != 0) return -1;          // ...and wait for the write to finish
+    uint8_t st = inb(io + ATA_REG_STATUS);
+    if (st & (ATA_SR_ERR | ATA_SR_DF)) return -1;
+    return 0;
+}
+
+int ata_write_sectors(block_device_t *dev, uint32_t lba, uint32_t count, const void *buf)
+{
+    if (!dev || !dev->private_data || !buf || count == 0) return -1;
+    ata_device_t *ata = (ata_device_t *)dev->private_data;
+    const uint8_t *p = (const uint8_t *)buf;
+
+    for (uint32_t i = 0; i < count; i++, p += 512)
+        if (ata_write_sector(ata, lba + i, p) != 0) return -1;
+
+    outb(ata->io_base + ATA_REG_COMMAND, ATA_CMD_CACHE_FLUSH);   // once per call, not per sector
+    return ata_wait_bsy_clear(ata->io_base);
 }
 
 // Public read: dev->private_data must point to ata_device_t

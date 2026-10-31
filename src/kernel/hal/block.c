@@ -65,6 +65,7 @@ void block_init(void)
     // Wrap ata0_master as raw disk sda
     memset(&sda, 0, sizeof(sda));
     sda.read_sectors = ata_read_sectors;
+    sda.write_sectors = ata_write_sectors;
     sda.lba_base     = 0;       // raw disk
     sda.sector_size  = 512;
     sda.private_data = ata_get_primary_master();

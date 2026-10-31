@@ -23,3 +23,4 @@ public:
 
 // Demo implementation with fake data, so the UI runs before the kernel side exists.
 IFileBackend& demo_backend();
+IFileBackend& kernel_file_backend();
