@@ -11,7 +11,7 @@ export component TerminalWindow inherits Window {
     background: #0f141a;
 
     property <int> tick: TermState.scroll-tick;
-    changed tick => { lv.content-y = min(0px, lv.height - lv.content-height); }   // stay at the bottom
+    changed tick => { sv.content-y = min(0px, sv.height - sv.content-height); }   // jump to the prompt
 
     init => { input.focus(); }
 
@@ -23,13 +23,30 @@ export component TerminalWindow inherits Window {
                 if (e.text == Key.UpArrow)   { TermState.history(-1); return accept; }
                 if (e.text == Key.DownArrow) { TermState.history(1);  return accept; }
                 if (e.text == Key.Tab)       { TermState.complete();  return accept; }
+                if (e.text == Key.PageUp) {
+                    sv.content-y = min(0px, sv.content-y + sv.height * 0.8);
+                    return accept;
+                }
+                if (e.text == Key.PageDown) {
+                    sv.content-y = max(min(0px, sv.height - sv.content-height), sv.content-y - sv.height * 0.8);
+                    return accept;
+                }
                 return reject;
             }
-            VerticalLayout {
-                padding: 8px;
-                spacing: 4px;
-                lv := ListView {
-                    vertical-stretch: 1;
+
+            sv := Flickable {
+                x: 8px;
+                y: 8px;
+                width: parent.width - 16px;
+                height: parent.height - 16px;
+                content-width: self.width;
+                content-height: max(self.height, (TermState.lines.length + 1) * 18px);
+
+                VerticalLayout {
+                    alignment: start;
+                    width: parent.content-width;
+                    height: parent.content-height;
+
                     for line in TermState.lines : Text {
                         height: 18px;
                         text: line.text;
@@ -37,18 +54,23 @@ export component TerminalWindow inherits Window {
                         overflow: clip;
                         color: line.kind == 1 ? #7ee787 : line.kind == 2 ? #ff7b72 : #d7dde5;
                     }
-                }
-                HorizontalLayout {
-                    height: 22px;
-                    spacing: 6px;
-                    Text { text: TermState.prompt; color: #79c0ff; font-size: 14px; vertical-alignment: center; }
-                    input := TextInput {
-                        horizontal-stretch: 1;
-                        font-size: 14px;
-                        color: white;
-                        single-line: true;
-                        text <=> TermState.input;
-                        accepted => { TermState.submit(self.text); }
+                    HorizontalLayout {
+                        height: 18px;
+                        spacing: 6px;
+                        Text {
+                            text: TermState.prompt;
+                            color: #79c0ff;
+                            font-size: 14px;
+                            vertical-alignment: center;
+                        }
+                        input := TextInput {
+                            horizontal-stretch: 1;
+                            font-size: 14px;
+                            color: white;
+                            single-line: true;
+                            text <=> TermState.input;
+                            accepted => { TermState.submit(self.text); }
+                        }
                     }
                 }
             }

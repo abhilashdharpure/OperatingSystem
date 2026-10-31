@@ -14,17 +14,25 @@ TermController::TermController(slint::ComponentHandle<TerminalWindow> ui)
 
     s.on_submit([this](slint::SharedString line) {
         std::string cmd(line);
+        std::printf("[term] submit '%s'\n", cmd.c_str());          // shows whether Enter reaches this code
+
+        std::string prompt;
         if (auto ui = ui_.lock()) {
             auto& st = (*ui)->global<TermState>();
-            push(std::string(st.get_prompt()) + " " + cmd, 1);
+            prompt = std::string(st.get_prompt());
             st.set_input("");
         }
-        if (!cmd.empty() && (hist_.empty() || hist_.back() != cmd)) hist_.push_back(cmd);
+
+        bool blank = cmd.find_first_not_of(" \t") == std::string::npos;
+        push(blank ? prompt : prompt + " " + cmd, 1);              // blank Enter: just a new prompt line
+        if (blank) return;
+
+        if (hist_.empty() || hist_.back() != cmd) hist_.push_back(cmd);
         hpos_ = hist_.size();
         shell_.run(cmd);
         refresh_prompt();
     });
-
+    
     s.on_history([this](int dir) {
         if (hist_.empty()) return;
         if (dir < 0 && hpos_ > 0) hpos_--;

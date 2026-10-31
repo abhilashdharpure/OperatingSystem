@@ -48,7 +48,10 @@ std::string join(const std::string& d, const std::string& n) { return d == "/" ?
 
 bool is_dir(const std::string& p)
 {
-    DIR* d = opendir(p.c_str());
+    struct stat st;
+    if (stat(p.c_str(), &st) == 0) return S_ISDIR(st.st_mode);    // authoritative when stat works
+
+    DIR* d = opendir(p.c_str());                                  // fallback if stat is unavailable
     if (!d) return false;
     closedir(d);
     return true;
@@ -196,7 +199,11 @@ void Shell::dispatch(const std::vector<std::string>& a)
         bool lng = false;
         std::string dir = cwd_;
         for (size_t i = 1; i < a.size(); i++) { if (a[i] == "-l") lng = true; else dir = resolve(a[i]); }
-        if (!is_dir(dir)) { err("ls: " + dir + ": not a directory"); return; }
+        if (!is_dir(dir)) {
+            if (exists(dir)) { emit(dir.substr(dir.find_last_of('/') + 1)); return; }
+            err("ls: " + dir + ": no such file or directory");
+            return;
+        }
         auto ents = list(dir);
         std::string row;
         for (auto& [name, dirflag] : ents) {

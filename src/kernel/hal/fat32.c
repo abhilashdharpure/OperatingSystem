@@ -12,6 +12,10 @@
 #define O_ACCMODE 3
 #endif
 
+#ifndef O_DIRECTORY
+#define O_DIRECTORY 0200000        /* 0x10000, the Linux value */
+#endif
+
 static int  write_sector(fat32_t *fs, uint32_t fs_lba, const void *buf);
 static void fat_free_chain(fat32_t *fs, uint32_t cl);
 
@@ -592,6 +596,17 @@ static int fat32_open(struct file *f, int flags)
         node->is_dir = 1;
         strcpy(node->name, "/");
     }
+
+    if ((flags & O_DIRECTORY) && !node->is_dir)
+    {
+        kfree(node);
+        return -1;
+    }   // ENOTDIR
+    if (node->is_dir && (flags & O_ACCMODE))
+    {
+        kfree(node);
+        return -1;
+    }   // EISDIR: no write access to folders
 
     node->cur_offset = 0;
     f->private_data = node;

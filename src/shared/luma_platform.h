@@ -322,6 +322,10 @@ inline const wl_keyboard_listener kbd_l = {
             case XKB_KEY_Right: text = "\xEF\x9C\x83"; break;   // U+F703
             case XKB_KEY_Up:    text = "\xEF\x9C\x80"; break;   // U+F700
             case XKB_KEY_Down:  text = "\xEF\x9C\x81"; break;   // U+F701
+            case XKB_KEY_Page_Up:   text = "\xEF\x9C\xAC"; break;   // U+F72C
+            case XKB_KEY_Page_Down: text = "\xEF\x9C\xAD"; break;   // U+F72D
+            case XKB_KEY_Home:      text = "\xEF\x9C\xA9"; break;   // U+F729
+            case XKB_KEY_End:       text = "\xEF\x9C\xAB"; break;   // U+F72B
             default:
                 if (xkb_state_key_get_utf8(g_xs, key + 8, buf, sizeof(buf)) > 0) text = buf;
         }
