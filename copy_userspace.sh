@@ -17,3 +17,5 @@ cp src/applications/settings/build/settings.stripped image/root/bin/settings
 cp src/applications/settings/build/settings.stripped build/x86_64_debug/root/bin/settings
 cp src/applications/editor/build/editor.stripped image/root/bin/editor
 cp src/applications/editor/build/editor.stripped build/x86_64_debug/root/bin/editor
+cp src/applications/terminal/build/terminal.stripped image/root/bin/terminal
+cp src/applications/terminal/build/terminal.stripped build/x86_64_debug/root/bin/terminal

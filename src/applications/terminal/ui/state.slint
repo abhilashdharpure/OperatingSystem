@@ -1,0 +1,11 @@
+export struct TermLine { text: string, kind: int }       // kind: 0 output, 1 command, 2 error
+
+export global TermState {
+    in property <[TermLine]> lines;
+    in property <string> prompt: "/ $";
+    in-out property <string> input;
+    in property <int> scroll-tick: 0;
+    callback submit(string);
+    callback history(int);                                // -1 older, +1 newer
+    callback complete();
+}
