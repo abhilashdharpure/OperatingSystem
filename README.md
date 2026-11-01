@@ -13,6 +13,8 @@
     ├── Sysroot/
     └── Logs/
 
+# Icons 
+  https://www.svgrepo.com/
 
 # Dependency Flow
                     ┌── binutils
