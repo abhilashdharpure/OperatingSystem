@@ -287,8 +287,13 @@ std::string Shell::complete(const std::string& line)
     std::string prefix  = sl == std::string::npos ? word : word.substr(sl + 1);
 
     std::vector<std::string> hits;
-    for (auto& [name, d] : list(resolve(dirpart.empty() ? "." : dirpart)))
+    auto words = tokenize(head);
+    bool dirs_only = !words.empty() && (words[0] == "cd" || words[0] == "rmdir");
+
+    for (auto& [name, d] : list(resolve(dirpart.empty() ? "." : dirpart))) {
+        if (dirs_only && !d) continue;                           // cd / rmdir: folders only
         if (name.compare(0, prefix.size(), prefix) == 0) hits.push_back(name + (d ? "/" : ""));
+    }
     if (hits.empty()) return line;
 
     std::string common = hits[0];

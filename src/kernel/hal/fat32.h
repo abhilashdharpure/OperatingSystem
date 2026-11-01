@@ -67,3 +67,8 @@ static void lfn_prepend_chunk(char *lfn_buf, size_t buf_sz,
                               const uint16_t *name1, size_t n1,
                               const uint16_t *name2, size_t n2,
                               const uint16_t *name3, size_t n3);
+
+int fat32_sys_mkdir (fat32_t *fs, const char *path);
+int fat32_sys_rmdir (fat32_t *fs, const char *path);
+int fat32_sys_unlink(fat32_t *fs, const char *path);
+int fat32_sys_rename(fat32_t *fs, const char *from, const char *to);

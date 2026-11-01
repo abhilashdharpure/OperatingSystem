@@ -11,14 +11,12 @@
 #include "hal/process.h"
 extern Process *current_process;
 
-
-
 static int vfs_count = 0;
 static struct file file_table[MAX_OPEN_FILES]; // actual file objects
 static struct file *boot_fds[MAX_OPEN_FILES];
 _Static_assert(PROC_MAX_FDS >= MAX_OPEN_FILES, "PROC_MAX_FDS too small");
 #define open_files (current_process ? current_process->fds : boot_fds)
-
+#define VFS_MOUNT_PRIV(m) ((m)->private_data)
 
 typedef struct vfs_entry {
     const char *path;                // mount point or device path, e.g., "/"
@@ -580,14 +578,55 @@ void VFS_SetFd(int fd, struct file *file)
         file->refcount = 1;
     open_files[fd] = file;
 }
+static int vfs_resolve(const char *path, struct file_operations **ops, void **priv,
+                       char *sub, size_t sub_sz, int *mnt_out)
+{
+    if (!path || !path[0]) return -ENOENT;
+
+    int mnt = find_mount_for(path);
+    if (mnt < 0) { log_info("VFS", "resolve '%s': no mount", path); return -ENOENT; }
+
+    compute_subpath(path, vfs_table[mnt].path, sub, sub_sz);
+    *ops = vfs_table[mnt].fops;
+    *priv = VFS_MOUNT_PRIV(&vfs_table[mnt]);
+    if (mnt_out) *mnt_out = mnt;
+
+    log_info("VFS", "resolve '%s' -> mount %d ('%s'), sub='%s'", path, mnt, vfs_table[mnt].path, sub);
+    return *ops ? 0 : -ENOENT;
+}
+
+int VFS_Mkdir(const char *path)
+{
+    struct file_operations *ops; void *priv; char sub[256];
+    int r = vfs_resolve(path, &ops, &priv, sub, sizeof sub, NULL);
+    if (r < 0) return r;
+    return ops->mkdir ? ops->mkdir(priv, sub) : -EPERM;
+}
+
+int VFS_Rmdir(const char *path)
+{
+    struct file_operations *ops; void *priv; char sub[256];
+    int r = vfs_resolve(path, &ops, &priv, sub, sizeof sub, NULL);
+    if (r < 0) return r;
+    return ops->rmdir ? ops->rmdir(priv, sub) : -EPERM;
+}
 
 int VFS_Unlink(const char *path)
 {
-    int mnt = find_mount_for(path);
-    if (mnt < 0) return -ENOENT;
-    char sub[256];
-    compute_subpath(path, vfs_table[mnt].path, sub, sizeof(sub));
-    if (!vfs_table[mnt].fops || !vfs_table[mnt].fops->unlink)
-        return -EPERM;
-    return vfs_table[mnt].fops->unlink(NULL, sub);
+    struct file_operations *ops; void *priv; char sub[256];
+    int r = vfs_resolve(path, &ops, &priv, sub, sizeof sub, NULL);
+    if (r < 0) return r;
+    return ops->unlink ? ops->unlink(priv, sub) : -EPERM;
+}
+
+int VFS_Rename(const char *from, const char *to)
+{
+    struct file_operations *o1, *o2; void *p1, *p2;
+    char s1[256], s2[256]; int m1, m2;
+    int r = vfs_resolve(from, &o1, &p1, s1, sizeof s1, &m1);
+    if (r < 0) return r;
+    r = vfs_resolve(to, &o2, &p2, s2, sizeof s2, &m2);
+    if (r < 0) return r;
+    if (m1 != m2) return -EXDEV;                      // renames can't cross mounts
+    return o1->rename ? o1->rename(p1, s1, s2) : -EPERM;
 }

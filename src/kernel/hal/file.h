@@ -41,6 +41,8 @@ struct file_operations {
                 uint64_t flags,
                 uint64_t offset,
                 uint64_t *out_user_va);
-    int  (*unlink)(struct file *f, const char *subpath);   /* NEW */
-
+    int (*mkdir) (void *priv, const char *subpath);
+    int (*rmdir) (void *priv, const char *subpath);
+    int (*unlink)(void *priv, const char *subpath);
+    int (*rename)(void *priv, const char *from, const char *to);
 };

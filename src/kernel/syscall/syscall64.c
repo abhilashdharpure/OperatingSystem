@@ -394,9 +394,6 @@ uint64_t do_syscall(uint64_t nr,
 
     case SYS_flock:
         return 0;
-            
-    case SYS_unlink:
-        return sys_unlink((const char *)a0);
 
     case SYS_accept4:
         return sys_accept4(a0, a1, a2, a3);
@@ -432,6 +429,15 @@ uint64_t do_syscall(uint64_t nr,
     case SYS_exit_group:
         do_exit((int)a0);
 
+
+    case SYS_rename:    return sys_rename((const char *)a0, (const char *)a1);
+    case SYS_mkdir:     return sys_mkdir((const char *)a0, (uint32_t)a1);
+    case SYS_rmdir:     return sys_rmdir((const char *)a0);
+    case SYS_unlink:    return sys_unlink((const char *)a0);
+    case SYS_mkdirat:   return sys_mkdirat((int)a0, (const char *)a1, (uint32_t)a2);
+    case SYS_unlinkat:  return sys_unlinkat((int)a0, (const char *)a1, (int)a2);
+    case SYS_renameat:  return sys_renameat((int)a0, (const char *)a1, (int)a2, (const char *)a3);
+    case SYS_renameat2: return sys_renameat2((int)a0, (const char *)a1, (int)a2, (const char *)a3, (unsigned)a4);
 
     // case SYS_timerfd_create:
     //     return sys_timerfd_create((int)a0, (int)a1);

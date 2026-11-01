@@ -15,14 +15,21 @@ export component TerminalWindow inherits Window {
 
     init => { input.focus(); }
 
+    function cursor-end() {
+        input.set-selection-offsets(input.text.character-count, input.text.character-count);
+    }
+
     VerticalLayout {
         TitleBar { title: "Terminal"; }
         FocusScope {
             vertical-stretch: 1;
+            forward-focus: input;
+            focus-on-click: false;
+            /* capture-key-pressed as above */
             capture-key-pressed(e) => {
-                if (e.text == Key.UpArrow)   { TermState.history(-1); return accept; }
-                if (e.text == Key.DownArrow) { TermState.history(1);  return accept; }
-                if (e.text == Key.Tab)       { TermState.complete();  return accept; }
+                if (e.text == Key.UpArrow)   { TermState.history(-1); cursor-end(); return accept; }
+                if (e.text == Key.DownArrow) { TermState.history(1);  cursor-end(); return accept; }
+                if (e.text == Key.Tab)       { TermState.complete();  cursor-end(); return accept; }
                 if (e.text == Key.PageUp) {
                     sv.content-y = min(0px, sv.content-y + sv.height * 0.8);
                     return accept;
@@ -76,4 +83,6 @@ export component TerminalWindow inherits Window {
             }
         }
     }
+
+    TouchArea { clicked => { input.focus(); } }
 }

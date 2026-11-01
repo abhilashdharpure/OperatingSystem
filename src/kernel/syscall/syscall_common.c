@@ -1679,15 +1679,6 @@ long sys_eventfd2(unsigned int initval, int flags)
     return fd;
 }
 
-uint64_t sys_unlink(const char *path)
-{
-    if (!path) return (uint64_t)-EFAULT;
-    int r = unix_unbind_path(path);          /* socket names live in the unix registry */
-    if (r == 0) return 0;
-    r = VFS_Unlink(path);                    /* tmpfs files */
-    return (uint64_t)(int64_t)(r < 0 ? r : 0);
-}
-
 // long sys_timerfd_create(int clockid, int flags)
 // {
 //     int fd = VFS_AllocFd();

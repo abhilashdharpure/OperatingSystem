@@ -16,6 +16,19 @@
 #define O_DIRECTORY 0200000        /* 0x10000, the Linux value */
 #endif
 
+#ifndef ENOENT
+#define EPERM      1
+#define ENOENT     2
+#define EIO        5
+#define EBUSY     16
+#define EEXIST    17
+#define EXDEV     18
+#define ENOTDIR   20
+#define EISDIR    21
+#define EINVAL    22
+#define ENOTEMPTY 39
+#endif
+
 static int  write_sector(fat32_t *fs, uint32_t fs_lba, const void *buf);
 static void fat_free_chain(fat32_t *fs, uint32_t cl);
 
@@ -59,6 +72,9 @@ typedef struct {
 
 // Forward declarations
 static int read_sector(fat32_t *fs, uint32_t fs_lba, void *buf);
+
+static fat32_t *g_fat32_root;                         // the mounted root filesystem
+static fat32_t *pick_fs(void *p) { return p ? (fat32_t *)p : g_fat32_root; }
 
 // Cluster -> FS-relative LBA
 static uint32_t fat32_cluster_to_lba(fat32_t *fs, uint32_t cluster)
@@ -284,6 +300,7 @@ fat32_t* fat32_init_device(block_device_t *bdev)
         return NULL;
     }
 
+    g_fat32_root = fs;
     return fs;
 }
 
@@ -839,6 +856,30 @@ static int fat_stat(struct file *f, struct kstat *st)
     return 0;
 }
 
+static int fat32_op_mkdir (void *p, const char *s)
+{
+    fat32_t *fs = pick_fs(p);
+    return fs ? fat32_sys_mkdir (fs, s) : -EIO;
+}
+
+static int fat32_op_rmdir(void *p, const char *s)
+{
+    fat32_t *fs = pick_fs(p);
+    return fs ? fat32_sys_rmdir (fs, s) : -EIO;
+}
+
+static int fat32_op_unlink(void *p, const char *s)
+{
+    fat32_t *fs = pick_fs(p);
+    return fs ? fat32_sys_unlink(fs, s) : -EIO;
+}
+
+static int fat32_op_rename(void *p, const char *a, const char *b)
+{
+    fat32_t *fs = pick_fs(p);
+    return fs ? fat32_sys_rename(fs, a, b) : -EIO;
+}
+
 static struct file_operations fat32_fops = {
     .open    = fat32_open,
     .close   = fat32_close,
@@ -847,6 +888,10 @@ static struct file_operations fat32_fops = {
     .ioctl   = NULL,
     .readdir = fat32_readdir,
     .stat    = fat_stat,
+    .mkdir   = fat32_op_mkdir,
+    .rmdir   = fat32_op_rmdir,
+    .unlink  = fat32_op_unlink,
+    .rename  = fat32_op_rename,
 };
 
 struct file_operations *get_fat32_fops(void)
@@ -1379,4 +1424,55 @@ out:
     if (f->position > n->size) n->size = (uint32_t)f->position;
     node_flush(n);
     return done ? (int)done : -1;
+}
+
+int fat32_sys_mkdir(fat32_t *fs, const char *path)
+{
+    fat32_node_t n;
+    uint32_t dir; char leaf[NAME_MAX];
+    if (lookup_path(fs, path, &n) == 0) return -EEXIST;
+    if (resolve_parent(fs, path, &dir, leaf) != 0) return -ENOENT;     // missing parent folder
+    return fat32_mkdir(fs, path) == 0 ? 0 : -EIO;
+}
+
+int fat32_sys_rmdir(fat32_t *fs, const char *path)
+{
+    fat32_node_t n;
+    if (lookup_path(fs, path, &n) != 0) return -ENOENT;
+    if (!n.is_dir) return -ENOTDIR;
+    if (!n.dirent_lba) return -EBUSY;                                  // the root
+    if (!dir_is_empty(fs, n.first_cluster)) return -ENOTEMPTY;
+    return fat32_unlink(fs, path) == 0 ? 0 : -EIO;
+}
+
+int fat32_sys_unlink(fat32_t *fs, const char *path)
+{
+    fat32_node_t n;
+    if (lookup_path(fs, path, &n) != 0) return -ENOENT;
+    if (n.is_dir) return -EISDIR;
+    return fat32_unlink(fs, path) == 0 ? 0 : -EIO;
+}
+
+int fat32_sys_rename(fat32_t *fs, const char *from, const char *to)
+{
+    fat32_node_t src, dst;
+    if (lookup_path(fs, from, &src) != 0) return -ENOENT;
+    if (!src.dirent_lba) return -EBUSY;
+
+    if (src.is_dir) {                                                  // never move a folder into itself
+        size_t fl = strlen(from);
+        if (strncmp(to, from, fl) == 0 && to[fl] == '/') return -EINVAL;
+    }
+
+    if (lookup_path(fs, to, &dst) == 0) {
+        if (dst.dirent_lba == src.dirent_lba && dst.dirent_off == src.dirent_off) return 0;   // same entry
+        if (dst.is_dir && !src.is_dir) return -EISDIR;
+        if (!dst.is_dir && src.is_dir) return -ENOTDIR;
+        if (dst.is_dir) return -EEXIST;
+        if (fat32_unlink(fs, to) != 0) return -EIO;                   // replace a file (not atomic)
+    } else {
+        uint32_t dir; char leaf[NAME_MAX];
+        if (resolve_parent(fs, to, &dir, leaf) != 0) return -ENOENT;
+    }
+    return fat32_rename(fs, from, to) == 0 ? 0 : -EIO;
 }
