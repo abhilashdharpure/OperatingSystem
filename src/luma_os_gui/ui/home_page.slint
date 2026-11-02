@@ -65,28 +65,36 @@ component AppIcon inherits Rectangle {
     callback activated();
     callback new-instance();
 
-    width: 60px;
-    height: 60px;
+    width: 50px;
+    height: 50px;
     border-radius: 8px;
     background: ta.pressed ? #2b6aa8 :
                 root.app-state.running > 0 ? (root.app-state.minimized ? #2a3340 : #1f4f80) :
                 ta.has-hover ? #4a4a4a : transparent;
     animate background { duration: 120ms; }
 
+    //Image {
+    //    source: root.icon;
+    //    width: parent.width - 5px;
+    //    height: parent.height - 5px;
+    //    x: (parent.width - self.width) / 2;
+    //    y: (parent.height - self.height) / 2;
+    //    image-fit: cover;
+    //    opacity: root.app-state.minimized ? 0.55 : 1.0;
+    //}
+
     Image {
         source: root.icon;
-        width: parent.width - 10px;
-        height: parent.height - 10px;
-        x: (parent.width - self.width) / 2;
-        y: (parent.height - self.height) / 2;
-        image-fit: fill;
+        width: parent.width;
+        height: parent.height;
+        image-fit: contain;
         opacity: root.app-state.minimized ? 0.55 : 1.0;
     }
 
     // one dot per window, up to three
     HorizontalLayout {
         x: 0px;
-        y: parent.height - 9px;
+        y: parent.height - 5px;
         width: parent.width;
         height: 6px;
         alignment: center;
@@ -405,27 +413,22 @@ export component HomePage inherits Rectangle {
                 spacing: 8px;
 
                 RoundedLineEdit { 
-                    width: 200px;
+                    width: parent.width * (0.18);
                     height: 40px;
                     text <=> HomeState.user-name; 
                 }
 
-                Spacer { width: 150px; }
+                Spacer { width: parent.width * (0.05); }
 
 
                 Rectangle {
-                    width: 600px;
-                    height: 60px;
+                    width: parent.width * (0.45);
+                    height: 50px;
                     border-radius: 10px;
                     background: #383636;
 
                     HorizontalLayout {
                         alignment: center;
-                        //padding-top: 5px;
-                        //padding-bottom: 5px;
-                        //x: parent.width / 2 - self.width / 2;
-                        //y: parent.height / 2 - self.height / 2;
-
                         spacing: 8px;
 
                         AppIcon {
@@ -479,11 +482,11 @@ export component HomePage inherits Rectangle {
                     }
                 }
 
-                Spacer { width: 150px; }
+                Spacer { width: parent.width * (0.05);}
 
                 Rectangle {
                     y: (parent.height - self.height) / 2;
-                    width: 200px;
+                    width: parent.width * (0.18);
                     height: 40px;
                     border-radius: 10px;
                     background: #b78cdd;
