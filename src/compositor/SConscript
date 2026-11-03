@@ -48,6 +48,8 @@ target_env = Environment(
     CPPPATH = [
         '.', 'src', generated_dir,
         os.path.join(sysroot, 'usr/include'),
+        os.path.abspath('../shared'),
+        os.path.abspath('../shared/drm/compat'),
     ],
 
     LIBPATH = [
@@ -171,6 +173,7 @@ sources = [
     'src/compositor_input.cpp',
     'src/compositor_helper.cpp',
     'src/builtin_client.cpp',
+    'src/drm_output.cpp'
 ] + generated_sources
 
 # Program

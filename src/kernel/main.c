@@ -23,6 +23,7 @@
 #include "hal/vfs.h"
 #include "memfile.h"
 #include "hal/partition.h"
+#include "hal/drm.h"
 
 #include <hal/elf.h>
 #include <hal/process.h>
@@ -64,9 +65,6 @@ static MemoryRegion g_memoryRegions[MAX_MEMORY_REGIONS];
 
 __attribute__((section(".boot64_stub_data")))
 static VbeModeInfo fb_low;
-
-// FOr Framebuffer
-#define KERNEL_FB_VA 0xFFFFFFFFC0000000ULL
 
 void start(BootParams* bootParams, VbeModeInfo* fb_info);
 
@@ -378,6 +376,8 @@ void start(BootParams* bootParams, VbeModeInfo* fb_info)
     gfx_init();            // initialize graphics layer
 
     display_devices_init();
+    drm_init();
+
     battery_devices_init();
 
     log_info("MAIN", "Framebuffer ready: %ux%u", fb_dev.width, fb_dev.height);

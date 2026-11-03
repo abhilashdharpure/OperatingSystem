@@ -20,3 +20,4 @@ void fb_init(VbeModeInfo* info);
 void fb_put_pixel(int x, int y, uint32_t color);
 void fb_clear(uint32_t color);
 void fb_draw_rect(int x, int y, int width, int height, uint32_t color);
+int map_kernel_range_to_user(const void *kva, uint64_t length, uint64_t prot, uint64_t *out_user_va);

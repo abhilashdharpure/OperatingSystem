@@ -97,6 +97,35 @@ struct file_operations fb_fops = {
     .mmap  = fb_mmap,
 };
 
+int map_kernel_range_to_user(const void *kva, uint64_t length, uint64_t prot, uint64_t *out_user_va)
+{
+    if (!current_process) return -1;
+    if (current_process->mmap_base == 0)
+        current_process->mmap_base = USER_MMAP_BASE;
+
+    uint64_t len   = (length + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+    uint64_t start = (current_process->mmap_base + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+
+    uint64_t pte_flags = PAGE_PRESENT | PAGE_USER | PAGE_SHARED;
+    if (prot & PROT_WRITE) pte_flags |= PAGE_RW;
+
+    for (uint64_t off = 0; off < len; off += PAGE_SIZE) {
+        uint64_t pa = get_mapped_phys(kernel_pml4_virt, kva + off);
+        if (!pa) {
+            log_error("FB", "fb_mmap: no phys for kva=0x%llx",
+                      (unsigned long long)(kva + off));
+            return -1;
+        }
+        if (map_page(current_process->page_directory, start + off,
+                     pa & ~(PAGE_SIZE - 1), pte_flags) != 0)
+            return -1;
+    }
+
+    shared_map_add(start, len);
+    current_process->mmap_base = start + len;
+    *out_user_va = start;
+    return 0;
+}
 
 void fb_init(VbeModeInfo* info)
 {

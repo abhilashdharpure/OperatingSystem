@@ -4,6 +4,7 @@
 #include "paging.h"
 #include <stdint.h>
 #include <stddef.h>
+
 #define MEM_USABLE   1
 #define MEM_RESERVED 2
 #define MEM_ACPI     3
@@ -11,7 +12,6 @@
 #define MEM_BAD      5
 
 
-#define PAGE_SIZE        4096
 #define PMM_FREE_START   0x00100000ULL      // 1 MiB
 #define PMM_MAX_IDENTITY 0x20000000ULL      // 512 MiB
 

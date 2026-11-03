@@ -28,10 +28,12 @@
 #include <algorithm>
 #include <climits>
 #include <time.h>
+#include <map>
+
 #include "builtin_client.h"
 #include "luma-shell-protocol.h"
 #include "luma_settings-protocol.h"
-#include <map>
+#include "drm_output.h"
 
 using namespace std;
 
@@ -160,26 +162,50 @@ static void draw_default_cursor(LumaCompositor* comp)       // into comp_framebu
                 comp->output_width, comp->output_height, s, ox, oy);
     g_last_ox = ox; g_last_oy = oy; g_last_shape = sh; g_have_last = true;
 }
-
-static void cursor_fast_update(LumaCompositor* comp)        // straight into /dev/fb0
+static void cursor_fast_update(LumaCompositor* comp)
 {
-    if (!g_fb_ptr || scene_fb.empty()) return;
-    int W = comp->output_width;
-    int maxw = std::min<int>(W, g_fb_w), maxh = std::min<int>(comp->output_height, g_fb_h);
+    if (scene_fb.empty()) return;
+    bool drm = g_drm.ready();
+    uint8_t* base; size_t pitch; int maxw, maxh;
+    if (drm) {
+        base = g_drm.front_map(); pitch = g_drm.front_pitch();
+        maxw = g_drm.width(); maxh = g_drm.height();
+    } else if (g_fb_ptr) {
+        base = g_fb_ptr; pitch = g_fb_pitch;
+        maxw = std::min<int>(comp->output_width, g_fb_w);
+        maxh = std::min<int>(comp->output_height, g_fb_h);
+    } else return;
 
-    if (g_have_last) {                                      // restore what was under the old cursor
+    int W = comp->output_width;
+    int bx1 = INT_MAX, by1 = INT_MAX, bx2 = 0, by2 = 0;           // dirty bounding box
+
+    if (g_have_last) {                                            // restore what was under the old cursor
         const CursorShape& o = g_shapes[g_last_shape];
         int x0 = std::max(0, g_last_ox), x1 = std::min(maxw, g_last_ox + o.w);
         int y0 = std::max(0, g_last_oy), y1 = std::min(maxh, g_last_oy + o.h);
         for (int y = y0; y < y1 && x1 > x0; y++)
-            memcpy(g_fb_ptr + (size_t)y * g_fb_pitch + (size_t)x0 * 4,
-                   &scene_fb[(size_t)y * W + x0], (size_t)(x1 - x0) * 4);
+            memcpy(base + (size_t)y * pitch + (size_t)x0 * 4, &scene_fb[(size_t)y * W + x0], (size_t)(x1 - x0) * 4);
+        if (x1 > x0 && y1 > y0) {
+            bx1 = std::min(bx1, x0); by1 = std::min(by1, y0);
+            bx2 = std::max(bx2, x1); by2 = std::max(by2, y1);
+        }
     }
+
     int sh = pick_cursor(comp);
     const CursorShape& s = g_shapes[sh];
     int ox = (int)comp->cursor_x - s.hx, oy = (int)comp->cursor_y - s.hy;
-    cursor_blit(g_fb_ptr, g_fb_pitch, maxw, maxh, s, ox, oy);
+    cursor_blit(base, pitch, maxw, maxh, s, ox, oy);
+    {
+        int x0 = std::max(0, ox), x1 = std::min(maxw, ox + s.w);
+        int y0 = std::max(0, oy), y1 = std::min(maxh, oy + s.h);
+        if (x1 > x0 && y1 > y0) {
+            bx1 = std::min(bx1, x0); by1 = std::min(by1, y0);
+            bx2 = std::max(bx2, x1); by2 = std::max(by2, y1);
+        }
+    }
     g_last_ox = ox; g_last_oy = oy; g_last_shape = sh; g_have_last = true;
+
+    if (drm && bx2 > bx1 && by2 > by1) g_drm.dirty(bx1, by1, bx2, by2);
 }
 
 void compositor_present(LumaCompositor* comp)
@@ -296,6 +322,14 @@ void send_keymap_to_client(wl_resource* keyboard_res)
 
 void fb_flush(LumaCompositor* comp)
 {
+    // prefer DRM
+    if (g_drm.ready()) {
+        if (!g_drm.present(comp_framebuffer.data(), comp->output_width))
+            comp->needs_repaint = true;            // a flip is pending: retried from on_drm_event()
+        return;
+    }
+
+    // Below code for /fb/dev
     if (!g_fb_ptr) return;
     int w = std::min<int>(comp->output_width,  g_fb_w);
     int h = std::min<int>(comp->output_height, g_fb_h);
@@ -2612,6 +2646,14 @@ static void bind_luma_settings(wl_client* client, void* data, uint32_t, uint32_t
         luma_settings_send_changed(res, k.c_str(), v.c_str());
 }
 
+static int on_drm_event(int, uint32_t, void* data)
+{
+    auto* comp = static_cast<LumaCompositor*>(data);
+    g_drm.drain_events();
+    if (comp->needs_repaint) compositor_repaint(comp);       // a repaint was skipped while the flip was pending
+    return 0;
+}
+
 bool luma_init(LumaCompositor* comp)
 {
     std::cout << "[LumaCompositor] init: output_width=" << comp->output_width
@@ -2693,6 +2735,9 @@ bool luma_init(LumaCompositor* comp)
     std::cout << "[LumaCompositor] Using Wayland socket: "<<displayName<<std::endl;
 
     comp->loop = wl_display_get_event_loop(comp->display);
+
+    if (g_drm.ready())
+        wl_event_loop_add_fd(comp->loop, g_drm.fd(), WL_EVENT_READABLE, on_drm_event, comp);
 
 
     comp->output_global = wl_global_create(comp->display,

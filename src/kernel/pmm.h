@@ -2,7 +2,6 @@
 #include <stdint.h>
 #include <boot/bootparams.h>
 
-#define PAGE_SIZE 4096
 
 void pmm_init(MemoryInfo* mem);
 void pmm_mark_all_used(void);

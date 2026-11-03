@@ -4,5 +4,10 @@
 
 uint64_t get_system_time(void) 
 {
-    get_system_time_us();
+    return get_system_time_us();
+}
+
+uint64_t get_system_time_ms(void) 
+{
+    return get_system_time_us() / 1000;
 }

@@ -21,6 +21,8 @@ env.Append(
     CPPPATH=[
         env.Dir('.').srcnode(),
         env['PROJECTDIR'].Dir('src/libs'),
+        env['PROJECTDIR'].Dir('src/shared'),
+        env['PROJECTDIR'].Dir('src/shared/drm/compat'),
     ],
 )
 

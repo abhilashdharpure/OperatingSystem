@@ -12,4 +12,5 @@ struct timespec {
 };
 
 uint64_t get_system_time(void);
+uint64_t get_system_time_ms(void);
 
