@@ -23,6 +23,9 @@ export global SettingsState {
     in-out property <int> pointer-speed: 50;      // 0..100, C++ maps to a multiplier
     in-out property <int> key-repeat-rate: 50;
 
+    in property <[string]> display-modes;
+    in-out property <string> display-mode;
+
     callback setting-changed(string, string);     // key, value: one generic path to C++
     callback page-opened(int);
 }

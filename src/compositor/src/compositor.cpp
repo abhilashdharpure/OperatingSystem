@@ -329,6 +329,13 @@ void fb_flush(LumaCompositor* comp)
         return;
     }
 
+    static bool warned = false;
+    // if (!warned)
+    {
+        std::cout << "[LumaCompositor] fb_flush: using /dev/fb0\n";
+        warned = true;
+    }
+
     // Below code for /fb/dev
     if (!g_fb_ptr) return;
     int w = std::min<int>(comp->output_width,  g_fb_w);
@@ -2654,6 +2661,38 @@ static int on_drm_event(int, uint32_t, void* data)
     return 0;
 }
 
+void compositor_apply_mode(LumaCompositor* comp, int w, int h)
+{
+    if (!g_drm.ready() || !g_drm.set_mode(w, h)) return;
+    comp->output_width = g_drm.width();
+    comp->output_height = g_drm.height();
+    size_t n = (size_t)comp->output_width * comp->output_height;
+    comp_framebuffer.assign(n, 0xFF000000);
+    scene_fb.assign(n, 0xFF000000);
+    bg_cache.assign(n, 0xFF101A2C);                        // the boot screen no longer fits
+    comp->cursor_x = std::min<double>(comp->cursor_x, comp->output_width - 1);
+    comp->cursor_y = std::min<double>(comp->cursor_y, comp->output_height - 1);
+    g_have_last = false;
+
+    for (my_output* o : comp->client_outputs) {            // tell clients about the new size
+        o->width = comp->output_width; o->height = comp->output_height;
+        wl_output_send_mode(o->resource, WL_OUTPUT_MODE_CURRENT | WL_OUTPUT_MODE_PREFERRED,
+                            o->width, o->height, o->refresh_rate);
+        if (wl_resource_get_version(o->resource) >= 2) wl_output_send_done(o->resource);
+    }
+    for (my_surface* s : comp->surfaces) {                 // the home screen and maximized windows follow the output
+        if (!s->toplevel_res || !s->xdg_surface_res) continue;
+        if (s->background || s->is_maximized) {
+            send_toplevel_configure(s->toplevel_res, comp->output_width, comp->output_height,
+                                    true, false, s->is_maximized, false);
+            xdg_surface_send_configure(s->xdg_surface_res, wl_display_next_serial(comp->display));
+        }
+    }
+    wl_display_flush_clients(comp->display);
+    comp->needs_repaint = true;
+    compositor_repaint(comp);
+}
+
 bool luma_init(LumaCompositor* comp)
 {
     std::cout << "[LumaCompositor] init: output_width=" << comp->output_width
@@ -2694,6 +2733,12 @@ bool luma_init(LumaCompositor* comp)
     std::cout << "[LumaCompositor] After comp_framebuffer assign"<< std::endl;
 
     capture_boot_screen(comp);
+
+    if (g_drm.open_device("/dev/dri/card0", comp->output_width, comp->output_height,
+                          bg_cache.data(), comp->output_width))
+        std::cout << "[LumaCompositor] output: DRM/KMS " << g_drm.width() << "x" << g_drm.height() << "\n";
+    else
+        std::cout << "[LumaCompositor] output: /dev/fb0 (DRM not available)\n";
 
     comp->fb_stride = comp->output_width * 4;  // ARGB8888 = 4 bytes/pixel
     // Start SDL preview window at e.g. 1280x720

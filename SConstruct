@@ -194,6 +194,8 @@ def run_qemu(target, source, env):
         "-serial", "mon:stdio",
         "-monitor", "none",
         "-no-reboot",
+        "-vga", "none",
+        "-device", "VGA,vgamem_mb=32",
     ])
 
     return None

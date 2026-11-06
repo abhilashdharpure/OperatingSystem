@@ -119,4 +119,8 @@ void SettingsController::apply_remote(const std::string& k, const std::string& v
     else if (k == "sound.volume")         s.set_volume(n);
     else if (k == "sound.muted")          s.set_muted(n != 0);
     else if (k == "network.wifi")         s.set_wifi_on(n != 0);
+    else if (k == "display.mode") 
+    {
+        //VectorModel<SharedString>
+    }
 }

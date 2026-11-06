@@ -72,6 +72,17 @@ export component DisplayPage inherits VerticalLayout {
         text: "Resolution is read-only until a display driver can change modes.";
         color: #8ea0b2; font-size: 12px; wrap: word-wrap;
     }
+
+    HorizontalLayout {
+        spacing: 8px; alignment: start; height: 36px;
+        for m in SettingsState.display-modes : NavItem {
+            width: 110px;
+            label: m;
+            selected: SettingsState.display-mode == m;
+            accent: Theme.accent-color;
+            clicked => { SettingsState.display-mode = m; SettingsState.setting-changed("display.mode", m); }
+        }
+    }
 }
 
 export component AppearancePage inherits VerticalLayout {

@@ -62,31 +62,12 @@ int sys_exit_group(int code) {
     return 0;
 }
 
-// long sys_ioctl(int fd, unsigned long req, unsigned long arg)
-// {
-//     log_info("IOCTL", "sys_ioctl called fd = %d, req = %ld, arg = %ld", fd, req, arg);
-//     struct file *f = VFS_GetFile(fd);
-//     if (!f || !f->fops || !f->fops->ioctl)
-//     {
-//         log_info("IOCTL", "sys_ioctl returning -ENOTTY");
-//         return -ENOTTY;
-//     }
-        
-//     long returnValue = f->fops->ioctl(f, (int)req, (void *)arg);
-//     log_info("IOCTL", "sys_ioctl returning %d", returnValue);
-
-//     // log_info("SYSCALL", "writev fd=%d iov=%p cnt=%d", fd, user_iov, iovcnt);
-
-
-//     return returnValue;
-// }
-
 long sys_ioctl(uint64_t fd, uint64_t request, uint64_t arg)
 {
-    log_info("SYSCALL", "sys_ioctl fd=%llu req=0x%llx arg=0x%llx",
-             (unsigned long long)fd,
-             (unsigned long long)request,
-             (unsigned long long)arg);
+    // log_info("SYSCALL", "sys_ioctl fd=%llu req=0x%llx arg=0x%llx",
+    //          (unsigned long long)fd,
+    //          (unsigned long long)request,
+    //          (unsigned long long)arg);
 
     // Validate FD
     if (!VFS_IsValidFd((int)fd)) {
@@ -99,13 +80,17 @@ long sys_ioctl(uint64_t fd, uint64_t request, uint64_t arg)
             log_info("SYSCALL", "sys_ioctl: fake success for stdio fd=%llu", fd);
             return 0;
         }
-
+        
+        log_info("SYSCALL", "sys_ioctl 1");
         return -EBADF;
     }
 
     struct file *f = VFS_GetFile((int)fd);
     if (!f)
+    {
+        log_info("SYSCALL", "sys_ioctl 2");
         return -EBADF;
+    }
 
     // ✅ 1. If driver provides ioctl → use it
     if (f->fops && f->fops->ioctl) {
@@ -149,6 +134,7 @@ long sys_ioctl(uint64_t fd, uint64_t request, uint64_t arg)
                 copy_to_user(arg, &ws, sizeof(ws));
             }
 
+            log_info("SYSCALL", "sys_ioctl 3");
             return 0;
         }
 
@@ -159,13 +145,17 @@ long sys_ioctl(uint64_t fd, uint64_t request, uint64_t arg)
         {
             int val = 0;
             if (copy_from_user(&val, (void *)arg, sizeof(int)) != 0)
+            {
+                log_info("SYSCALL", "sys_ioctl 4");
                 return -EFAULT;
+            }
 
             if (val)
                 f->flags |= O_NONBLOCK;
             else
                 f->flags &= ~O_NONBLOCK;
 
+            log_info("SYSCALL", "sys_ioctl 5");
             return 0;
         }
 
@@ -178,6 +168,8 @@ long sys_ioctl(uint64_t fd, uint64_t request, uint64_t arg)
 
             // If driver supports poll/read, you can improve this later
             copy_to_user(arg, &available, sizeof(int));
+
+            log_info("SYSCALL", "sys_ioctl 6");
             return 0;
         }
 

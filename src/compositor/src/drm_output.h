@@ -1,6 +1,9 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
+#include <vector>
+#include <utility>
+#include <drm/drm_mode.h>
 
 class DrmOutput {
 public:
@@ -21,8 +24,11 @@ public:
     uint8_t* front_map() { return buf_[front_].map; }
     size_t   front_pitch() const { return buf_[front_].pitch; }
     void     dirty(int x1, int y1, int x2, int y2);
+    bool set_mode(int w, int h);
+    std::vector<std::pair<int, int>> mode_sizes() const;
 
 private:
+
     struct Buf { uint32_t handle = 0, fb = 0, pitch = 0; size_t size = 0; uint8_t* map = nullptr; };
     bool make_buf(Buf& b);
     bool fail(const char* what);
@@ -33,6 +39,8 @@ private:
     int front_ = 0;
     bool pending_ = false;
     int64_t pending_since_ms_ = 0;
+    void release(Buf& b);
+    std::vector<drm_mode_modeinfo> modes_;
 };
 
 extern DrmOutput g_drm;

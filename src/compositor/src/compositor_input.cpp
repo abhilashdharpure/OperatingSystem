@@ -8,13 +8,14 @@
 #include <algorithm>
 #include "compositor.h"
 #include <sched.h>
+#include "drm_output.h"
 
 #include <linux/input.h>
 
 static constexpr int SCREEN_WIDTH_TEMP = 1920;
 static constexpr int SCREEN_HEIGHT_TEMP = 1080;
 int count = 1;
-
+extern DrmOutput g_drm;
 static double g_pdx = 0, g_pdy = 0;
 double g_pointer_scale = 1.0;                              // near g_pdx / g_pdy
 
@@ -29,6 +30,17 @@ static void compositor_keyboard_event(LumaCompositor* comp, InputEvent* ev)
 
     if (ev->type != EV_KEY) return;
     if (!comp->keyboard_focused_surface) return;
+
+    if (ev->type == EV_KEY && ev->value == 1 && ev->code == 87) {      // F11: next mode
+        auto modes = g_drm.mode_sizes();
+        for (size_t i = 0; i < modes.size(); i++)
+            if (modes[i].first == comp->output_width && modes[i].second == comp->output_height) {
+                auto next = modes[(i + 1) % modes.size()];
+                compositor_apply_mode(comp, next.first, next.second);     // expose this function in compositor.h
+                break;
+            }
+        return;
+    }
 
     wl_resource* kbd = get_focused_keyboard(comp);
     if (!kbd) return;

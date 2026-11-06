@@ -5,10 +5,12 @@
 #include "drivers/display/display.h"
 #include "debug.h"
 #include "errno.h"
+#include "paging.h"
 #include "kmalloc.h"
 #include "string.h"
 #include "file.h"
 #include "vfs.h"
+#include "drivers/display/bochs.h"
 
 #ifndef EFAULT
 #define EFAULT 14
@@ -33,14 +35,6 @@
 #endif
 #define K_EAGAIN 11
 
-/* ---------------- ADAPT these to your kernel ---------------- */
-static inline uint8_t *scanout_base(void) { return (uint8_t *)KERNEL_FB_VA; }   // kernel VA of the mapped framebuffer
-static inline uint64_t drm_now_ms(void)   { return get_system_time_ms(); }      // monotonic milliseconds
-// Same page loop as your fb_mmap: for each 4 KB page, phys = get_mapped_phys(kva + off), map it into the
-// current process (user, read/write, marked shared so process teardown never frees it). Returns 0 or -errno.
-extern int map_kernel_range_to_user(const void *kva, uint64_t len, uint64_t prot, uint64_t *out_user_va);
-extern uint8_t g_edid[128];
-extern int     g_edid_valid;
 /* ------------------------------------------------------------ */
 
 #define CONN_ID    10
@@ -51,6 +45,58 @@ extern int     g_edid_valid;
 #define MAX_FB     16
 #define MAP_STRIDE 0x4000000ULL          /* each dumb buffer owns 64 MB of mmap-offset space */
 #define VBLANK_MS  16
+
+
+extern uint32_t fb_mapped_bytes(void);
+
+static int      g_bochs, g_dbl_tried;
+static uint32_t g_cur_w, g_cur_h, g_pitch;
+static int      g_frames = 1, g_visible = 0;
+static uint32_t g_vram;
+static struct drm_mode_modeinfo g_modes[8];
+static int      g_nmodes;
+
+/* ---- backing memory for dumb buffers ---- */
+#define DRM_VA_BASE   0xFFFFFFFFC4000000ULL      /* 64 MB above KERNEL_FB_VA: check nothing else maps here */
+#define SLOT_VA_SIZE  (16ULL << 20)              /* largest dumb buffer: 16 MB (1920x1080x4 is 8.3 MB) */
+#define DRM_PAGE      4096ULL
+
+extern uint64_t *kernel_pml4_virt;
+extern uint64_t pmm_alloc_page(void);            /* ADAPT: physical address, 0 on failure */
+extern void     pmm_free_page(uint64_t pa);      /* ADAPT */
+
+static int      g_slot_busy[MAX_DUMB];           /* global: every open file shares the window */
+static uint32_t g_slot_pages[MAX_DUMB];          /* pages already mapped in each slot; they are kept for reuse */
+
+static uint8_t *slot_va(int slot) { return (uint8_t *)(DRM_VA_BASE + (uint64_t)slot * SLOT_VA_SIZE); }
+
+static int slot_ensure(int slot, size_t bytes)
+{
+    uint32_t need = (uint32_t)((bytes + DRM_PAGE - 1) / DRM_PAGE);
+    while (g_slot_pages[slot] < need) {
+        uint64_t pa = pmm_alloc_page();
+        if (!pa) return -ENOMEM;
+        uint64_t va = DRM_VA_BASE + (uint64_t)slot * SLOT_VA_SIZE + (uint64_t)g_slot_pages[slot] * DRM_PAGE;
+        if (map_page(kernel_pml4_virt, va, pa, PAGE_PRESENT | PAGE_RW) != 0) {
+            pmm_free_page(pa);
+            return -ENOMEM;
+        }
+        g_slot_pages[slot]++;
+    }
+    return 0;
+}
+
+static const struct { uint16_t w, h; } k_mode_table[] = {
+    { 640, 480 }, { 800, 600 }, { 1024, 768 }, { 1280, 720 }, { 1366, 768 },
+};   /* keep this list at or below what the client shm pools can hold, see the cautions below */
+
+/* ---------------- ADAPT these to your kernel ---------------- */
+static inline uint64_t drm_now_ms(void)   { return get_system_time_ms(); }      // monotonic milliseconds
+// Same page loop as your fb_mmap: for each 4 KB page, phys = get_mapped_phys(kva + off), map it into the
+// current process (user, read/write, marked shared so process teardown never frees it). Returns 0 or -errno.
+extern int map_kernel_range_to_user(const void *kva, uint64_t len, uint64_t prot, uint64_t *out_user_va);
+extern uint8_t g_edid[128];
+extern int     g_edid_valid;
 
 typedef struct {
     int used, destroyed, fb_refs;
@@ -98,6 +144,47 @@ static void fill_mode(struct drm_mode_modeinfo *m)
     ksnprintf(m->name, DRM_DISPLAY_MODE_LEN, "%ux%u", w, h);
 }
 
+static void fill_mode_wh(struct drm_mode_modeinfo *m, uint32_t w, uint32_t h, int preferred)
+{
+    memset(m, 0, sizeof *m);
+    m->hdisplay = w; m->hsync_start = w + 16; m->hsync_end = w + 112; m->htotal = w + 160;
+    m->vdisplay = h; m->vsync_start = h + 3;  m->vsync_end = h + 9;   m->vtotal = h + 30;
+    m->vrefresh = 60;
+    m->clock = (uint32_t)((uint64_t)m->htotal * m->vtotal * 60 / 1000);
+    m->type = DRM_MODE_TYPE_DRIVER | (preferred ? DRM_MODE_TYPE_PREFERRED : 0);
+    ksnprintf(m->name, DRM_DISPLAY_MODE_LEN, "%dx%d", (int)w, (int)h);
+}
+
+static void build_modes(void)
+{
+    g_nmodes = 0;
+    fill_mode_wh(&g_modes[g_nmodes++], g_cur_w, g_cur_h, 1);        /* the boot mode first */
+    if (!g_bochs) return;
+    for (unsigned i = 0; i < sizeof k_mode_table / sizeof k_mode_table[0] && g_nmodes < 8; i++) {
+        uint32_t w = k_mode_table[i].w, h = k_mode_table[i].h;
+        if ((w == g_cur_w && h == g_cur_h) || (uint64_t)w * 4 * h > g_vram) continue;
+        fill_mode_wh(&g_modes[g_nmodes++], w, h, 0);
+    }
+}
+
+static int mode_known(uint32_t w, uint32_t h)
+{
+    for (int i = 0; i < g_nmodes; i++) if (g_modes[i].hdisplay == w && g_modes[i].vdisplay == h) return 1;
+    return 0;
+}
+
+static int apply_mode(uint16_t w, uint16_t h)
+{
+    uint32_t pitch = (uint32_t)w * 4;
+    int want2 = (uint64_t)pitch * h * 2 <= g_vram;
+    if (bochs_set_mode(w, h, (uint16_t)(want2 ? h * 2 : h)) != 0) return -1;
+    g_frames = (bochs_virt_height() >= 2u * h) ? 2 : 1;
+    g_cur_w = w; g_cur_h = h; g_pitch = pitch; g_visible = 0;
+    fb_dev.width = w; fb_dev.height = h; fb_dev.pitch = pitch;      /* keep the kernel console consistent */
+    log_info("DRM", "mode %ux%u, %d frame(s) in VRAM", w, h, g_frames);
+    return 0;
+}
+
 /* ---- buffers ---- */
 static dumb_t *dumb_by_handle(drm_file_t *d, uint32_t h)
 {
@@ -111,26 +198,27 @@ static drmfb_t *fb_by_id(drm_file_t *d, uint32_t id)
         if (d->fb[i].used && d->fb[i].id == id) return &d->fb[i];
     return NULL;
 }
+
 static void dumb_free(dumb_t *b)
 {
-    if (b->raw) kfree(b->raw);
+    if (b->used) g_slot_busy[b->size] = 0;               /* the pages stay mapped and are reused */
     memset(b, 0, sizeof *b);
 }
 
-static void scanout_blit(const dumb_t *b, uint32_t x1, uint32_t y1, uint32_t x2, uint32_t y2)
+static uint8_t *frame_base(int frame) { return (uint8_t *)KERNEL_FB_VA + (size_t)frame * g_cur_h * g_pitch; }
+
+static void scanout_blit(const dumb_t *b, uint32_t x1, uint32_t y1, uint32_t x2, uint32_t y2, int frame)
 {
-    uint32_t W = fb_dev.width, H = fb_dev.height;
-    if (x2 > W) x2 = W;
+    if (x2 > g_cur_w) x2 = g_cur_w;
     if (x2 > b->width) x2 = b->width;
-    if (y2 > H) y2 = H;
+    if (y2 > g_cur_h) y2 = g_cur_h;
     if (y2 > b->height) y2 = b->height;
     if (x1 >= x2 || y1 >= y2) return;
-    uint8_t *dst = scanout_base();
+    uint8_t *dst = frame_base(frame);
     for (uint32_t y = y1; y < y2; y++)
-        memcpy(dst + (size_t)y * fb_dev.pitch + (size_t)x1 * 4,
+        memcpy(dst + (size_t)y * g_pitch + (size_t)x1 * 4,
                b->kva + (size_t)y * b->pitch + (size_t)x1 * 4, (size_t)(x2 - x1) * 4);
 }
-
 /* ---- events ---- */
 static int event_ready(drm_file_t *d) { return d->flip_pending && drm_now_ms() >= d->flip_ready_ms; }
 static int drm_can_read(struct file *f) { return event_ready((drm_file_t *)f->private_data); }
@@ -156,8 +244,9 @@ static int drm_read(struct file *f, void *buf, size_t size)
 }
 
 /* ---- ioctl ---- */
-static int drm_ioctl(struct file *f, unsigned long req, void *arg)
+static int drm_ioctl(struct file *f, unsigned long req_in, void *arg)
 {
+    unsigned int req = (unsigned int)req_in;        /* musl sign-extends int commands */
     drm_file_t *d = (drm_file_t *)f->private_data;
     if (_IOC_TYPE(req) != DRM_IOCTL_BASE) return -ENOTTY;
     if (_IOC_SIZE(req) && !user_ok(arg, _IOC_SIZE(req))) return -EFAULT;
@@ -192,8 +281,10 @@ static int drm_ioctl(struct file *f, unsigned long req, void *arg)
         if ((e = put_ids(r->connector_id_ptr, r->count_connectors, &conn, 1))) return e;
         if ((e = put_ids(r->encoder_id_ptr, r->count_encoders, &enc, 1))) return e;
         r->count_fbs = nfb; r->count_crtcs = 1; r->count_connectors = 1; r->count_encoders = 1;
-        r->min_width = 64;  r->max_width = fb_dev.width;
-        r->min_height = 64; r->max_height = fb_dev.height;
+        r->min_width = 64;
+        r->max_width = g_cur_w;
+        r->min_height = 64;
+        r->max_height = g_cur_h;
         return 0;
     }
 
@@ -210,16 +301,19 @@ static int drm_ioctl(struct file *f, unsigned long req, void *arg)
     case DRM_IOCTL_MODE_GETCONNECTOR: {
         struct drm_mode_get_connector *c = arg;
         if (c->connector_id != CONN_ID) return -ENOENT;
-        struct drm_mode_modeinfo mode;
-        fill_mode(&mode);
+        fill_mode(g_modes);
+
         uint32_t enc = ENC_ID;
-        if (c->modes_ptr && c->count_modes >= 1) {
-            if (!user_ok(UPTR(c->modes_ptr), sizeof mode)) return -EFAULT;
-            memcpy(UPTR(c->modes_ptr), &mode, sizeof mode);
+
+        if (c->modes_ptr && c->count_modes >= (uint32_t)g_nmodes) {
+            if (!user_ok(UPTR(c->modes_ptr), g_nmodes * sizeof(struct drm_mode_modeinfo))) return -EFAULT;
+            memcpy(UPTR(c->modes_ptr), g_modes, g_nmodes * sizeof(struct drm_mode_modeinfo));
         }
+
         int e = put_ids(c->encoders_ptr, c->count_encoders, &enc, 1);
         if (e) return e;
-        c->count_modes = 1; c->count_props = 0; c->count_encoders = 1;
+        c->count_modes = g_nmodes;
+        c->count_props = 0; c->count_encoders = 1;
         c->encoder_id = ENC_ID;
         c->connector_type = DRM_MODE_CONNECTOR_VIRTUAL;
         c->connector_type_id = 1;
@@ -235,7 +329,7 @@ static int drm_ioctl(struct file *f, unsigned long req, void *arg)
         if (c->crtc_id != CRTC_ID) return -ENOENT;
         c->fb_id = d->crtc_fb; c->x = 0; c->y = 0; c->gamma_size = 0;
         c->mode_valid = d->crtc_fb != 0;
-        if (c->mode_valid) fill_mode(&c->mode); else memset(&c->mode, 0, sizeof c->mode);
+        if (c->mode_valid) fill_mode_wh(&c->mode, g_cur_w, g_cur_h, 1); else memset(&c->mode, 0, sizeof c->mode);
         return 0;
     }
 
@@ -246,11 +340,16 @@ static int drm_ioctl(struct file *f, unsigned long req, void *arg)
         drmfb_t *fb = fb_by_id(d, c->fb_id);
         if (!fb) return -ENOENT;
         if (!c->mode_valid || c->x || c->y) return -EINVAL;
-        if (c->mode.hdisplay != fb_dev.width || c->mode.vdisplay != fb_dev.height) return -EINVAL;  /* no mode switch yet */
-        if (fb->width != fb_dev.width || fb->height != fb_dev.height) return -EINVAL;
+        uint32_t w = c->mode.hdisplay, h = c->mode.vdisplay;
+        if (!mode_known(w, h)) return -EINVAL;
+        if (g_bochs && (w != g_cur_w || h != g_cur_h || (!g_dbl_tried && g_frames == 1))) {
+            g_dbl_tried = 1;                                  /* re-applying the boot mode enables double buffering */
+            if (apply_mode((uint16_t)w, (uint16_t)h) != 0) return -EIO;
+        } else if (w != g_cur_w || h != g_cur_h) return -EINVAL;      /* no hardware to switch with */
+        if (fb->width != g_cur_w || fb->height != g_cur_h) return -EINVAL;
         dumb_t *b = dumb_by_handle(d, fb->handle);
         if (!b) return -ENOENT;
-        scanout_blit(b, 0, 0, fb_dev.width, fb_dev.height);
+        scanout_blit(b, 0, 0, g_cur_w, g_cur_h, g_visible);
         d->crtc_fb = fb->id;
         return 0;
     }
@@ -260,20 +359,25 @@ static int drm_ioctl(struct file *f, unsigned long req, void *arg)
         if (c->bpp != 32 || !c->width || !c->height || c->width > 8192 || c->height > 8192) return -EINVAL;
         uint32_t pitch = c->width * 4;
         uint64_t size = (uint64_t)pitch * c->height;
-        if (size > MAP_STRIDE) return -EINVAL;
+        if (size > SLOT_VA_SIZE) return -EINVAL;
         int slot = -1;
         for (int i = 0; i < MAX_DUMB; i++) if (!d->dumb[i].used) { slot = i; break; }
-        if (slot < 0) return -ENOSPC;
-        void *raw = kmalloc((size_t)size + 4096);
-        if (!raw) return -ENOMEM;
+        int gs = -1;
+        for (int i = 0; i < MAX_DUMB; i++) if (!g_slot_busy[i]) { gs = i; break; }
+        if (slot < 0 || gs < 0) return -ENOSPC;
+
+        int e = slot_ensure(gs, (size_t)size);
+        if (e) { log_error("DRM", "dumb buffer %ux%u: out of memory", c->width, c->height); return e; }
+
+        g_slot_busy[gs] = 1;
         dumb_t *b = &d->dumb[slot];
         memset(b, 0, sizeof *b);
-        b->used = 1; b->raw = raw;
-        b->kva = (uint8_t *)(((uintptr_t)raw + 4095) & ~4095ULL);
+        b->used = 1; b->size = gs;
+        b->kva = slot_va(gs);
         memset(b->kva, 0, (size_t)size);
         b->width = c->width; b->height = c->height; b->pitch = pitch; b->size = (size_t)size;
         b->handle = ++d->next_handle;
-        b->map_off = (uint64_t)(slot + 1) * MAP_STRIDE;
+        b->map_off = (uint64_t)(gs + 1) * MAP_STRIDE;       /* unique across all open files */
         c->handle = b->handle; c->pitch = pitch; c->size = size;
         return 0;
     }
@@ -343,8 +447,12 @@ static int drm_ioctl(struct file *f, unsigned long req, void *arg)
         if (!fb) return -ENOENT;
         dumb_t *b = dumb_by_handle(d, fb->handle);
         if (!b) return -ENOENT;
-        scanout_blit(b, 0, 0, fb_dev.width, fb_dev.height);
+
+        int hidden = (g_frames == 2) ? 1 - g_visible : 0;
+        scanout_blit(b, 0, 0, g_cur_w, g_cur_h, hidden);
+        if (g_frames == 2) { bochs_set_y((uint16_t)(hidden * g_cur_h)); g_visible = hidden; }
         d->crtc_fb = fb->id;
+
         if (p->flags & DRM_MODE_PAGE_FLIP_EVENT) {
             d->flip_pending = 1;
             d->flip_user_data = p->user_data;
@@ -359,14 +467,15 @@ static int drm_ioctl(struct file *f, unsigned long req, void *arg)
         if (!fb) return -ENOENT;
         if (c->fb_id != d->crtc_fb) return 0;                      /* not on screen */
         dumb_t *b = dumb_by_handle(d, fb->handle);
+
         if (!b) return -ENOENT;
         if (!c->num_clips || !c->clips_ptr) {
-            scanout_blit(b, 0, 0, b->width, b->height);
+            scanout_blit(b, 0, 0, b->width, b->height, g_visible);
         } else {
             uint32_t n = c->num_clips > 64 ? 64 : c->num_clips;
             if (!user_ok(UPTR(c->clips_ptr), n * sizeof(struct drm_clip_rect))) return -EFAULT;
             const struct drm_clip_rect *cr = UPTR(c->clips_ptr);
-            for (uint32_t i = 0; i < n; i++) scanout_blit(b, cr[i].x1, cr[i].y1, cr[i].x2, cr[i].y2);
+            for (uint32_t i = 0; i < n; i++) scanout_blit(b, cr[i].x1, cr[i].y1, cr[i].x2, cr[i].y2, g_visible);
         }
         return 0;
     }
@@ -380,6 +489,7 @@ static int drm_ioctl(struct file *f, unsigned long req, void *arg)
 static int drm_mmap(struct file *f, uint64_t length, uint64_t prot, uint64_t flags,
                     uint64_t offset, uint64_t *out_user_va)
 {
+    log_info("DRM", "mmap off=0x%llx len=%llu", (unsigned long long)offset, (unsigned long long)length);
     (void)flags;
     drm_file_t *d = (drm_file_t *)f->private_data;
     for (int i = 0; i < MAX_DUMB; i++) {
@@ -426,6 +536,12 @@ static struct file_operations drm_fops = {
 void drm_init(void)
 {
     if (fb_dev.bpp != 32) { log_error("DRM", "framebuffer is %u bpp, only 32 is supported", (unsigned)fb_dev.bpp); return; }
+
+    g_cur_w = fb_dev.width; g_cur_h = fb_dev.height; g_pitch = fb_dev.pitch;
+    g_bochs = bochs_present();
+    g_vram  = g_bochs ? fb_mapped_bytes() : (uint32_t)(g_pitch * g_cur_h);
+    build_modes();
+
     VFS_RegisterDevice("/dev/dri/card0", &drm_fops, NULL);
     log_info("DRM", "/dev/dri/card0 registered (%ux%u, simple framebuffer)", fb_dev.width, fb_dev.height);
 }

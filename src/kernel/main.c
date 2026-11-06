@@ -65,12 +65,19 @@ static MemoryRegion g_memoryRegions[MAX_MEMORY_REGIONS];
 
 __attribute__((section(".boot64_stub_data")))
 static VbeModeInfo fb_low;
+uint32_t g_fb_mapped_bytes;
+
 
 void start(BootParams* bootParams, VbeModeInfo* fb_info);
 
 void timer(ISRFrame64* regs)
 {
     printf(".");
+}
+
+uint32_t fb_mapped_bytes(void)
+{
+    return g_fb_mapped_bytes;
 }
 
 void test_read_sector0(block_device_t *disk) {
@@ -263,7 +270,8 @@ void parse_multiboot2_framebuffer(multiboot2_info_t* mbi, VbeModeInfo* fb)
 void map_framebuffer(VbeModeInfo* fb)
 {
     uint64_t pa    = (uint64_t)fb->framebuffer;        // physical from GRUB
-    uint64_t size  = fb->pitch * fb->height;           // bytes
+    uint32_t size = bochs_present() ? bochs_vram_bytes() : (uint32_t)(fb->pitch * fb->height);
+    g_fb_mapped_bytes = size; 
     uint64_t pages = (size + 0xFFF) / 0x1000;          // round up
 
     for (uint64_t i = 0; i < pages; i++)
@@ -367,6 +375,7 @@ void start(BootParams* bootParams, VbeModeInfo* fb_info)
     init_filesystem();
     // log_info("Main", "Kernel After init_filesystem");
 
+    bochs_init();  
     map_framebuffer(&fb_low);
     // log_info("Boot", "after map_framebuffer");
 

@@ -284,9 +284,8 @@ uint64_t do_syscall(uint64_t nr,
         return ret;
     }
 
-
-     case SYS_ioctl: 
-        return sys_ioctl((int)a0, (unsigned long)a1, (unsigned long)a2);
+    case SYS_ioctl: 
+        return sys_ioctl((int)a0, (unsigned long)(uint32_t)a1, (unsigned long)a2);
 
     case SYS_writev:
         return sys_writev((int)a0, (const struct iovec*)a1, (int)a2);
