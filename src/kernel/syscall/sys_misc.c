@@ -179,36 +179,6 @@ long sys_ioctl(uint64_t fd, uint64_t request, uint64_t arg)
     }
 }
 
-// long sys_ioctl(int fd, unsigned long req, unsigned long arg)
-// {
-//     log_info("IOCTL", "sys_ioctl called fd = %d, req = %ld, arg = %ld", fd, req, arg);
-//     if ((fd == 1 || fd == 2) && req == 0x5413) { // TCGETS on stdout/stderr
-//         struct termios *t = (struct termios *)arg;
-//         memset(t, 0, sizeof(*t));
-
-
-//         // TODO: if you have copy_to_user, use that:
-//         // if (copy_to_user((void *)arg, &kterm, sizeof(kterm)) != 0)
-//         //     return -EFAULT;
-
-//         log_info("SYSCALL", "sys_ioctl returning 0");
-
-//         return 0;
-//     }
-
-//     struct file *f = VFS_GetFile(fd);
-//     if (!f || !f->fops || !f->fops->ioctl)
-//     {
-//         log_info("IOCTL", "sys_ioctl returning -ENOTTY");
-//         return -ENOTTY;
-//     }
-
-//     long returnValue = f->fops->ioctl(f, (int)req, (void *)arg);
-//     log_info("SYSCALL", "sys_ioctl returnValue=%d", returnValue);
-//     return returnValue;
-// }
-
-
 long sys_prlimit64(pid_t pid, int resource,
                    const struct rlimit64 *newlim,
                    struct rlimit64 *oldlim)

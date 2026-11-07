@@ -52,6 +52,7 @@ export component PanelSlider inherits Rectangle {
         border-radius: 3px;
         background: #3b4a5a;
         Rectangle {
+            x: parent.x;
             width: parent.width * root.value / 100;
             border-radius: 3px;
             background: #7cc4ff;
