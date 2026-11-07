@@ -48,6 +48,7 @@ export global HomeState {
 
 
     in-out property <string> user-name;         // both ways
+    in-out property <string> search;            // both ways
     callback say-hello(string);                 // UI -> C++
     callback open-settings();                   // UI -> C++
     callback open-file-manager();               // UI -> C++
@@ -229,6 +230,8 @@ component BatteryPanel inherits VerticalLayout {
         border-radius: 5px;
         background: #3b4a5a;
         Rectangle {
+            //x: parent.x;
+            x: 0;
             width: parent.width * HomeState.battery-percent / 100;
             border-radius: 5px;
             background: HomeState.battery-percent <= 20 ? #e05252 : #4cc38a;
@@ -351,50 +354,7 @@ export component HomePage inherits Rectangle {
 
                 Spacer { width: 250px; }
 
-                Rectangle {
-                    y: (parent.height - self.height) / 2;
-                    width: 200px;
-                    height: 26px;
-                    border-radius: 10px;
-                    background: #666765;
-
-                    HorizontalLayout {
-                        padding: 0px;
-                        spacing: 8px;
-
-                        TrayIcon {
-                            size: 26px;
-                            icon: @image-url("../resources/icons/lock.png");
-                            activated => { HomeState.lock_clicked(); }
-                        }
-
-
-                        TrayIcon {
-                            size: 26px;
-                            icon: @image-url("../resources/icons/battery.png");
-                            activated => { HomeState.battery_clicked(); }
-                        }
-
-                        TrayIcon {
-                            size: 26px;
-                            icon: @image-url("../resources/icons/internet.png");
-                            activated => { HomeState.internet_clicked(); }
-                        }
-
-
-                        TrayIcon {
-                            size: 26px;
-                            icon: @image-url("../resources/icons/volume.png");
-                            activated => { HomeState.volume_clicked(); }
-                        }
-
-                        TrayIcon {
-                            size: 26px;
-                            icon: @image-url("../resources/icons/power-button.png");
-                            activated => { HomeState.power_off_clicked(); }
-                        }
-                    }
-                }
+                // TODO
 
                 Spacer { width: 10px; }
 
@@ -412,10 +372,12 @@ export component HomePage inherits Rectangle {
                 padding: 5px; 
                 spacing: 8px;
 
+                Spacer { width: parent.width * (0.025); }
+
                 RoundedLineEdit { 
                     width: parent.width * (0.18);
                     height: 40px;
-                    text <=> HomeState.user-name; 
+                    text <=> HomeState.search; 
                 }
 
                 Spacer { width: parent.width * (0.05); }

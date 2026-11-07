@@ -100,9 +100,9 @@ extern int     g_edid_valid;
 
 typedef struct {
     int used, destroyed, fb_refs;
+    int slot;                          /* index into the global slot window */
     uint32_t handle, width, height, pitch;
     size_t size;
-    void *raw;
     uint8_t *kva;
     uint64_t map_off;
 } dumb_t;
@@ -201,7 +201,7 @@ static drmfb_t *fb_by_id(drm_file_t *d, uint32_t id)
 
 static void dumb_free(dumb_t *b)
 {
-    if (b->used) g_slot_busy[b->size] = 0;               /* the pages stay mapped and are reused */
+    if (b->used) g_slot_busy[b->slot] = 0;
     memset(b, 0, sizeof *b);
 }
 
@@ -372,7 +372,8 @@ static int drm_ioctl(struct file *f, unsigned long req_in, void *arg)
         g_slot_busy[gs] = 1;
         dumb_t *b = &d->dumb[slot];
         memset(b, 0, sizeof *b);
-        b->used = 1; b->size = gs;
+        b->used = 1;
+        b->slot = gs;
         b->kva = slot_va(gs);
         memset(b->kva, 0, (size_t)size);
         b->width = c->width; b->height = c->height; b->pitch = pitch; b->size = (size_t)size;
