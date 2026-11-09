@@ -1,8 +1,15 @@
 import { Button, LineEdit } from "std-widgets.slint";
 import { ToggleSwitch, PanelSlider, PanelButton } from "widgets.slint";
 import { Theme } from "theme.slint";
+import { ScrollView } from "std-widgets.slint";
 
 export struct AppState { running: int, minimized: bool, focused: bool }
+
+export struct AppData {
+name: string,
+icon: image,
+index: int,
+}
 
 export global HomeState {
     in property <string> greeting: "Welcome to Luma OS";   // C++ -> UI
@@ -48,7 +55,14 @@ export global HomeState {
 
 
     in-out property <string> user-name;         // both ways
+
+    // Search
     in-out property <string> search;            // both ways
+    callback search-triggered(string);
+    in-out property <int> search-result-count;
+    in-out property <[AppData]> search-results;
+    
+
     callback say-hello(string);                 // UI -> C++
     callback open-settings();                   // UI -> C++
     callback open-file-manager();               // UI -> C++
@@ -141,8 +155,8 @@ component TrayIcon inherits Rectangle {
 
     Image {
         source: root.icon;
-        width: parent.width - 2px;
-        height: parent.height - 2px;
+        width: parent.width - 5px;
+        height: parent.height -5px;
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
         image-fit: fill;
@@ -177,18 +191,19 @@ export component RoundedLineEdit inherits Rectangle {
     in-out property <string> text <=> input.text;
     in property <string> placeholder-text;
 
+    // Callback exposed to C++
+    callback text_changed(string);
+
     height: 35px;
     background: #ffffff;
-    border-radius: 30px;           // This makes it perfectly round
+    border-radius: 30px;
     border-width: 1px;
-    border-color: input.has-focus ? #3b82f6 : #888888; // Blue border on focus
+    border-color: input.has-focus ? #3b82f6 : #888888;
 
-    // Inner layout for the text field
     HorizontalLayout {
         padding-left: 12px;
         padding-right: 12px;
 
-        // Overlay the placeholder text when empty
         if input.text == "" : Text {
             text: root.placeholder-text;
             color: #aaaaaa;
@@ -198,6 +213,10 @@ export component RoundedLineEdit inherits Rectangle {
         input := TextInput {
             vertical-alignment: center;
             single-line: true;
+
+            edited => {
+                root.text_changed(self.text);
+            }
         }
     }
 }
@@ -300,6 +319,57 @@ component PowerPanel inherits VerticalLayout {
     }
 }
 
+
+component SearchPopup inherits Rectangle {
+    width: 260px;
+    height: 200px;
+    background: #1f2a36;
+    border-radius: 12px;
+    border-width: 1px;
+    border-color: #ffffff30;
+    visible: HomeState.search != "" &&
+             HomeState.search-result-count > 0;
+
+    VerticalLayout {
+        padding: 12px;
+        spacing: 8px;
+        PanelTitle { text: "Search Result"; }
+
+        ScrollView {
+            height: 200px;
+
+            VerticalLayout {
+                for app in HomeState.search-results : Rectangle {
+                    height: 40px;
+
+                    HorizontalLayout {
+
+                        Image {
+                            source: app.icon;
+                            width: parent.height - 5px;
+                            height: parent.height -5px;
+                            image-fit: fill;
+                        }
+
+                        Text {
+                            text: app.name;
+                            color: white;
+                            font-size: 12px;
+                        }
+                    }
+
+
+                    TouchArea {
+                        clicked => {
+                            HomeState.app-clicked(app.index);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 // The one shared place. Only the content changes.
 component PopupHost inherits Rectangle {
     width: 260px;
@@ -374,10 +444,15 @@ export component HomePage inherits Rectangle {
 
                 Spacer { width: parent.width * (0.025); }
 
-                RoundedLineEdit { 
-                    width: parent.width * (0.18);
+                RoundedLineEdit {
+                    width: parent.width * 0.18;
                     height: 40px;
-                    text <=> HomeState.search; 
+
+                    text <=> HomeState.search;
+
+                    text_changed(text) => {
+                        HomeState.search-triggered(text);
+                    }
                 }
 
                 Spacer { width: parent.width * (0.05); }
@@ -451,15 +526,15 @@ export component HomePage inherits Rectangle {
                     width: parent.width * (0.18);
                     height: 40px;
                     border-radius: 10px;
-                    background: #b78cdd;
+                    background: #000000;
 
                     HorizontalLayout {
                         padding: 5px;
                         spacing: 8px;
 
                         TrayIcon {
-                            icon: @image-url("../resources/icons/lock.png");
-                            size: 30px;
+                            icon: @image-url("../resources/icons/png/lock.png");
+                            size: 40px;
                             selected: HomeState.active-panel == 1;
                             activated => {
                                 HomeState.active-panel = HomeState.active-panel == 1 ? 0 : 1;
@@ -467,8 +542,8 @@ export component HomePage inherits Rectangle {
                             }
                         }
                         TrayIcon {
-                            icon: @image-url("../resources/icons/battery.png");
-                            size: 30px;
+                            icon: @image-url("../resources/icons/png/battery.png");
+                            size: 40px;
                             selected: HomeState.active-panel == 2;
                             activated => {
                                 HomeState.active-panel = HomeState.active-panel == 2 ? 0 : 2;
@@ -476,8 +551,8 @@ export component HomePage inherits Rectangle {
                             }
                         }
                         TrayIcon {
-                            icon: @image-url("../resources/icons/internet.png");
-                            size: 30px;
+                            icon: @image-url("../resources/icons/png/wifi.png");
+                            size: 40px;
                             selected: HomeState.active-panel == 3;
                             activated => {
                                 HomeState.active-panel = HomeState.active-panel == 3 ? 0 : 3;
@@ -485,8 +560,8 @@ export component HomePage inherits Rectangle {
                             }
                         }
                         TrayIcon {
-                            icon: @image-url("../resources/icons/volume.png");
-                            size: 30px;
+                            icon: @image-url("../resources/icons/png/volume.png");
+                            size: 40px;
                             selected: HomeState.active-panel == 4;
                             activated => {
                                 HomeState.active-panel = HomeState.active-panel == 4 ? 0 : 4;
@@ -494,8 +569,8 @@ export component HomePage inherits Rectangle {
                             }
                         }
                         TrayIcon {
-                            icon: @image-url("../resources/icons/power-button.png");
-                            size: 30px;
+                            icon: @image-url("../resources/icons/png/power.png");
+                            size: 40px;
                             selected: HomeState.active-panel == 5;
                             activated => {
                                 HomeState.active-panel = HomeState.active-panel == 5 ? 0 : 5;
@@ -521,6 +596,11 @@ export component HomePage inherits Rectangle {
 
     if HomeState.active-panel != 0 : PopupHost {
         x: parent.width - self.width - 12px;
+        y: parent.height - self.height - root.tray-strip - 6px;
+    }
+
+    if HomeState.search-result-count != 0 : SearchPopup {
+        x: parent.width * (0.025); 
         y: parent.height - self.height - root.tray-strip - 6px;
     }
 }

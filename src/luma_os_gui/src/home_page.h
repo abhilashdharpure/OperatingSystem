@@ -14,6 +14,7 @@ public:
 private:
     struct AppDef {
         std::string app_id, path;
+        std::string icon_path;
         std::vector<long> pids;                    // launched, not yet reaped
     };
 
@@ -29,6 +30,8 @@ private:
     void on_battery_clicked();
     void on_volume_clicked();
 
+    void on_search_triggered(const std::string& text);
+
     void set_battery(int percent, bool charging);
     void set_network(bool on, const std::string& name);
     void set_volume_ui(int percent, bool muted);
@@ -39,4 +42,5 @@ private:
     std::vector<AppDef>                            apps_;
     std::shared_ptr<slint::VectorModel<AppState>>  model_;
     slint::Timer                                   reaper_;
+    std::shared_ptr<slint::VectorModel<AppData>>   search_model_;
 };

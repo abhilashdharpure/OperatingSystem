@@ -11,17 +11,19 @@ enum { APP_FILES = 0, APP_SETTINGS, APP_TERMINAL, APP_MUSIC };
 // HomePage::HomePage(slint::ComponentHandle<AppWindow> ui) : ui_(ui)
 
 HomePage::HomePage(slint::ComponentHandle<AppWindow> ui)
-    : ui_(ui), model_(std::make_shared<slint::VectorModel<AppState>>())
+    : ui_(ui),
+    model_(std::make_shared<slint::VectorModel<AppState>>()),
+    search_model_(std::make_shared<slint::VectorModel<AppData>>())
 {
     apps_ = {
-        { "file_manager", "/bin/file_manager", {} },
-        { "settings",     "/bin/settings",     {} },
-        { "terminal",     "/bin/terminal",     {} },
-        { "music",        "/bin/music",        {} },
-        { "menu",         "/bin/menu",         {} },
-        { "browser",      "/bin/browser",      {} },
-        { "photos",       "/bin/photos",       {} },
-        { "editor",       "/bin/editor",       {} },
+        { "file_manager", "/bin/file_manager",  "../resources/icons/svg/archive.svg",       {} },
+        { "settings",     "/bin/settings",      "../resources/icons/svg/settings.svg",      {} },
+        { "terminal",     "/bin/terminal",      "../resources/icons/svg/terminal.svg",      {} },
+        { "music",        "/bin/music",         "../resources/icons/svg/music.svg",         {} },
+        { "menu",         "/bin/menu",          "../resources/icons/svg/menu.svg",          {} },
+        { "browser",      "/bin/browser",       "../resources/icons/svg/browse.svg",        {} },
+        { "photos",       "/bin/photos",        "../resources/icons/svg/photos.svg",        {} },
+        { "editor",       "/bin/editor",        "../resources/icons/svg/text-editor.svg",   {} },
     };
     for (size_t i = 0; i < apps_.size(); i++) model_->push_back(AppState{ 0, false, false });
 
@@ -44,6 +46,10 @@ HomePage::HomePage(slint::ComponentHandle<AppWindow> ui)
     s.on_lock_now([this] { std::cout << "[Home] lock\n"; });
     s.on_restart_requested([this] { std::cout << "[Home] restart\n"; });
     s.on_shutdown_requested([this] { std::cout << "[Home] shutdown\n"; });
+    s.on_search_triggered( [this] (const auto& text) {
+      on_search_triggered(std::string(text));
+    }
+    );
 
     auto& sc = SettingsClient::get();
     sc.on_changed = [this](const std::string& k, const std::string& v) { apply_setting(k, v); };
@@ -102,6 +108,7 @@ void HomePage::refresh()
 
 void HomePage::click(int i)
 {
+    std::cout<<" HomePage::click index = "<<i<<std::endl;
     if (i < 0 || i >= (int)apps_.size())
     {
         std::cout<<"ERROR: Home Page clicked invalid ID = "<<i<<std::endl;
@@ -207,6 +214,36 @@ void HomePage::on_internet_clicked()
 void HomePage::on_volume_clicked()
 {
     set_volume_ui(50, false);             // TODO: read from the kernel
+}
+
+void HomePage::on_search_triggered(const std::string& text)
+{
+    std::vector<AppData> matches;
+
+    int index = 0;
+    for (const auto& app : apps_)
+    {
+        if (text.empty() ||
+            app.app_id.find(text) != std::string::npos)
+        {
+
+            AppData item;
+            item.name = slint::SharedString(app.app_id);
+            std::cout<<"on_search_triggered: app.path = "<<app.icon_path <<std::endl;
+            item.icon = slint::Image::load_from_path(slint::SharedString(app.icon_path));
+            item.index = index;
+            matches.push_back(item);
+        }
+
+        ++index;
+    }
+
+    if (auto ui = ui_.lock()) {
+        auto& s = (*ui)->global<HomeState>();
+        s.set_search_result_count(matches.size());
+        search_model_->set_vector(matches);
+        s.set_search_results(search_model_);
+    }
 }
 
 void HomePage::set_battery(int percent, bool charging)
