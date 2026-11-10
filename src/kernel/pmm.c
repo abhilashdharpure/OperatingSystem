@@ -16,6 +16,8 @@
 #define PMM_MAX_IDENTITY 0x20000000ULL      // 512 MiB
 
 #define KERNEL_VMA 0xffffffff80000000ULL
+/* 512MB max = 131072 pages */
+#define MAX_PAGES 131072
 
 typedef struct free_page {
     uint32_t next_pa; // physical address of next
@@ -24,7 +26,6 @@ typedef struct free_page {
 static uint32_t free_list_head_pa = 0;
 
 static uint32_t next_free_page = 0;
-#define MAX_PAGES 262144 
 
 extern char _kernel_start;
 extern char _kernel_end;
@@ -36,8 +37,7 @@ extern char _kernel_phys_end;
 static uintptr_t freelist[MAX_PAGES];
 static size_t free_count = 0;
 
-/* 512MB max = 131072 pages */
-#define MAX_PAGES 131072
+
 static uint8_t bitmap[MAX_PAGES / 8];
 
 /* helpers */

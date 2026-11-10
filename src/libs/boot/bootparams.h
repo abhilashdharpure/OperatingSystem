@@ -16,6 +16,8 @@ typedef struct  {
 typedef struct {
     MemoryInfo Memory;
     uint8_t BootDevice;
+	uint8_t RootImageBase;
+	uint8_t RootImageSize;
 } BootParams;
 
 typedef struct {

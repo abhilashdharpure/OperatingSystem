@@ -57,3 +57,4 @@
 ; section .note.GNU-stack noalloc noexec nowrite progbits
 
 
+;.section .note.GNU-stack,"",@progbits

@@ -34,3 +34,6 @@ int  boot_map_page(uint64_t *pml4, uint64_t va, uint64_t pa, uint64_t flags);
 /* NEW: pass BootParams so we can compute max_phys for direct map */
 void setup_high_mappings(uint64_t *pml4, BootParams *bp);
 uint64_t boot_get_boot_alloc_end(void);
+
+/* make sure the bump allocator never hands out pages below 'addr' */
+void boot_pmm_skip_to(uintptr_t addr);

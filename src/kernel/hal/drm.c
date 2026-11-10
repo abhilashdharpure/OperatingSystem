@@ -11,6 +11,7 @@
 #include "file.h"
 #include "vfs.h"
 #include "drivers/display/bochs.h"
+#include "pmm.h"
 
 #ifndef EFAULT
 #define EFAULT 14
@@ -62,8 +63,6 @@ static int      g_nmodes;
 #define DRM_PAGE      4096ULL
 
 extern uint64_t *kernel_pml4_virt;
-extern uint64_t pmm_alloc_page(void);            /* ADAPT: physical address, 0 on failure */
-extern void     pmm_free_page(uint64_t pa);      /* ADAPT */
 
 static int      g_slot_busy[MAX_DUMB];           /* global: every open file shares the window */
 static uint32_t g_slot_pages[MAX_DUMB];          /* pages already mapped in each slot; they are kept for reuse */

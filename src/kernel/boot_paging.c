@@ -225,3 +225,11 @@ uint64_t boot_get_boot_alloc_end(void)
 {
     return boot_next_page_pa;
 }
+
+__attribute__((section(".boot64_stub")))
+void boot_pmm_skip_to(uintptr_t addr)
+{
+    addr = (addr + 0xFFF) & ~(uintptr_t)0xFFF;
+    if (addr > boot_next_page_pa)
+        boot_next_page_pa = addr;
+}

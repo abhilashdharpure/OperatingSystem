@@ -77,20 +77,20 @@ SECTIONS
         *(.data*)
     }
 
-    .bss ALIGN(0x1000) (NOLOAD) :
+    .bss ALIGN(0x1000) : AT(ADDR(.bss) - KERNEL_VMA_BASE + KERNEL_LMA_BASE)
     {
         *(.bss*)
         *(COMMON)
+
+        . = ALIGN(16);
+        _kernel_stack_bottom = .;
+        . += 0x4000;
+        _kernel_stack_top = .;
     }
+
+    . = ALIGN(0x1000);
+    _kernel_end = .;
 
     _kernel_phys_start = LOADADDR(.text);
     _kernel_phys_end   = LOADADDR(.bss) + SIZEOF(.bss);
-
-
-    . = ALIGN(16);
-    _kernel_stack_bottom = .;
-    . += 0x4000;
-    _kernel_stack_top = .;
-
-    _kernel_end = .;
 }

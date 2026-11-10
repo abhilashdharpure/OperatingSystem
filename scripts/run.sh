@@ -1,80 +1,23 @@
 #!/usr/bin/env bash
 set -e
 
-ISO=$1
-if [[ -z "$ISO" ]]; then
-    echo "Usage: $0 <iso_path>"
-    exit 1
-fi
+ISO=${1:?usage: run.sh <iso> [live|disk|uefi]}
+MODE=${2:-live}
+ROOT_IMG="$(dirname "$ISO")/root.img"
 
-BUILD_DIR=$(dirname "$ISO")
-ROOT_IMG="$BUILD_DIR/root.img"
+[ -f "$ISO" ] || { echo "ISO not found: $ISO"; exit 1; }
 
-echo "ISO  : $ISO"
-echo "ROOT : $ROOT_IMG"
+case "$MODE" in
+  live)   # RAM disk from the ISO only: what a USB stick looks like
+    EXTRA=(-M pc -cdrom "$ISO" -boot d) ;;
+  disk)   # IDE disk; choose the second GRUB entry to use it
+    [ -f "$ROOT_IMG" ] || { echo "root.img not found: $ROOT_IMG"; exit 1; }
+    EXTRA=(-M pc -cdrom "$ISO" -boot d -device piix3-ide
+           -drive "file=$ROOT_IMG,format=raw,if=ide,index=0") ;;
+  uefi)   # modern-laptop path: UEFI firmware (needs the 'ovmf' package)
+    EXTRA=(-M q35 -bios /usr/share/ovmf/OVMF.fd -cdrom "$ISO" -boot d) ;;
+  *) echo "mode must be live, disk or uefi"; exit 1 ;;
+esac
 
-if [ ! -f "$ISO" ]; then
-    echo "ISO not found"
-    exit 1
-fi
-
-if [ ! -f "$ROOT_IMG" ]; then
-    echo "root.img not found"
-    exit 1
-fi
-
-qemu-system-x86_64 \
-  -M pc \
-  -m 512M \
-  -cdrom build/x86_64_debug/image.iso \
-  -boot d \
-  -device piix3-ide \
-  -drive file=build/x86_64_debug/root.img,format=raw,if=ide,index=0 \
-  -serial mon:stdio \
-  -no-reboot \
-  -monitor stdio
-
-
-
-
-
-
-# qemu-system-x86_64 \
-#     -M pc \
-#     -m 512M \
-#     -cdrom "$ISO" \
-#     -hda "$ROOT_IMG" \
-#     -serial mon:stdio \
-#     -no-reboot
-
-# qemu-system-x86_64 \
-#     -M pc \
-#     -m 512M \
-#     -cdrom "$ISO" \
-#     -hda "$ROOT_IMG" \
-#     -serial mon:stdio \
-#     -no-reboot
-
-
-# #!/bin/bash
-
-# if [ "$#" -ne 2 ]; then
-#     echo "Usage: $0 <image_type> <image_file>"
-#     exit 1
-# fi
-
-# IMAGE_TYPE="$1"
-# IMAGE_FILE="$2"
-
-# # sanity check
-# if [ ! -f "$IMAGE_FILE" ]; then
-#     echo "Error: ISO file not found: $IMAGE_FILE"
-#     exit 1
-# fi
-
-# # Boot ISO as a virtual IDE hard disk
-# qemu-system-x86_64 \
-#     -m 512 \
-#     -drive file="$IMAGE_FILE",format=raw,if=ide \
-#     -serial mon:stdio \
-#     -no-reboot
+echo "ISO: $ISO   mode: $MODE"
+exec qemu-system-x86_64 -m 512M -serial mon:stdio -no-reboot "${EXTRA[@]}"

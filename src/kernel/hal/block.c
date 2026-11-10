@@ -3,10 +3,15 @@
 #include "ata.h"
 #include "string.h"
 #include "debug.h"
+#include <boot/bootparams.h>
 
 #define MAX_BLOCK_DEVICES 8
 
 block_device_t *block_devices[MAX_BLOCK_DEVICES] = {0};
+extern BootParams g_bootParams;
+
+extern uint64_t g_root_image_base, g_root_image_size;
+int ramdisk_register(uint64_t phys, uint64_t size);
 
 int register_block_device(const char *name, block_device_t *dev)
 {
@@ -51,10 +56,21 @@ block_device_t *block_find_raw_disk(void)
 // Primary raw disk "sda" wrapping ATA0 master
 static block_device_t sda;
 
+
 void block_init(void)
 {
-    // Initialize ATA hardware
-    ata_init();
+    log_info("BLOCK", "root image: global base=0x%llx size=%llu, bootparams size=%llu",
+             (unsigned long long)g_root_image_base, (unsigned long long)g_root_image_size,
+             (unsigned long long)g_bootParams.RootImageSize);
+
+    if (g_root_image_size) {
+        /* live boot: never fall back to ATA, or a laptop's internal disk could be mounted and written */
+        if (ramdisk_register(g_root_image_base, g_root_image_size) != 0)
+            log_error("BLOCK", "RAM disk registration failed");
+        return;
+    }
+
+    ata_init();                              /* QEMU with a disk attached */
 
     if (!ata_primary_present())
     {

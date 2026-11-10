@@ -37,6 +37,7 @@
 // #include "arch/x86_64/paging_bootstrap.h"
 
 extern uint8_t _kernel_stack_top;
+extern char _kernel_end;
 
 #define VGA_PHYS 0xB8000
 
@@ -266,6 +267,29 @@ void parse_multiboot2_framebuffer(multiboot2_info_t* mbi, VbeModeInfo* fb)
     }
 }
 
+__attribute__((section(".boot64_stub_data")))
+static uint64_t root_img_low[2];                       /* base, size */
+uint64_t g_root_image_base, g_root_image_size;
+
+__attribute__((section(".boot64_stub")))
+void parse_multiboot2_module(multiboot2_info_t* mbi, uint64_t out[2])
+{
+    out[0] = 0;
+    out[1] = 0;
+    uint8_t* p = mbi->tags;
+    uintptr_t end = (uintptr_t)mbi + mbi->total_size;
+    while ((uintptr_t)p < end) {
+        multiboot2_tag_header_t* t = (multiboot2_tag_header_t*)p;
+        if (t->type == 0) return;                          /* end tag */
+        if (t->type == 3) {                                /* module: { type, size, mod_start, mod_end, cmdline } */
+            uint32_t* w = (uint32_t*)t;
+            out[0] = w[2];
+            out[1] = (uint64_t)w[3] - w[2];
+            return;
+        }
+        p += (t->size + 7) & ~7;
+    }
+}
 
 void map_framebuffer(VbeModeInfo* fb)
 {
@@ -292,10 +316,18 @@ void map_framebuffer(VbeModeInfo* fb)
 
 void kernel_high_entry(BootParams* params)
 {
+    test_serial_putc_asm('L');
+
     log_info("Main", "Hello from higher half");
     // here you can safely use log_info, start(), etc.
+    test_serial_putc_asm('M');
 
-    g_bootParams = *params; 
+    g_bootParams = *params;
+    g_root_image_base = root_img_low[0];
+    g_root_image_size = root_img_low[1];
+    g_bootParams.RootImageBase = root_img_low[0];
+    g_bootParams.RootImageSize = root_img_low[1];
+
     start(params, &fb_low);
 }
 
@@ -324,25 +356,35 @@ void kernel_main_entry(void* multiboot_info)
 
     multiboot2_info_t* mbi = (multiboot2_info_t*)multiboot_info;
 
-    test_serial_putc_asm('C');
 
     uint64_t *pml4 = pml4_table;
-    test_serial_putc_asm('D');
-
 
     parse_multiboot2_memory_map(mbi, &bootparams_low);
+    test_serial_putc_asm('C');
+
     parse_multiboot2_framebuffer(mbi, &fb_low);
+    test_serial_putc_asm('D');
+
+    parse_multiboot2_module(mbi, root_img_low);
     test_serial_putc_asm('E');
 
+    if (root_img_low[1])
+    {
+        test_serial_putc_asm('F');
+        boot_pmm_skip_to((uintptr_t)(root_img_low[0] + root_img_low[1]));
+    }
+    test_serial_putc_asm('K');
+
     bootparams_low.BootDevice = 0;
-    test_serial_putc_asm('F');
 
     setup_high_mappings(pml4, &bootparams_low);
 
-    test_serial_putc_asm('K');
     print_hex64((uint64_t)&kernel_high_entry);
 
+    test_serial_putc_asm('L');
+
     switch_to_high_pml4(pml4);
+    test_serial_putc_asm('M');
 
     kernel_high_entry(&bootparams_low);
     for (;;) __asm__ volatile("hlt");
@@ -356,6 +398,22 @@ void start(BootParams* bootParams, VbeModeInfo* fb_info)
 
     pmm_init(&bootParams->Memory);
 
+    if (g_root_image_size) {
+        uintptr_t kend = kernel_virt_to_phys(&_kernel_end);
+        if (g_root_image_base < kend)
+            log_error("MAIN", "root image 0x%llx overlaps kernel end 0x%llx: fix linker.ld",
+                      (unsigned long long)g_root_image_base, (unsigned long long)kend);
+    }
+
+    if (g_root_image_size) {
+        uintptr_t s = (uintptr_t)(g_root_image_base & ~0xFFFULL);
+        pmm_reserve_region(s, (uintptr_t)(g_root_image_base + g_root_image_size - s));
+        log_info("MAIN", "root image: phys [0x%llx, 0x%llx), boot_alloc_end=0x%llx",
+                 (unsigned long long)g_root_image_base,
+                 (unsigned long long)(g_root_image_base + g_root_image_size),
+                 (unsigned long long)boot_get_boot_alloc_end());
+    }
+    
     // for (int i = 0; i < bootParams->Memory.RegionCount; i++) 
     // {
     //     log_info("Main", "MEM: start=0x%llx length=0x%llx type=%x", 
