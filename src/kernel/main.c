@@ -13,6 +13,7 @@
 #include "drivers/display/display.h"
 #include "compositor/compositor.h"
 #include <arch/x86_64/io.h>
+#include <arch/x86_64/msr.h>
 
 #include "multiboot2_defines.h"
 #include "arch/x86_64/serial.h"
@@ -117,6 +118,7 @@ void init_filesystem(void)
     block_device_t *part = block_lookup_by_name("sda1");
     if (!part) {
         log_error("MAIN", "No sda1 partition device found");
+        boot_mark(4, 0x00B00000);
         return;
     }
 
@@ -328,6 +330,18 @@ void kernel_high_entry(BootParams* params)
     g_bootParams.RootImageBase = root_img_low[0];
     g_bootParams.RootImageSize = root_img_low[1];
 
+
+    uint64_t cr0, cr4;
+    __asm__ volatile("mov %%cr0,%0" : "=r"(cr0));
+    __asm__ volatile("mov %%cr4,%0" : "=r"(cr4));
+    log_info("CPU", "CR0=0x%llx WP=%d CR4=0x%llx EFER=0x%llx",
+            (unsigned long long)cr0, (int)((cr0 >> 16) & 1),
+            (unsigned long long)cr4, (unsigned long long)rdmsr(0xC0000080));
+            
+    __asm__ volatile("mov %%cr0,%0" : "=r"(cr0));
+    cr0 &= ~(1ULL << 16);
+    __asm__ volatile("mov %0,%%cr0" :: "r"(cr0) : "memory");
+
     start(params, &fb_low);
 }
 
@@ -371,6 +385,7 @@ void kernel_main_entry(void* multiboot_info)
     if (root_img_low[1])
     {
         test_serial_putc_asm('F');
+        boot_pmm_avoid(root_img_low[0], root_img_low[0] + root_img_low[1]);
         boot_pmm_skip_to((uintptr_t)(root_img_low[0] + root_img_low[1]));
     }
     test_serial_putc_asm('K');
@@ -378,6 +393,14 @@ void kernel_main_entry(void* multiboot_info)
     bootparams_low.BootDevice = 0;
 
     setup_high_mappings(pml4, &bootparams_low);
+    if (root_img_low[1]) {                            /* give the module a direct mapping if it lies above 512 MiB */
+        uint64_t me = root_img_low[0] + root_img_low[1];
+        if (me > BOOT_PMM_LIMIT_PA)
+        {
+            boot_map_direct_range(pml4,
+                root_img_low[0] > BOOT_PMM_LIMIT_PA ? root_img_low[0] : BOOT_PMM_LIMIT_PA, me);
+        }
+    }
 
     print_hex64((uint64_t)&kernel_high_entry);
 
@@ -427,12 +450,6 @@ void start(BootParams* bootParams, VbeModeInfo* fb_info)
 
     // log_info("Main", "Kernel After HAL intialized");
 
-    VFS_Init();  
-    // log_info("Main", "Kernel After VFS_Init");
-
-    init_filesystem();
-    // log_info("Main", "Kernel After init_filesystem");
-
     bochs_init();  
     map_framebuffer(&fb_low);
     // log_info("Boot", "after map_framebuffer");
@@ -441,6 +458,15 @@ void start(BootParams* bootParams, VbeModeInfo* fb_info)
 
     fb_init(fb_info);
     gfx_init();            // initialize graphics layer
+
+    boot_mark(0, 0x00FFFFFF);
+
+    VFS_Init();  
+    // log_info("Main", "Kernel After VFS_Init");
+
+    init_filesystem();
+    // log_info("Main", "Kernel After init_filesystem");
+    boot_mark(1, 0x0000FF00);
 
     display_devices_init();
     drm_init();
@@ -461,6 +487,8 @@ end:
     // compositor_init();
     // // Launch compositor
     // compositor_main();  // infinite loop
+
+    boot_mark(2, 0x000000FF);
 
     log_info("Main", "Starting start_userspace!");
     start_userspace(bootParams);

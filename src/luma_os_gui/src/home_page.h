@@ -14,7 +14,7 @@ public:
 private:
     struct AppDef {
         std::string app_id, path;
-        std::string icon_path;
+        slint::Image icon_resource;
         std::vector<long> pids;                    // launched, not yet reaped
     };
 

@@ -16,14 +16,14 @@ HomePage::HomePage(slint::ComponentHandle<AppWindow> ui)
     search_model_(std::make_shared<slint::VectorModel<AppData>>())
 {
     apps_ = {
-        { "file_manager", "/bin/file_manager",  "../resources/icons/svg/archive.svg",       {} },
-        { "settings",     "/bin/settings",      "../resources/icons/svg/settings.svg",      {} },
-        { "terminal",     "/bin/terminal",      "../resources/icons/svg/terminal.svg",      {} },
-        { "music",        "/bin/music",         "../resources/icons/svg/music.svg",         {} },
-        { "menu",         "/bin/menu",          "../resources/icons/svg/menu.svg",          {} },
-        { "browser",      "/bin/browser",       "../resources/icons/svg/browse.svg",        {} },
-        { "photos",       "/bin/photos",        "../resources/icons/svg/photos.svg",        {} },
-        { "editor",       "/bin/editor",        "../resources/icons/svg/text-editor.svg",   {} },
+        { "file_manager", "/bin/file_manager",  slint::Image::load_from_path("../resources/icons/svg/archive.svg"),       {} },
+        { "settings",     "/bin/settings",      slint::Image::load_from_path("../resources/icons/svg/settings.svg"),      {} },
+        { "terminal",     "/bin/terminal",      slint::Image::load_from_path("../resources/icons/svg/terminal.svg"),      {} },
+        { "music",        "/bin/music",         slint::Image::load_from_path("../resources/icons/svg/music.svg"),         {} },
+        { "menu",         "/bin/menu",          slint::Image::load_from_path("../resources/icons/svg/menu.svg"),          {} },
+        { "browser",      "/bin/browser",       slint::Image::load_from_path("../resources/icons/svg/browse.svg"),        {} },
+        { "photos",       "/bin/photos",        slint::Image::load_from_path("../resources/icons/svg/photos.svg"),        {} },
+        { "editor",       "/bin/editor",        slint::Image::load_from_path("../resources/icons/svg/text-editor.svg"),   {} },
     };
     for (size_t i = 0; i < apps_.size(); i++) model_->push_back(AppState{ 0, false, false });
 
@@ -229,8 +229,16 @@ void HomePage::on_search_triggered(const std::string& text)
 
             AppData item;
             item.name = slint::SharedString(app.app_id);
-            std::cout<<"on_search_triggered: app.path = "<<app.icon_path <<std::endl;
-            item.icon = slint::Image::load_from_path(slint::SharedString(app.icon_path));
+            // std::cout<<"on_search_triggered: app.path = "<<app.icon_path <<std::endl;
+
+            std::cout
+                << " img_size="
+                << app.icon_resource.size().width
+                << "x"
+                << app.icon_resource.size().height
+                << std::endl;
+
+            item.icon = app.icon_resource;
             item.index = index;
             matches.push_back(item);
         }

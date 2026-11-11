@@ -343,7 +343,7 @@ component SearchPopup inherits Rectangle {
                     height: 40px;
 
                     HorizontalLayout {
-
+                        spacing: 10px;
                         Image {
                             source: app.icon;
                             width: parent.height - 5px;
@@ -351,10 +351,28 @@ component SearchPopup inherits Rectangle {
                             image-fit: fill;
                         }
 
+                        Image {
+                            source:
+                                app.index == 0 ? @image-url("../resources/icons/svg/archive.svg") :
+                                app.index == 1 ? @image-url("../resources/icons/svg/settings.svg") :
+                                app.index == 2 ? @image-url("../resources/icons/svg/terminal.svg") :
+                                app.index == 3 ? @image-url("../resources/icons/svg/music.svg") :
+                                app.index == 4 ? @image-url("../resources/icons/svg/menu.svg") :
+                                app.index == 5 ? @image-url("../resources/icons/svg/browse.svg") :
+                                app.index == 6 ? @image-url("../resources/icons/svg/photos.svg") :
+                                app.index == 7 ? @image-url("../resources/icons/svg/text-editor.svg") :
+                                @image-url("../resources/icons/svg/menu.svg");
+
+                            width: parent.height - 10px;
+                            height: parent.height - 10px;
+                            image-fit: fill;
+                        }
+
                         Text {
                             text: app.name;
                             color: white;
-                            font-size: 12px;
+                            font-size: 15px;
+                            vertical-alignment: center;
                         }
                     }
 

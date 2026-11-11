@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <debug.h>
+#include <string.h>
 #include "time/time.h"
 
 #include "arch/x86_64/events/input_event.h"
@@ -15,6 +16,19 @@
 #define STATUS_PORT 0x64
 
 
+/* ---- keyboard-driven pointer: F8 toggles; arrows move, Enter = left click, Right Ctrl = right click ---- */
+#define KP_F8      66
+#define KP_UP     103
+#define KP_DOWN   108
+#define KP_LEFT   105
+#define KP_RIGHT  106
+#define KP_ENTER   28
+#define KP_KPENTER 96
+#define KP_RCTRL   97
+
+static bool    kp_mode;
+static uint8_t kp_rep[4];                    /* auto-repeat counts: up, down, left, right */
+static bool    kp_left_down, kp_right_down;
 
 // Simple key buffer
 #define KEY_BUFFER_SIZE 32
@@ -53,6 +67,77 @@ static uint16_t e0_to_evdev(uint8_t make)
     }
 }
 
+
+static bool kbc_wait_in(void)  { for (int i = 0; i < 100000; i++) if (!(inb(STATUS_PORT) & 2)) return true; return false; }
+static bool kbc_wait_out(void) { for (int i = 0; i < 100000; i++) if (inb(STATUS_PORT) & 1)   return true; return false; }
+
+static void kp_push(uint16_t type, uint16_t code, int32_t value)
+{
+    InputEvent ev = {0};
+    ev.time.tv_sec = get_system_time();
+    ev.type = type; ev.code = code; ev.value = value;
+    input_push_event(&mouse_dev, &ev);
+}
+
+static void kp_led(bool on)                  /* the Caps Lock LED shows pointer mode; harmless if it doesn't light */
+{
+    if (!kbc_wait_in()) return;
+    outb(DATA_PORT, 0xED);
+    if (kbc_wait_out()) (void)inb(DATA_PORT);               /* ACK */
+    if (!kbc_wait_in()) return;
+    outb(DATA_PORT, on ? 0x04 : 0x00);
+    if (kbc_wait_out()) (void)inb(DATA_PORT);               /* ACK */
+}
+
+static int kp_step(uint8_t reps) { return reps < 3 ? 6 : (reps < 10 ? 14 : 28); }   /* accelerates while a key repeats */
+
+static bool kp_filter(uint16_t code, bool released)          /* true = key consumed */
+{
+    if (code == KP_F8) {
+        if (!released) {
+            kp_mode = !kp_mode;
+            memset(kp_rep, 0, sizeof kp_rep);
+            if (!kp_mode) {                                  /* never leave a button stuck down */
+                if (kp_left_down)  { kp_push(EV_KEY, BTN_LEFT,  KEY_RELEASED); kp_left_down  = false; }
+                if (kp_right_down) { kp_push(EV_KEY, BTN_RIGHT, KEY_RELEASED); kp_right_down = false; }
+                kp_push(EV_SYN, SYN_REPORT, 0);
+            }
+            kp_led(kp_mode);
+        }
+        return true;
+    }
+    if (!kp_mode) return false;
+
+    int dir = code == KP_UP ? 0 : code == KP_DOWN ? 1 : code == KP_LEFT ? 2 : code == KP_RIGHT ? 3 : -1;
+    if (dir >= 0) {
+        if (released) { kp_rep[dir] = 0; return true; }
+        int s = kp_step(kp_rep[dir]);
+        if (kp_rep[dir] < 255) kp_rep[dir]++;
+        kp_push(EV_REL, dir < 2 ? REL_Y : REL_X, (dir == 0 || dir == 2) ? -s : s);   /* +Y is down, as in your mouse handler */
+        kp_push(EV_SYN, SYN_REPORT, 0);
+        return true;
+    }
+    if (code == KP_ENTER || code == KP_KPENTER) {
+        bool down = !released;
+        if (down != kp_left_down) {                           /* ignore typematic repeats */
+            kp_left_down = down;
+            kp_push(EV_KEY, BTN_LEFT, down ? KEY_PRESSED : KEY_RELEASED);
+            kp_push(EV_SYN, SYN_REPORT, 0);
+        }
+        return true;
+    }
+    if (code == KP_RCTRL) {
+        bool down = !released;
+        if (down != kp_right_down) {
+            kp_right_down = down;
+            kp_push(EV_KEY, BTN_RIGHT, down ? KEY_PRESSED : KEY_RELEASED);
+            kp_push(EV_SYN, SYN_REPORT, 0);
+        }
+        return true;
+    }
+    return false;
+}
+
 // IRQ1 handler
 static void ps2_keyboard_handler()
 {
@@ -73,6 +158,11 @@ static void ps2_keyboard_handler()
     uint16_t code     = e0_pending ? e0_to_evdev(make)
                                    : (make <= 0x58 ? make : 0);
     e0_pending = false;
+
+    if (code && kp_filter(code, released)) {
+        x64_IRQ_SendEndOfInterupt(HardwareIRQNo_Keyboard);
+        return;
+    }
 
     if (code) {
         InputEvent ev = {0};
@@ -209,18 +299,18 @@ void ps2_test_mouse_polling()
     }
 }
 
-void ps2_configure_controller_command_byte() {
-    // Request controller to send us the current command byte
-    outb(0x64, 0x20);         // Command: Read Controller Command Byte
-    uint8_t cmd = inb(0x60);  // Read current command byte
-
-    // Modify it:
-    cmd |= (1 << 1);          // Enable IRQ12 (mouse interrupt)
-    cmd &= ~(1 << 5);         // Enable mouse clock (clear disable bit)
-
-    // Write modified command byte back
-    outb(0x64, 0x60);         // Command: Write Controller Command Byte
-    outb(0x60, cmd);          // Send the new command byte
+void ps2_configure_controller_command_byte(void)
+{
+    if (!kbc_wait_in()) return;
+    outb(0x64, 0x20);
+    if (!kbc_wait_out()) { log_info("PS/2", "no command byte: no i8042?"); return; }   /* don't write garbage back */
+    uint8_t cmd = inb(0x60);
+    cmd |= (1 << 1);                  /* IRQ12 on */
+    cmd &= ~(1 << 5);                 /* mouse clock on */
+    if (!kbc_wait_in()) return;
+    outb(0x64, 0x60);
+    if (!kbc_wait_in()) return;
+    outb(0x60, cmd);
 }
 
 bool ps2_mouse_enable_data_reporting() {

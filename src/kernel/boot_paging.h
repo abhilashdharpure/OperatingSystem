@@ -37,3 +37,5 @@ uint64_t boot_get_boot_alloc_end(void);
 
 /* make sure the bump allocator never hands out pages below 'addr' */
 void boot_pmm_skip_to(uintptr_t addr);
+void boot_pmm_avoid(uint64_t ms, uint64_t me);
+void boot_map_direct_range(uint64_t *pml4, uint64_t pa_start, uint64_t pa_end);

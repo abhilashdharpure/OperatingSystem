@@ -131,18 +131,6 @@ static int put_ids(uint64_t uptr, uint32_t ucount, const uint32_t *ids, uint32_t
     return 0;
 }
 
-static void fill_mode(struct drm_mode_modeinfo *m)
-{
-    uint32_t w = fb_dev.width, h = fb_dev.height;
-    memset(m, 0, sizeof *m);
-    m->hdisplay = w; m->hsync_start = w + 16; m->hsync_end = w + 112; m->htotal = w + 160;
-    m->vdisplay = h; m->vsync_start = h + 3;  m->vsync_end = h + 9;   m->vtotal = h + 30;
-    m->vrefresh = 60;                                   /* nominal: the boot framebuffer has no real timing */
-    m->clock = (uint32_t)((uint64_t)m->htotal * m->vtotal * 60 / 1000);
-    m->type = DRM_MODE_TYPE_DRIVER | DRM_MODE_TYPE_PREFERRED;
-    ksnprintf(m->name, DRM_DISPLAY_MODE_LEN, "%ux%u", w, h);
-}
-
 static void fill_mode_wh(struct drm_mode_modeinfo *m, uint32_t w, uint32_t h, int preferred)
 {
     memset(m, 0, sizeof *m);
@@ -300,7 +288,6 @@ static int drm_ioctl(struct file *f, unsigned long req_in, void *arg)
     case DRM_IOCTL_MODE_GETCONNECTOR: {
         struct drm_mode_get_connector *c = arg;
         if (c->connector_id != CONN_ID) return -ENOENT;
-        fill_mode(g_modes);
 
         uint32_t enc = ENC_ID;
 

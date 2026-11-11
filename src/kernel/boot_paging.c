@@ -233,3 +233,19 @@ void boot_pmm_skip_to(uintptr_t addr)
     if (addr > boot_next_page_pa)
         boot_next_page_pa = addr;
 }
+
+__attribute__((section(".boot64_stub")))
+void boot_pmm_avoid(uint64_t ms, uint64_t me)
+{
+    uint64_t next = boot_next_page_pa;
+    uint64_t need = 8ull << 20;                       /* generous bound for what setup_high_mappings allocates */
+    if (ms >= next + need || me <= next) return;      /* module far above, or below, the allocator */
+    boot_next_page_pa = (me + 0xFFF) & ~0xFFFull;
+}
+
+__attribute__((section(".boot64_stub")))
+void boot_map_direct_range(uint64_t *pml4, uint64_t pa_start, uint64_t pa_end)
+{
+    for (uint64_t pa = pa_start & ~0xFFFull; pa < pa_end; pa += PAGE_SIZE)
+        boot_map_page(pml4, DIRECT_MAP_BASE + pa, pa, PAGE_PRESENT | PAGE_RW);
+}
