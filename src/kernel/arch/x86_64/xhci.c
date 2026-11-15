@@ -535,11 +535,11 @@ int xhci_init(void)
     // for (uint32_t p = 1; p <= nports; p++) enumerate_port(p);
 
     xhci_ready = 1;
-    boot_bits(5, mask, 0x0000FF00);                                                   /* green: ports with a device */
-    boot_bits(6, (uint8_t)code, 0x000000FF);                                          /* blue: no-op code, 00000001 = ok */
-    boot_bits(7, (uint8_t)nports, 0x00FFFFFF);                                        /* white: number of ports */
-    boot_bits(8, hid_slot ? 0xFF : 0x00, 0x0000FF00);                                 /* green: a HID mouse is running */
-    boot_bits(9, dbg_ok, 0x00FFFF00);                                                 /* yellow: devices whose descriptor was read */
-    boot_bits(10, dbg_err, 0x00FF0000);                                               /* red: last failure: high nibble = step, low = code */
+    // boot_bits(5, mask, 0x0000FF00);                                                   /* green: ports with a device */
+    // boot_bits(6, (uint8_t)code, 0x000000FF);                                          /* blue: no-op code, 00000001 = ok */
+    // boot_bits(7, (uint8_t)nports, 0x00FFFFFF);                                        /* white: number of ports */
+    // boot_bits(8, hid_slot ? 0xFF : 0x00, 0x0000FF00);                                 /* green: a HID mouse is running */
+    // boot_bits(9, dbg_ok, 0x00FFFF00);                                                 /* yellow: devices whose descriptor was read */
+    // boot_bits(10, dbg_err, 0x00FF0000);                                               /* red: last failure: high nibble = step, low = code */
     return 0;
 }

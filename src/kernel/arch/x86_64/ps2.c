@@ -77,14 +77,6 @@ void kp_push(uint16_t type, uint16_t code, int32_t value)
     InputEvent ev = {0};
     ev.time.tv_sec = get_system_time();
     ev.type = type; ev.code = code; ev.value = value;
-
-
-    if (type == EV_REL)
-    {
-        static bool t;
-        t = !t;
-        boot_mark(13, t ? 0x00FFFF00 : 0x00303030);
-    }   /* flips on each pointer event generated */
     input_push_event(&mouse_dev, &ev);
 }
 
@@ -112,7 +104,6 @@ static void kp_set(bool on)
         kp_push(EV_SYN, SYN_REPORT, 0);
     }
 
-    boot_mark(12, on ? 0x0000FF00 : 0x00600000);
     kp_led(on);
 }
 
@@ -371,7 +362,7 @@ static void ps2_service(void)                       /* drain everything the cont
         uint8_t st = inb(STATUS_PORT);
         if (!(st & 1)) break;                       /* output buffer empty */
         uint8_t b = inb(DATA_PORT);
-        boot_bits(0, b, (st & 0x20) ? 0x00FFFF00 : 0x0000FFFF);        /* bring-up aid: last byte, yellow = mouse, cyan = keyboard */
+        // boot_bits(0, b, (st & 0x20) ? 0x00FFFF00 : 0x0000FFFF);        /* bring-up aid: last byte, yellow = mouse, cyan = keyboard */
         if (st & 0x20) ps2_mouse_byte(b); else ps2_keyboard_byte(b);
     }
 }
@@ -463,37 +454,35 @@ void test_mouse_keyboard_read(void)
     }
 }
 
-#define ST_ITER 6000000                            /* each iteration ~1-2 us on real hardware (much slower in QEMU) */
+// #define ST_ITER 6000000                            /* each iteration ~1-2 us on real hardware (much slower in QEMU) */
 
-void ps2_selftest_screen(void)
-{
-    /* Phase 1: interrupts OFF, polling the controller directly: do bytes arrive at all? */
-    __asm__ volatile("cli");
-    boot_mark(8, 0x00FFFFFF);                      /* white square lit = phase 1: press keys / move the touchpad now */
-    for (int i = 0; i < ST_ITER; i++) {
-        uint8_t st = inb(STATUS_PORT);
-        if ((i & 0x3FFF) == 0) boot_bits(3, st, 0x00FF00FF);               /* row 3 (magenta): live status register */
-        if (st & 1) {
-            uint8_t b = inb(DATA_PORT);
-            boot_bits(2, b, (st & 0x20) ? 0x00FFFF00 : 0x00FFFFFF);       /* row 2: byte read by polling (yellow = mouse) */
-            boot_bits(3, st, 0x00FF00FF);
-        }
-        outb(0x80, 0);                                                     /* ~1 us delay */
-    }
-    boot_mark(8, 0x00303030);
+// void ps2_selftest_screen(void)
+// {
+//     /* Phase 1: interrupts OFF, polling the controller directly: do bytes arrive at all? */
+//     __asm__ volatile("cli");
+//     for (int i = 0; i < ST_ITER; i++) {
+//         uint8_t st = inb(STATUS_PORT);
+//         if ((i & 0x3FFF) == 0) boot_bits(3, st, 0x00FF00FF);               /* row 3 (magenta): live status register */
+//         if (st & 1) {
+//             uint8_t b = inb(DATA_PORT);
+//             boot_bits(2, b, (st & 0x20) ? 0x00FFFF00 : 0x00FFFFFF);       /* row 2: byte read by polling (yellow = mouse) */
+//             boot_bits(3, st, 0x00FF00FF);
+//         }
+//         outb(0x80, 0);                                                     /* ~1 us delay */
+//     }
 
-    /* Phase 2: interrupts ON: do the IRQ handlers fire? (rows 0 and 1 are drawn by the handlers) */
-    uint64_t t0 = get_system_time();
-    boot_mark(9, 0x00FFFFFF);                      /* second white square lit = phase 2: press keys again */
-    __asm__ volatile("sti");
-    for (int i = 0; i < ST_ITER; i++) outb(0x80, 0);
-    uint64_t t1 = get_system_time();
-    boot_mark(9, 0x00303030);
-    boot_mark(10, t1 != t0 ? 0x0000FF00 : 0x00FF0000);   /* green: timer IRQ works, red: no timer interrupts at all */
-    boot_bits(4, (uint8_t)(t1 - t0), 0x0000FF00);
-}
+//     /* Phase 2: interrupts ON: do the IRQ handlers fire? (rows 0 and 1 are drawn by the handlers) */
+//     uint64_t t0 = get_system_time();
+//     boot_mark(9, 0x00FFFFFF);                      /* second white square lit = phase 2: press keys again */
+//     __asm__ volatile("sti");
+//     for (int i = 0; i < ST_ITER; i++) outb(0x80, 0);
+//     uint64_t t1 = get_system_time();
+//     boot_mark(9, 0x00303030);
+//     boot_mark(10, t1 != t0 ? 0x0000FF00 : 0x00FF0000);   /* green: timer IRQ works, red: no timer interrupts at all */
+//     boot_bits(4, (uint8_t)(t1 - t0), 0x0000FF00);
+// }
 
-void ps2_show_state(void)
-{
-    boot_mark(12, kp_mode ? 0x0000FF00 : 0x00600000);
-}   /* green = pointer mode on */
+// void ps2_show_state(void)
+// {
+//     boot_mark(12, kp_mode ? 0x0000FF00 : 0x00600000);
+// }   /* green = pointer mode on */

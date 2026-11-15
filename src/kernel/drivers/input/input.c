@@ -8,7 +8,7 @@
 #include "stddef.h"
 #include <arch/x86_64/irq.h>
 
-extern void boot_mark(int, uint32_t);
+// extern void boot_mark(int, uint32_t);
 
 static inline unsigned long irq_save_flags_cli(void)
 {
@@ -106,7 +106,7 @@ static int input_read(struct file *file, void *buf, size_t size)
         out[n++] = ev;
     }
 
-    if (n && dev->name[5] == '1') { static bool t; t = !t; boot_mark(14, t ? 0x00FF00FF : 0x00303030); }   /* event1 read by a consumer */
+    // if (n && dev->name[5] == '1') { static bool t; t = !t; boot_mark(14, t ? 0x00FF00FF : 0x00303030); }   /* event1 read by a consumer */
     return n ? (int)(n * sizeof(InputEvent)) : -11;       /* EAGAIN when empty */
 }
 
