@@ -270,6 +270,23 @@ void Shell::dispatch(const std::vector<std::string>& a)
         if (!exists(p)) { err("run: " + a[1] + ": not found"); return; }
         launch(p, std::vector<std::string>(a.begin() + 2, a.end()));
     }
+    else if (c == "dmesg") {                         // dmesg [filter]: the last 60 matching kernel log lines
+        int fd = open("/dev/kmsg", O_RDONLY);
+        if (fd < 0) { err(std::string("/dev/kmsg: ") + strerror(errno)); return; }
+        std::string all; char b[4096]; ssize_t n;
+        while ((n = read(fd, b, sizeof b)) > 0 && all.size() < 512 * 1024) all.append(b, (size_t)n);
+        close(fd);
+        std::string filter = a.size() > 1 ? a[1] : "";
+        std::vector<std::string> lines;
+        for (size_t s = 0; s < all.size();) {
+            size_t e = all.find('\n', s);
+            if (e == std::string::npos) e = all.size();
+            std::string ln = all.substr(s, e - s);
+            if (filter.empty() || ln.find(filter) != std::string::npos) lines.push_back(ln);
+            s = e + 1;
+        }
+        for (size_t i = lines.size() > 60 ? lines.size() - 60 : 0; i < lines.size(); i++) emit(lines[i]);
+    }
     else {
         std::string p = c.find('/') == std::string::npos ? "/bin/" + c : resolve(c);
         if (exists(p) && !is_dir(p)) launch(p, std::vector<std::string>(a.begin() + 1, a.end()));

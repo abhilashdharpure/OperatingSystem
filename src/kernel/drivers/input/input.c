@@ -8,6 +8,8 @@
 #include "stddef.h"
 #include <arch/x86_64/irq.h>
 
+extern void boot_mark(int, uint32_t);
+
 static inline unsigned long irq_save_flags_cli(void)
 {
     unsigned long flags;
@@ -83,12 +85,17 @@ static int input_open(struct file *file)
 
 static int input_can_read(struct file *f)
 {
+    ps2_poll();
+    xhci_service();
     struct input_device *d = f->private_data;
     return d->count > 0;              /* not head != tail: a full ring has head == tail */
 }
 
 static int input_read(struct file *file, void *buf, size_t size)
 {
+    ps2_poll();
+    xhci_service();
+
     struct input_device *dev = file->private_data;
     if (size < sizeof(InputEvent)) return -22;            /* EINVAL */
     InputEvent *out = buf;
@@ -98,6 +105,8 @@ static int input_read(struct file *file, void *buf, size_t size)
         if (!input_pop_event(dev, &ev)) break;
         out[n++] = ev;
     }
+
+    if (n && dev->name[5] == '1') { static bool t; t = !t; boot_mark(14, t ? 0x00FF00FF : 0x00303030); }   /* event1 read by a consumer */
     return n ? (int)(n * sizeof(InputEvent)) : -11;       /* EAGAIN when empty */
 }
 

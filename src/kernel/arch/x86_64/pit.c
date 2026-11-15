@@ -5,6 +5,7 @@
 #include "io.h"
 
 #define PIT_BASE_FREQUENCY 1193182ULL   // Hz (hardware PIT clock)
+extern void ps2_poll(void);
 
 volatile uint64_t pit_ticks = 0;
 uint32_t pit_frequency = 1000; // default 1000 Hz
@@ -14,6 +15,8 @@ void pit_irq_handler(ISRFrame64* regs)
 {
     (void)regs;
     pit_ticks++;
+
+    ps2_poll();
     // if ((pit_ticks & 0xFF) == 0)
     //     log_info("PIT", "tick=%llu", pit_ticks);
 }

@@ -100,8 +100,8 @@ component AppIcon inherits Rectangle {
 
     Image {
         source: root.icon;
-        width: parent.width;
-        height: parent.height;
+        width: parent.width - 10px;
+        height: parent.height -10px;
         image-fit: contain;
         opacity: root.app-state.minimized ? 0.55 : 1.0;
     }
@@ -204,10 +204,28 @@ export component RoundedLineEdit inherits Rectangle {
         padding-left: 12px;
         padding-right: 12px;
 
-        if input.text == "" : Text {
-            text: root.placeholder-text;
-            color: #aaaaaa;
-            vertical-alignment: center;
+        if input.text == "" : Rectangle{
+            width: parent.height;
+            height: parent.height;
+
+            HorizontalLayout {
+                padding-left: 0px;
+                padding-right: 0px;
+                spacing: 20px;
+
+                Image {
+                    source: @image-url("../resources/icons/svg/search.svg");
+                    width: parent.height - 5px;
+                    height: parent.height - 5px;
+                    image-fit: fill;
+                }
+
+                Text {
+                    text: root.placeholder-text;
+                    color: #aaaaaa;
+                    vertical-alignment: center;
+                }
+            }
         }
 
         input := TextInput {
@@ -217,6 +235,13 @@ export component RoundedLineEdit inherits Rectangle {
             edited => {
                 root.text_changed(self.text);
             }
+        }
+    }
+
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            input.focus();
         }
     }
 }
@@ -322,7 +347,7 @@ component PowerPanel inherits VerticalLayout {
 
 component SearchPopup inherits Rectangle {
     width: 260px;
-    height: 200px;
+    height: ((HomeState.search-result-count > 4) ? (40px * HomeState.search-result-count ) : 160px) + 40px;
     background: #1f2a36;
     border-radius: 12px;
     border-width: 1px;
@@ -336,7 +361,7 @@ component SearchPopup inherits Rectangle {
         PanelTitle { text: "Search Result"; }
 
         ScrollView {
-            height: 200px;
+            height: root.height;
 
             VerticalLayout {
                 for app in HomeState.search-results : Rectangle {
@@ -366,6 +391,7 @@ component SearchPopup inherits Rectangle {
                             width: parent.height - 10px;
                             height: parent.height - 10px;
                             image-fit: fill;
+                            vertical-alignment: center;
                         }
 
                         Text {
@@ -467,6 +493,7 @@ export component HomePage inherits Rectangle {
                     height: 40px;
 
                     text <=> HomeState.search;
+                    placeholder-text: "Search";
 
                     text_changed(text) => {
                         HomeState.search-triggered(text);
@@ -542,7 +569,7 @@ export component HomePage inherits Rectangle {
                 Rectangle {
                     y: (parent.height - self.height) / 2;
                     width: parent.width * (0.18);
-                    height: 40px;
+                    height: 30px;
                     border-radius: 10px;
                     background: #000000;
 
@@ -552,7 +579,7 @@ export component HomePage inherits Rectangle {
 
                         TrayIcon {
                             icon: @image-url("../resources/icons/png/lock.png");
-                            size: 40px;
+                            size: 30px;
                             selected: HomeState.active-panel == 1;
                             activated => {
                                 HomeState.active-panel = HomeState.active-panel == 1 ? 0 : 1;
@@ -561,7 +588,7 @@ export component HomePage inherits Rectangle {
                         }
                         TrayIcon {
                             icon: @image-url("../resources/icons/png/battery.png");
-                            size: 40px;
+                            size: 30px;
                             selected: HomeState.active-panel == 2;
                             activated => {
                                 HomeState.active-panel = HomeState.active-panel == 2 ? 0 : 2;
@@ -570,7 +597,7 @@ export component HomePage inherits Rectangle {
                         }
                         TrayIcon {
                             icon: @image-url("../resources/icons/png/wifi.png");
-                            size: 40px;
+                            size: 30px;
                             selected: HomeState.active-panel == 3;
                             activated => {
                                 HomeState.active-panel = HomeState.active-panel == 3 ? 0 : 3;
@@ -579,7 +606,7 @@ export component HomePage inherits Rectangle {
                         }
                         TrayIcon {
                             icon: @image-url("../resources/icons/png/volume.png");
-                            size: 40px;
+                            size: 30px;
                             selected: HomeState.active-panel == 4;
                             activated => {
                                 HomeState.active-panel = HomeState.active-panel == 4 ? 0 : 4;
@@ -588,7 +615,7 @@ export component HomePage inherits Rectangle {
                         }
                         TrayIcon {
                             icon: @image-url("../resources/icons/png/power.png");
-                            size: 40px;
+                            size: 30px;
                             selected: HomeState.active-panel == 5;
                             activated => {
                                 HomeState.active-panel = HomeState.active-panel == 5 ? 0 : 5;
@@ -609,7 +636,7 @@ export component HomePage inherits Rectangle {
         y: 0px;
         width: parent.width;
         height: parent.height - root.tray-strip;
-        clicked => { HomeState.active-panel = 0; }
+        clicked => { HomeState.active-panel = 0;}
     }
 
     if HomeState.active-panel != 0 : PopupHost {

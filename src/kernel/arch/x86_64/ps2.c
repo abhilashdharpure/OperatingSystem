@@ -30,9 +30,7 @@ static bool    kp_mode;
 static uint8_t kp_rep[4];                    /* auto-repeat counts: up, down, left, right */
 static bool    kp_left_down, kp_right_down;
 
-// Simple key buffer
-#define KEY_BUFFER_SIZE 32
-#define SYN_REPORT 0
+
 static volatile char key_buffer[KEY_BUFFER_SIZE];
 static volatile int key_head = 0;
 static volatile int key_tail = 0;
@@ -44,6 +42,9 @@ static uint8_t prev_buttons = 0;
 struct input_device keyboard_dev;
 struct input_device mouse_dev;
 
+extern void boot_mark(int slot, uint32_t rgb);
+extern void boot_bits(int row, uint8_t v, uint32_t on);
+extern void xhci_poll(void);
 static bool e0_pending = false;
 
 static uint16_t e0_to_evdev(uint8_t make)
@@ -71,11 +72,19 @@ static uint16_t e0_to_evdev(uint8_t make)
 static bool kbc_wait_in(void)  { for (int i = 0; i < 100000; i++) if (!(inb(STATUS_PORT) & 2)) return true; return false; }
 static bool kbc_wait_out(void) { for (int i = 0; i < 100000; i++) if (inb(STATUS_PORT) & 1)   return true; return false; }
 
-static void kp_push(uint16_t type, uint16_t code, int32_t value)
+void kp_push(uint16_t type, uint16_t code, int32_t value)
 {
     InputEvent ev = {0};
     ev.time.tv_sec = get_system_time();
     ev.type = type; ev.code = code; ev.value = value;
+
+
+    if (type == EV_REL)
+    {
+        static bool t;
+        t = !t;
+        boot_mark(13, t ? 0x00FFFF00 : 0x00303030);
+    }   /* flips on each pointer event generated */
     input_push_event(&mouse_dev, &ev);
 }
 
@@ -91,19 +100,29 @@ static void kp_led(bool on)                  /* the Caps Lock LED shows pointer 
 
 static int kp_step(uint8_t reps) { return reps < 3 ? 6 : (reps < 10 ? 14 : 28); }   /* accelerates while a key repeats */
 
+static bool kp_ctrl, kp_alt;
+
+static void kp_set(bool on)
+{
+    kp_mode = on;
+    memset(kp_rep, 0, sizeof kp_rep);
+    if (!on) {                                           /* never leave a button stuck down */
+        if (kp_left_down)  { kp_push(EV_KEY, BTN_LEFT,  KEY_RELEASED); kp_left_down  = false; }
+        if (kp_right_down) { kp_push(EV_KEY, BTN_RIGHT, KEY_RELEASED); kp_right_down = false; }
+        kp_push(EV_SYN, SYN_REPORT, 0);
+    }
+
+    boot_mark(12, on ? 0x0000FF00 : 0x00600000);
+    kp_led(on);
+}
+
 static bool kp_filter(uint16_t code, bool released)          /* true = key consumed */
 {
-    if (code == KP_F8) {
-        if (!released) {
-            kp_mode = !kp_mode;
-            memset(kp_rep, 0, sizeof kp_rep);
-            if (!kp_mode) {                                  /* never leave a button stuck down */
-                if (kp_left_down)  { kp_push(EV_KEY, BTN_LEFT,  KEY_RELEASED); kp_left_down  = false; }
-                if (kp_right_down) { kp_push(EV_KEY, BTN_RIGHT, KEY_RELEASED); kp_right_down = false; }
-                kp_push(EV_SYN, SYN_REPORT, 0);
-            }
-            kp_led(kp_mode);
-        }
+    if (code == 29 || code == 97)  kp_ctrl = !released;      /* Left / Right Ctrl */
+    if (code == 56 || code == 100) kp_alt  = !released;      /* Left / Right Alt  */
+
+    if (code == KP_F8 || (code == 50 && kp_ctrl && kp_alt)) {   /* Fn+F8, or Ctrl+Alt+M */
+        if (!released) kp_set(!kp_mode);
         return true;
     }
     if (!kp_mode) return false;
@@ -139,54 +158,34 @@ static bool kp_filter(uint16_t code, bool released)          /* true = key consu
 }
 
 // IRQ1 handler
-static void ps2_keyboard_handler()
+static void ps2_keyboard_byte(uint8_t sc)
 {
-    uint8_t sc = inb(DATA_PORT);
-
-    if (sc == 0xE0) {                 // extended prefix: the next byte is the key
-        e0_pending = true;
-        x64_IRQ_SendEndOfInterupt(HardwareIRQNo_Keyboard);
-        return;
-    }
-    if (sc == 0xE1) {                 // Pause key sequence: ignore
-        x64_IRQ_SendEndOfInterupt(HardwareIRQNo_Keyboard);
-        return;
-    }
+    if (sc == 0xE0) { e0_pending = true; return; }            /* extended prefix */
+    if (sc == 0xE1) { return; }                               /* Pause sequence: ignore */
 
     bool     released = sc & 0x80;
     uint8_t  make     = sc & 0x7F;
-    uint16_t code     = e0_pending ? e0_to_evdev(make)
-                                   : (make <= 0x58 ? make : 0);
+    uint16_t code     = e0_pending ? e0_to_evdev(make) : (make <= 0x58 ? make : 0);
     e0_pending = false;
 
-    if (code && kp_filter(code, released)) {
-        x64_IRQ_SendEndOfInterupt(HardwareIRQNo_Keyboard);
-        return;
-    }
+    if (code && kp_filter(code, released)) return;
 
     if (code) {
         InputEvent ev = {0};
-        ev.time.tv_sec  = get_system_time(); 
-        ev.type  = EV_KEY;
-        ev.code  = code;
-        ev.value = released ? KEY_RELEASED : KEY_PRESSED;
+        ev.time.tv_sec = get_system_time();
+        ev.type = EV_KEY; ev.code = code; ev.value = released ? KEY_RELEASED : KEY_PRESSED;
         input_push_event(&keyboard_dev, &ev);
 
         InputEvent syn = {0};
-        syn.time.tv_sec  = get_system_time(); 
-        syn.type = EV_SYN;
-        syn.code = SYN_REPORT;
+        syn.time.tv_sec = get_system_time();
+        syn.type = EV_SYN; syn.code = SYN_REPORT;
         input_push_event(&keyboard_dev, &syn);
     }
-
-    x64_IRQ_SendEndOfInterupt(HardwareIRQNo_Keyboard);   // on every path
 }
 
 // IRQ12 handler
-static void ps2_mouse_handler(ISR64Handler* regs)
+static void ps2_mouse_byte(uint8_t data)
 {
-    uint8_t data = inb(DATA_PORT);
-
     // --- Sync to the start of a packet ---
     if (mouse_cycle == 0 && !(data & 0x08)) {
         // Bit3 not set → not a valid first byte, skip
@@ -284,8 +283,6 @@ static void ps2_mouse_handler(ISR64Handler* regs)
     synEvent.code = SYN_REPORT;
     synEvent.value = 0;
     input_push_event(&mouse_dev, &synEvent);
-
-    x64_IRQ_SendEndOfInterupt(HardwareIRQNo_Mouse); // Or the proper IRQ number for mouse IRQ12
 }
 
 void ps2_test_mouse_polling()
@@ -301,12 +298,20 @@ void ps2_test_mouse_polling()
 
 void ps2_configure_controller_command_byte(void)
 {
+    for (int i = 0; i < 16 && (inb(STATUS_PORT) & 1); i++) (void)inb(DATA_PORT);   /* stale bytes left by the firmware */
+
+    if (!kbc_wait_in()) return;
+    outb(0x64, 0xAE);                                    /* make sure the keyboard port is enabled */
+
     if (!kbc_wait_in()) return;
     outb(0x64, 0x20);
-    if (!kbc_wait_out()) { log_info("PS/2", "no command byte: no i8042?"); return; }   /* don't write garbage back */
+    if (!kbc_wait_out()) { log_info("PS/2", "no command byte: no i8042?"); return; }
     uint8_t cmd = inb(0x60);
-    cmd |= (1 << 1);                  /* IRQ12 on */
-    cmd &= ~(1 << 5);                 /* mouse clock on */
+
+    cmd |= (1 << 0) | (1 << 1);                          /* IRQ1 and IRQ12 on */
+    cmd &= ~((1 << 4) | (1 << 5));                       /* keyboard and mouse clocks on */
+    cmd |= (1 << 6);                                     /* translate set 2 -> set 1: your decoder expects set 1 codes */
+
     if (!kbc_wait_in()) return;
     outb(0x64, 0x60);
     if (!kbc_wait_in()) return;
@@ -344,7 +349,8 @@ void ps2_enable_mouse()
     if (!ps2_mouse_enable_data_reporting())
     {
         log_info("Mouse", "Didn't receive ACK after enabling mouse!");
-    } 
+        kp_set(true);                 /* no PS/2 pointing device (e.g. an I2C touchpad): start with the keyboard pointer on */
+    }
     else
     {
         log_info("Mouse", "Mouse enabled successfully");
@@ -357,6 +363,29 @@ void ps2_enable_mouse()
             log_info("Mouse", "Unsticking with dummy read: 0x%02x", dummy);
         }
     }
+}
+
+static void ps2_service(void)                       /* drain everything the controller has */
+{
+    for (int n = 0; n < 32; n++) {
+        uint8_t st = inb(STATUS_PORT);
+        if (!(st & 1)) break;                       /* output buffer empty */
+        uint8_t b = inb(DATA_PORT);
+        boot_bits(0, b, (st & 0x20) ? 0x00FFFF00 : 0x0000FFFF);        /* bring-up aid: last byte, yellow = mouse, cyan = keyboard */
+        if (st & 0x20) ps2_mouse_byte(b); else ps2_keyboard_byte(b);
+    }
+}
+
+static void ps2_keyboard_handler(void)              { ps2_service(); x64_IRQ_SendEndOfInterupt(HardwareIRQNo_Keyboard); }
+static void ps2_mouse_handler(ISR64Handler* regs)   { ps2_service(); x64_IRQ_SendEndOfInterupt(HardwareIRQNo_Mouse); }
+
+void ps2_poll(void)                                 /* callable from any context */
+{
+    uint64_t flags;
+    __asm__ volatile("pushfq; popq %0; cli" : "=r"(flags) :: "memory");
+    ps2_service();
+    if (flags & 0x200) __asm__ volatile("sti");
+    xhci_poll();
 }
 
 void init_input_system(void)
@@ -433,3 +462,38 @@ void test_mouse_keyboard_read(void)
         }
     }
 }
+
+#define ST_ITER 6000000                            /* each iteration ~1-2 us on real hardware (much slower in QEMU) */
+
+void ps2_selftest_screen(void)
+{
+    /* Phase 1: interrupts OFF, polling the controller directly: do bytes arrive at all? */
+    __asm__ volatile("cli");
+    boot_mark(8, 0x00FFFFFF);                      /* white square lit = phase 1: press keys / move the touchpad now */
+    for (int i = 0; i < ST_ITER; i++) {
+        uint8_t st = inb(STATUS_PORT);
+        if ((i & 0x3FFF) == 0) boot_bits(3, st, 0x00FF00FF);               /* row 3 (magenta): live status register */
+        if (st & 1) {
+            uint8_t b = inb(DATA_PORT);
+            boot_bits(2, b, (st & 0x20) ? 0x00FFFF00 : 0x00FFFFFF);       /* row 2: byte read by polling (yellow = mouse) */
+            boot_bits(3, st, 0x00FF00FF);
+        }
+        outb(0x80, 0);                                                     /* ~1 us delay */
+    }
+    boot_mark(8, 0x00303030);
+
+    /* Phase 2: interrupts ON: do the IRQ handlers fire? (rows 0 and 1 are drawn by the handlers) */
+    uint64_t t0 = get_system_time();
+    boot_mark(9, 0x00FFFFFF);                      /* second white square lit = phase 2: press keys again */
+    __asm__ volatile("sti");
+    for (int i = 0; i < ST_ITER; i++) outb(0x80, 0);
+    uint64_t t1 = get_system_time();
+    boot_mark(9, 0x00303030);
+    boot_mark(10, t1 != t0 ? 0x0000FF00 : 0x00FF0000);   /* green: timer IRQ works, red: no timer interrupts at all */
+    boot_bits(4, (uint8_t)(t1 - t0), 0x0000FF00);
+}
+
+void ps2_show_state(void)
+{
+    boot_mark(12, kp_mode ? 0x0000FF00 : 0x00600000);
+}   /* green = pointer mode on */

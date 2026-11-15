@@ -14,6 +14,7 @@
 #include "compositor/compositor.h"
 #include <arch/x86_64/io.h>
 #include <arch/x86_64/msr.h>
+#include <hal/klog.h>
 
 #include "multiboot2_defines.h"
 #include "arch/x86_64/serial.h"
@@ -464,12 +465,22 @@ void start(BootParams* bootParams, VbeModeInfo* fb_info)
     VFS_Init();  
     // log_info("Main", "Kernel After VFS_Init");
 
+    klog_register();
+
     init_filesystem();
     // log_info("Main", "Kernel After init_filesystem");
     boot_mark(1, 0x0000FF00);
+    pci_scan();
+
+    if (e1000_init() == 0)
+    {
+        e1000_arp_selftest();
+    }
 
     display_devices_init();
     drm_init();
+
+    xhci_init();
 
     battery_devices_init();
 
@@ -482,6 +493,7 @@ end:
     // Enable Interrupts
     __asm__ volatile("sti");
     log_info("HAL", "Interrupts enabled");
+
 
     // // test_mouse_keyboard_read();
     // compositor_init();

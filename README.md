@@ -16,12 +16,15 @@
 # Run In Host Machine
 RAM:    ./scripts/run.sh build/x86_64_debug/image.iso live
 Normal  scons run
+./scripts/run.sh build/x86_64_debug/image.iso uefi
 
 # Create Boot image
 Press F2 and disable secure boot in Laptop
-lsblk -o NAME,SIZE,MODEL,TRAN,RM,MOUNTPOINT               # the stick: TRAN=usb, RM=1, matching size
-sudo umount /dev/sdX* 2>/dev/null
-sudo dd if=build/x86_64_debug/image.iso of=/dev/sdX bs=4M conv=fsync status=progress
+sdX -> sdb
+lsblk -o NAME,SIZE,MODEL,TRAN,RM,MOUNTPOINT
+sudo umount /dev/sdb* 2>/dev/null
+cd ~/Project/OSDev/OperatingSystem
+sudo dd if=build/x86_64_debug/image.iso of=/dev/sdb bs=4M conv=fsync status=progress
 sync
 
 # Icons 

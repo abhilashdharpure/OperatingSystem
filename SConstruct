@@ -183,20 +183,19 @@ def run_qemu(target, source, env):
         return 1
 
     import subprocess
-    subprocess.check_call([
+    args = [
         "qemu-system-x86_64",
-        "-M", "pc",
-        "-m", "512M",
+        "-M", "pc", "-m", "512M",
         "-drive", f"id=disk,file={root_img},format=raw,if=none",
         "-device", "ide-hd,drive=disk,bus=ide.0,unit=0",
-        "-cdrom", iso,
-        "-boot", "d",
-        "-serial", "mon:stdio",
-        "-monitor", "none",
-        "-no-reboot",
-        "-vga", "none",
-        "-device", "VGA,vgamem_mb=32",
-    ])
+        "-cdrom", iso, "-boot", "d",
+        "-serial", "mon:stdio", "-monitor", "none", "-no-reboot",
+        "-vga", "none", "-device", "VGA,vgamem_mb=32",
+        "-device", "qemu-xhci",                       # the controller alone: no devices attached
+    ]
+    if ARGUMENTS.get("usb") == "mouse":               # scons run usb=mouse
+        args += ["-device", "usb-mouse"]              # the window's mouse now goes to the USB device
+    subprocess.check_call(args)
 
     return None
 

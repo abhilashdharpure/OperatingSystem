@@ -22,3 +22,15 @@ void boot_fill(uint32_t rgb)                      /* whole screen: call from pan
         for (uint32_t x = 0; x < fb_dev.width; x++) row[x] = rgb;
     }
 }
+void boot_bits(int row, uint8_t v, uint32_t on)       /* row 0..4, below the stage marks */
+{
+    if (!fb_ok()) return;
+    for (int bit = 0; bit < 8; bit++) {
+        uint32_t c = (v & (0x80 >> bit)) ? on : 0x00303030;
+        for (int y = 0; y < 10; y++) {
+            uint32_t *p = (uint32_t *)((uint8_t *)(uintptr_t)fb_dev.framebuffer
+                                       + (size_t)(32 + row * 14 + y) * fb_dev.pitch);
+            for (int x = 0; x < 10; x++) p[bit * 14 + x] = c;
+        }
+    }
+}
