@@ -99,7 +99,23 @@ void SettingsController::refresh_network()
 {
     with_state([&](auto& s) {
         s.set_network_status("No network adapter");
-        s.set_network_info(to_model({}));
+
+        NetworkInfo info;
+        be_.read_network(info);
+
+
+        std::vector<InfoRow> networkList;
+        networkList.push_back(InfoRow("IP Address", info.ip_address));
+        networkList.push_back(InfoRow("MAC Address", info.mac_address));
+        networkList.push_back(InfoRow("Interface Name", info.interface_name));
+        networkList.push_back(InfoRow("Gateway", info.gateway));
+
+        for(auto entry: info.wifi_networks)
+        {
+            networkList.push_back(InfoRow(entry, info.ip_address));
+        }
+
+        s.set_network_info(to_model(networkList));
     });
 }
 

@@ -30,6 +30,21 @@ static struct tx_desc *tx;
 static uint8_t *rxbuf[NRX], *txbuf[NTX];
 uint8_t g_mac[6];
 
+typedef struct net_device
+{
+    char name[16];
+
+    uint8_t mac[6];
+
+    uint8_t ip[4];
+    uint8_t gateway[4];
+    uint8_t dns[4];
+
+    int link_up;
+} net_device_t;
+
+net_device_t g_netdev;
+
 static inline uint32_t R(uint32_t r) { return *(volatile uint32_t *)(mmio + r); }
 static inline void W(uint32_t r, uint32_t v) { *(volatile uint32_t *)(mmio + r) = v; }
 
@@ -43,8 +58,78 @@ static void *dma_page(uint64_t *phys)          /* pmm pages are below 512 MiB, s
     return va;
 }
 
+dhcp_assign_ip(
+    uint8_t ip[4],
+    uint8_t gateway[4],
+    uint8_t dns[4])
+{
+    memcpy(g_netdev.ip,      ip,      4);
+    memcpy(g_netdev.gateway, gateway, 4);
+    memcpy(g_netdev.dns,     dns,     4);
+}
+
+static int text_read(struct file *f, void *buf, size_t size, const char *txt, size_t len)
+{
+    if (f->position >= len) return 0;
+    size_t n = len - f->position;
+    if (n > size) n = size;
+    memcpy(buf, txt + f->position, n);
+    f->position += n;
+    return (int)n;
+}
+
+static int network_read(struct file *f,
+                        void *buf,
+                        size_t size)
+{
+    char t[256];
+
+    ksnprintf(
+        t,
+        sizeof(t),
+        "MAC=%d:%d:%d:%d:%d:%d\n"
+        "IP=%d.%d.%d.%d\n"
+        "Gateway=%d.%d.%d.%d\n"
+        "Interface=%d.%d.%d.%d\n",
+        g_netdev.mac[0],
+        g_netdev.mac[1],
+        g_netdev.mac[2],
+        g_netdev.mac[3],
+        g_netdev.mac[4],
+        g_netdev.mac[5],
+
+        g_netdev.ip[0],
+        g_netdev.ip[1],
+        g_netdev.ip[2],
+        g_netdev.ip[3],
+
+        g_netdev.gateway[0],
+        g_netdev.gateway[1],
+        g_netdev.gateway[2],
+        g_netdev.gateway[3],
+
+        g_netdev.dns[0],
+        g_netdev.dns[1],
+        g_netdev.dns[2],
+        g_netdev.dns[3]
+    );
+
+    return text_read(
+        f,
+        buf,
+        size,
+        t,
+        strlen(t));
+}
+
+static struct file_operations network_fops = { .read = network_read };
+
 int e1000_init(void)
 {
+
+
+    VFS_RegisterDevice("/proc/net/info", &network_fops, NULL);
+
     pci_dev_t d;
     if (pci_find(0x8086, 0x100E, &d)) { log_info("E1000", "no 82540EM found"); return -1; }
 
@@ -94,6 +179,10 @@ int e1000_init(void)
     W(R_TIPG, 0x0060200A);
     W(R_TCTL, (1u << 1) | (1u << 3) | (0x10u << 4) | (0x40u << 12));     /* enable, pad short packets */
 
+    for(int i = 0; i < 6; ++i)
+    {
+        g_netdev.mac[i] = g_mac[i];
+    }
     log_info("E1000", "MAC %x:%x:%x:%x:%x:%x link=%s", g_mac[0], g_mac[1], g_mac[2], g_mac[3], g_mac[4], g_mac[5],
              (R(R_STATUS) & 2) ? "up" : "down");
     return 0;

@@ -135,6 +135,66 @@ public:
         }
         return r;
     }
+        
+    bool read_network(NetworkInfo& info) override
+    {
+        info = {};
+
+        int fd = open("/proc/net/info", O_RDONLY);
+        if (fd < 0)
+            return false;
+
+        char buf[512];
+        int n = read(fd, buf, sizeof(buf) - 1);
+        close(fd);
+
+        if (n <= 0)
+            return false;
+
+        buf[n] = '\0';
+
+        std::cout << "/proc/net/info:\n"
+                << buf << std::endl;
+
+        std::istringstream iss(buf);
+        std::string line;
+
+        while (std::getline(iss, line))
+        {
+            auto pos = line.find('=');
+            if (pos == std::string::npos)
+                continue;
+
+            std::string key   = line.substr(0, pos);
+            std::string value = line.substr(pos + 1);
+
+            if (key == "Interface")
+            {
+                info.interface_name = value;
+            }
+            else if (key == "Link")
+            {
+                info.present = (value == "UP");
+            }
+            else if (key == "IP")
+            {
+                info.ip_address = value;
+                std::cout<<"IP Address is "<<value<<std::endl;
+
+            }
+            else if (key == "MAC")
+            {
+                info.mac_address = value;
+                std::cout<<"MAC Address is "<<value<<std::endl;
+            }
+            else if (key == "Gateway")
+            {
+                info.gateway = value;
+            }
+        }
+
+        return true;
+    }
 
     void apply(const std::string& key, const std::string& value) override
     {

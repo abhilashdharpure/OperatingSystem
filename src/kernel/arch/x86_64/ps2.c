@@ -381,6 +381,7 @@ void ps2_poll(void)                                 /* callable from any context
 
 void init_input_system(void)
 {
+    mouse_dev.coalesce = 1;
     register_input_device(&keyboard_dev, "event0");
     register_input_device(&mouse_dev, "event1");
 }
@@ -453,36 +454,3 @@ void test_mouse_keyboard_read(void)
         }
     }
 }
-
-// #define ST_ITER 6000000                            /* each iteration ~1-2 us on real hardware (much slower in QEMU) */
-
-// void ps2_selftest_screen(void)
-// {
-//     /* Phase 1: interrupts OFF, polling the controller directly: do bytes arrive at all? */
-//     __asm__ volatile("cli");
-//     for (int i = 0; i < ST_ITER; i++) {
-//         uint8_t st = inb(STATUS_PORT);
-//         if ((i & 0x3FFF) == 0) boot_bits(3, st, 0x00FF00FF);               /* row 3 (magenta): live status register */
-//         if (st & 1) {
-//             uint8_t b = inb(DATA_PORT);
-//             boot_bits(2, b, (st & 0x20) ? 0x00FFFF00 : 0x00FFFFFF);       /* row 2: byte read by polling (yellow = mouse) */
-//             boot_bits(3, st, 0x00FF00FF);
-//         }
-//         outb(0x80, 0);                                                     /* ~1 us delay */
-//     }
-
-//     /* Phase 2: interrupts ON: do the IRQ handlers fire? (rows 0 and 1 are drawn by the handlers) */
-//     uint64_t t0 = get_system_time();
-//     boot_mark(9, 0x00FFFFFF);                      /* second white square lit = phase 2: press keys again */
-//     __asm__ volatile("sti");
-//     for (int i = 0; i < ST_ITER; i++) outb(0x80, 0);
-//     uint64_t t1 = get_system_time();
-//     boot_mark(9, 0x00303030);
-//     boot_mark(10, t1 != t0 ? 0x0000FF00 : 0x00FF0000);   /* green: timer IRQ works, red: no timer interrupts at all */
-//     boot_bits(4, (uint8_t)(t1 - t0), 0x0000FF00);
-// }
-
-// void ps2_show_state(void)
-// {
-//     boot_mark(12, kp_mode ? 0x0000FF00 : 0x00600000);
-// }   /* green = pointer mode on */

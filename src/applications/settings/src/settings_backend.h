@@ -18,12 +18,24 @@ struct BatteryInfo {
     int design_mwh = 0, full_mwh = 0;
 };
 
+struct NetworkInfo {
+    bool present = false;
+    std::string ip_address;
+    std::string mac_address;
+    std::string interface_name ;
+    std::string gateway;
+    std::vector<std::string> wifi_networks;
+};
+
+
 class ISettingsBackend {
 public:
     virtual ~ISettingsBackend() = default;
     virtual bool read_display(DisplayInfo&) = 0;
     virtual bool read_battery(BatteryInfo&) = 0;
     virtual std::vector<InfoRow> read_about() = 0;
+    virtual bool read_network(NetworkInfo&) = 0;
+
     virtual void apply(const std::string& key, const std::string& value) = 0;
 };
 
