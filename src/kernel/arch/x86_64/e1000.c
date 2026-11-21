@@ -228,7 +228,8 @@ void e1000_arp_selftest(void)
             log_info("E1000", "ARP reply: 10.0.2.2 is at %x:%x:%x:%x:%x:%x", in[22], in[23], in[24], in[25], in[26], in[27]);
             return;
         }
-        (void)inb(0x80);
+        // (void)inb(0x80);
+        __asm__ volatile("pause");
     }
     log_error("E1000", "no ARP reply: check /tmp/net.pcap");
 }

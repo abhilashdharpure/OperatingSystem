@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include "stddef.h"
 #include <arch/x86_64/irq.h>
+#include "arch/x86_64/events/input_event.h"
 
 // extern void boot_mark(int, uint32_t);
 
@@ -22,59 +23,72 @@ static inline void irq_restore_flags(unsigned long flags)
     __asm__ volatile("push %0; popf" : : "g"(flags) : "memory");
 }
 
-void input_push_event(struct input_device *dev, InputEvent* inputEvent)
+static void ring_push_locked(struct input_device *dev, const InputEvent *src)
 {
-    if (!dev || !inputEvent)
-    {
-        return;
-    }
-
-    // Lock
-    unsigned long flags = irq_save_flags_cli();
-
     if (dev->count < INPUT_BUFFER_SIZE) {
         InputEvent *ev = &dev->buffer[dev->head];
-        ev->time = inputEvent->time;
-        ev->type = inputEvent->type;
-        ev->code = inputEvent->code;
-        ev->value = inputEvent->value;
-
+        ev->time = src->time; ev->type = src->type; ev->code = src->code; ev->value = src->value;
         dev->head = (dev->head + 1) % INPUT_BUFFER_SIZE;
         dev->count++;
+    } else {
+        dev->dropped++;
     }
-    else if ((++dev->dropped & 63) == 1)
-    {
-        log_info("Input", "ring full, dropped=%u", dev->dropped);
-    }
-    
+}
 
-    //Unlock
+static void flush_motion_locked(struct input_device *dev)
+{
+    if (!dev->acc_x && !dev->acc_y) return;
+    if (INPUT_BUFFER_SIZE - dev->count < 3) return;              /* no room: keep accumulating */
+    InputEvent e = {0};
+    e.time.tv_sec = get_system_time();
+    if (dev->acc_x) { e.type = EV_REL; e.code = REL_X; e.value = dev->acc_x; ring_push_locked(dev, &e); }
+    if (dev->acc_y) { e.type = EV_REL; e.code = REL_Y; e.value = dev->acc_y; ring_push_locked(dev, &e); }
+    e.type = EV_SYN; e.code = 0; e.value = 0; ring_push_locked(dev, &e);
+    dev->acc_x = dev->acc_y = 0;
+}
+
+void input_push_event(struct input_device *dev, InputEvent *inputEvent)
+{
+    if (!dev || !inputEvent) return;
+    unsigned long flags = irq_save_flags_cli();
+
+    if (dev->coalesce) {
+        if (inputEvent->type == EV_REL && (inputEvent->code == REL_X || inputEvent->code == REL_Y)) {
+            if (inputEvent->code == REL_X) dev->acc_x += inputEvent->value; else dev->acc_y += inputEvent->value;
+            irq_restore_flags(flags);
+            return;
+        }
+        if (inputEvent->type == EV_SYN) { irq_restore_flags(flags); return; }     /* a SYN is generated when the motion is flushed */
+        flush_motion_locked(dev);                                                 /* a button: keep it ordered after earlier motion */
+        ring_push_locked(dev, inputEvent);
+        InputEvent syn = {0};
+        syn.time = inputEvent->time; syn.type = EV_SYN;
+        ring_push_locked(dev, &syn);
+    } else {
+        ring_push_locked(dev, inputEvent);
+    }
     irq_restore_flags(flags);
 }
 
 int input_pop_event(struct input_device *dev, InputEvent *out)
 {
-    if (!dev || !out)
-    {
-        return 0;
-    }
-
-    // Lock
+    if (!dev || !out) return 0;
     unsigned long flags = irq_save_flags_cli();
-
-    if (dev->count == 0)
-    {
-        irq_restore_flags(flags);
-        return 0; // no event available
-    }
-        
+    if (dev->coalesce) flush_motion_locked(dev);
+    if (dev->count == 0) { irq_restore_flags(flags); return 0; }
     *out = dev->buffer[dev->tail];
     dev->tail = (dev->tail + 1) % INPUT_BUFFER_SIZE;
     dev->count--;
-
-    //Unlock
     irq_restore_flags(flags);
     return 1;
+}
+
+static int input_can_read(struct file *f)
+{
+    ps2_poll();
+    xhci_service();
+    struct input_device *d = f->private_data;
+    return d->count > 0 || d->acc_x || d->acc_y;
 }
 
 static int input_open(struct file *file) 
@@ -83,13 +97,6 @@ static int input_open(struct file *file)
     return 0;
 }
 
-static int input_can_read(struct file *f)
-{
-    ps2_poll();
-    xhci_service();
-    struct input_device *d = f->private_data;
-    return d->count > 0;              /* not head != tail: a full ring has head == tail */
-}
 
 static int input_read(struct file *file, void *buf, size_t size)
 {

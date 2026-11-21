@@ -69,6 +69,12 @@ CompositorInput* getCompositorInput()
     return &compositorInput;
 }
 
+static uint64_t now_us()
+{
+    timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000000ULL + (uint64_t)ts.tv_nsec / 1000;
+}
+
 struct CursorShape { const char* const* rows; int w, h, hx, hy; };
 
 static const char* const k_arrow[12] = {
@@ -164,7 +170,8 @@ static void draw_default_cursor(LumaCompositor* comp)       // into comp_framebu
 }
 static void cursor_fast_update(LumaCompositor* comp)
 {
-    if (scene_fb.empty()) return;
+    // if (scene_fb.empty()) return;
+    comp_framebuffer.empty();
     bool drm = g_drm.ready();
     uint8_t* base; size_t pitch; int maxw, maxh;
     if (drm) {
@@ -184,7 +191,7 @@ static void cursor_fast_update(LumaCompositor* comp)
         int x0 = std::max(0, g_last_ox), x1 = std::min(maxw, g_last_ox + o.w);
         int y0 = std::max(0, g_last_oy), y1 = std::min(maxh, g_last_oy + o.h);
         for (int y = y0; y < y1 && x1 > x0; y++)
-            memcpy(base + (size_t)y * pitch + (size_t)x0 * 4, &scene_fb[(size_t)y * W + x0], (size_t)(x1 - x0) * 4);
+            memcpy(base + (size_t)y * pitch + (size_t)x0 * 4, &comp_framebuffer[(size_t)y * W + x0], (size_t)(x1 - x0) * 4);
         if (x1 > x0 && y1 > y0) {
             bx1 = std::min(bx1, x0); by1 = std::min(by1, y0);
             bx2 = std::max(bx2, x1); by2 = std::max(by2, y1);
@@ -210,11 +217,14 @@ static void cursor_fast_update(LumaCompositor* comp)
 
 void compositor_present(LumaCompositor* comp)
 {
-    if (comp->needs_repaint) { compositor_repaint(comp); g_cursor_dirty = false; return; }
-    if (!g_cursor_dirty) return;
-    g_cursor_dirty = false;
-    if (comp->cursor_surface) { comp->needs_repaint = true; compositor_repaint(comp); }   // client cursor: full path
-    else cursor_fast_update(comp);
+    // 1. The pointer first. It only touches the frame on screen, so it never waits for a repaint.
+    if (g_cursor_dirty) {
+        g_cursor_dirty = false;
+        if (comp->cursor_surface) comp->needs_repaint = true;     // client-supplied cursor image: full path
+        else cursor_fast_update(comp);
+    }
+    // 2. Then at most one frame, if something on screen changed (it returns early while a flip is pending).
+    if (comp->needs_repaint) compositor_repaint(comp);
 }
 
 static int on_client_fd(int fd, uint32_t mask, void *data)
@@ -320,29 +330,30 @@ void send_keymap_to_client(wl_resource* keyboard_res)
     xkb_context_unref(ctx);
 }
 
+static void draw_default_cursor_into(LumaCompositor* comp, uint8_t* base, size_t pitch)
+{
+    int sh = pick_cursor(comp);
+    const CursorShape& s = g_shapes[sh];
+    int ox = (int)comp->cursor_x - s.hx, oy = (int)comp->cursor_y - s.hy;
+    cursor_blit(base, pitch, comp->output_width, comp->output_height, s, ox, oy);
+    g_last_ox = ox; g_last_oy = oy; g_last_shape = sh; g_have_last = true;
+}
+
 void fb_flush(LumaCompositor* comp)
 {
-    // prefer DRM
+    bool client_cursor = comp->cursor_surface && comp->cursor_surface->buffer_res != nullptr;
     if (g_drm.ready()) {
-        if (!g_drm.present(comp_framebuffer.data(), comp->output_width))
-            comp->needs_repaint = true;            // a flip is pending: retried from on_drm_event()
+        if (!g_drm.begin_frame(comp_framebuffer.data(), comp->output_width)) { comp->needs_repaint = true; return; }
+        if (!client_cursor) draw_default_cursor_into(comp, g_drm.back_map(), g_drm.back_pitch());
+        if (!g_drm.commit_frame()) comp->needs_repaint = true;
         return;
     }
-
-    static bool warned = false;
-    // if (!warned)
-    {
-        std::cout << "[LumaCompositor] fb_flush: using /dev/fb0\n";
-        warned = true;
-    }
-
-    // Below code for /fb/dev
-    if (!g_fb_ptr) return;
+    if (!g_fb_ptr) return;                                       // /dev/fb0 fallback
     int w = std::min<int>(comp->output_width,  g_fb_w);
     int h = std::min<int>(comp->output_height, g_fb_h);
     for (int y = 0; y < h; y++)
-        memcpy(g_fb_ptr + (size_t)y * g_fb_pitch,
-               &comp_framebuffer[(size_t)y * comp->output_width], (size_t)w * 4);
+        memcpy(g_fb_ptr + (size_t)y * g_fb_pitch, &comp_framebuffer[(size_t)y * comp->output_width], (size_t)w * 4);
+    if (!client_cursor) draw_default_cursor_into(comp, g_fb_ptr, g_fb_pitch);
 }
 
 static inline void blend_pixel(uint8_t* dst, const uint8_t* src, const uint8_t* map_start, const uint8_t* map_end)
@@ -653,7 +664,14 @@ void compositor_repaint(LumaCompositor* comp)
         return;
     }
 
+
+    if (g_drm.ready() && g_drm.flip_pending())
+    {
+        return;     // the previous frame is still on its way: wait for the flip event
+    }
+    
     comp->needs_repaint = false;
+    uint64_t t0 = now_us();
 
     {
         std::lock_guard<std::mutex> lock(comp_fb_mutex);
@@ -663,7 +681,13 @@ void compositor_repaint(LumaCompositor* comp)
 
         // 1. Clear framebuffer (ARGB)
         // memset(comp_framebuffer.data(), 0x00, W * H * 4);
-        memcpy(comp_framebuffer.data(), bg_cache.data(), (size_t)W * H * 4);
+        // memcpy(comp_framebuffer.data(), bg_cache.data(), (size_t)W * H * 4);
+        bool covered = false;                                     // an opaque full-screen surface makes the wallpaper copy pointless
+        for (my_surface* s : comp->surfaces)
+            if (s->background && s->mapped && !s->minimized && s->committed_buffer &&
+                s->committed_buffer->format == WL_SHM_FORMAT_XRGB8888 &&
+                s->x <= 0 && s->y <= 0 && s->x + s->width >= W && s->y + s->height >= H) { covered = true; break; }
+        if (!covered) memcpy(comp_framebuffer.data(), bg_cache.data(), (size_t)W * H * 4);
 
         std::vector<my_surface*> snapshot;
 
@@ -716,15 +740,30 @@ void compositor_repaint(LumaCompositor* comp)
         }
 
 
-                // ... after the loop that composites surfaces and the frame callbacks:
-        scene_fb = comp_framebuffer;                 // scene without cursor
+        // ... after the loop that composites surfaces and the frame callbacks:
+        // scene_fb = comp_framebuffer;                 // scene without cursor
 
         if (comp->cursor_surface && comp->cursor_surface->buffer_res != nullptr)
+        {
             DrawCursor(comp, comp->cursor_surface);
-        else
-            draw_default_cursor(comp);
+        }
+        // else
+        //     draw_default_cursor(comp);
     }
+
+    uint64_t t1 = now_us();
     fb_flush(comp);
+    uint64_t t2 = now_us();
+
+    static uint64_t frames, sum_compose, sum_flush, worst, t_report;
+    frames++; sum_compose += t1 - t0; sum_flush += t2 - t1;
+    if (t2 - t0 > worst) worst = t2 - t0;
+    if (t2 - t_report > 1000000) {
+        std::cout << "[Perf] frames=" << frames << " compose=" << sum_compose / frames / 1000.0
+                  << "ms flush=" << sum_flush / frames / 1000.0 << "ms worst=" << worst / 1000.0 << "ms\n";
+        frames = sum_compose = sum_flush = worst = 0;
+        t_report = t2;
+    }
     // g_last_cx = (int)comp->cursor_x;  g_last_cy = (int)comp->cursor_y;
 }
 
@@ -1263,6 +1302,20 @@ static void surface_attach(wl_client* /*client*/, wl_resource* surface_res, wl_r
     surf->buffer_res = buffer; // just track it
 }
 
+static bool g_idle_queued = false;
+static void idle_repaint(void* data)
+{
+    g_idle_queued = false;
+    compositor_present(static_cast<LumaCompositor*>(data));
+}
+static void schedule_repaint(LumaCompositor* c)        // one repaint per event-loop pass, after input has been handled
+{
+    c->needs_repaint = true;
+    if (g_idle_queued || !c->loop) return;
+    g_idle_queued = true;
+    wl_event_loop_add_idle(c->loop, idle_repaint, c);
+}
+
 static void surface_commit(wl_client* client, wl_resource* surface_res)
 {
     // std::cout << "[LumaCompositor] surface_commit\n";
@@ -1349,8 +1402,7 @@ static void surface_commit(wl_client* client, wl_resource* surface_res)
     }
     // wl_display_flush_clients(comp->display);
 
-    comp->needs_repaint = true;
-    compositor_repaint(comp);
+    schedule_repaint(comp);
 }
 
 void clear_surface_from_framebuffer(LumaCompositor* comp, my_surface* surf)
@@ -1935,8 +1987,8 @@ static void xdg_surface_set_window_geometry(struct wl_client*, struct wl_resourc
         if(comp != nullptr)
         {
 
-            comp->cursor_x = width/2;
-            comp->cursor_y = height/2;
+            // comp->cursor_x = width/2;
+            // comp->cursor_y = height/2;
             
             comp->focus_x = x;
             comp->focus_y = y;
@@ -2668,7 +2720,7 @@ void compositor_apply_mode(LumaCompositor* comp, int w, int h)
     comp->output_height = g_drm.height();
     size_t n = (size_t)comp->output_width * comp->output_height;
     comp_framebuffer.assign(n, 0xFF000000);
-    scene_fb.assign(n, 0xFF000000);
+    // scene_fb.assign(n, 0xFF000000);
     bg_cache.assign(n, 0xFF101A2C);                        // the boot screen no longer fits
     comp->cursor_x = std::min<double>(comp->cursor_x, comp->output_width - 1);
     comp->cursor_y = std::min<double>(comp->cursor_y, comp->output_height - 1);

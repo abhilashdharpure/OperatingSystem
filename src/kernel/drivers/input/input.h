@@ -38,6 +38,8 @@ struct input_device {
     int count;
     uint32_t dropped; 
     struct file_operations *fops;
+    int     coalesce;            /* 1: merge relative motion until it is read */
+    int32_t acc_x, acc_y;
 };
 
 // struct file_operations input_fops = {

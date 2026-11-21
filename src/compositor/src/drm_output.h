@@ -26,6 +26,13 @@ public:
     void     dirty(int x1, int y1, int x2, int y2);
     bool set_mode(int w, int h);
     std::vector<std::pair<int, int>> mode_sizes() const;
+    bool flip_pending();
+
+
+    bool     begin_frame(const uint32_t* src, int stride_px);   // copy into the hidden buffer; false while a flip is pending
+    uint8_t* back_map()   { return buf_[1 - front_].map; }
+    size_t   back_pitch() const { return buf_[1 - front_].pitch; }
+    bool     commit_frame();                                    // flip to the buffer filled by begin_frame
 
 private:
 

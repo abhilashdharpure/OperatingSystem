@@ -178,26 +178,66 @@ def run_qemu(target, source, env):
     if not Path(iso).exists():
         print("ISO not found:", iso)
         return 1
+
     if not root_img.exists():
         print("root.img not found:", root_img)
         return 1
 
     import subprocess
+    qemu_bin = str(
+        Path.home() /
+        "Projects/qemu/build-myos/qemu-system-x86_64"
+    )
     args = [
-        "qemu-system-x86_64",
-        "-M", "pc", "-m", "512M",
+        qemu_bin,
+        "-M", "pc",
+        "-m", "512M",
+
         "-drive", f"id=disk,file={root_img},format=raw,if=none",
         "-device", "ide-hd,drive=disk,bus=ide.0,unit=0",
-        "-cdrom", iso, "-boot", "d",
-        "-serial", "mon:stdio", "-monitor", "none", "-no-reboot",
-        "-vga", "none", "-device", "VGA,vgamem_mb=32",
-        "-device", "qemu-xhci",                       # the controller alone: no devices attached
+
+        "-cdrom", iso,
+        "-boot", "d",
+
+        "-serial", "mon:stdio",
+        "-monitor", "none",
+        "-no-reboot",
+
+        "-vga", "none",
+        "-device", "VGA,vgamem_mb=32",
+
+        "-device", "qemu-xhci",
+        # MyOS Virtual Wi-Fi PCI adapter
+        "-device", "myos-wifi-pci",
     ]
-    if ARGUMENTS.get("usb") == "mouse":               # scons run usb=mouse
-        args += ["-device", "usb-mouse"]              # the window's mouse now goes to the USB device
+
+    network = ARGUMENTS.get("network", "e1000")
+
+    if network == "e1000":
+        args += [
+            "-netdev", "user,id=net0",
+            "-device", "e1000,netdev=net0",
+        ]
+
+    elif network == "none":
+        pass
+
+    else:
+        print("Unknown network backend:", network)
+        return 1
+
+    if ARGUMENTS.get("usb") == "mouse":
+        args += ["-device", "usb-mouse"]
+
+    if ARGUMENTS.get("kvm") == "1" and os.access("/dev/kvm", os.W_OK):
+        args += ["-accel", "kvm", "-cpu", ARGUMENTS.get("cpu", "host")]
+        
+    print("Starting QEMU with network backend:", network)
+
     subprocess.check_call(args)
 
     return None
+
 
 run = HOST_ENVIRONMENT.Alias(
     "run",

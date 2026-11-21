@@ -1,15 +1,12 @@
+#include "pci.h"
+
 #include <stdint.h>
 #include "arch/x86_64/io.h"
 #include "debug.h"
 #include "ps2.h"
 #include "arch/x86_64/events/input_event.h"
 
-#ifndef inl
-static inline void outl(uint16_t p, uint32_t v) { __asm__ volatile("outl %0,%1" :: "a"(v), "Nd"(p)); }
-static inline uint32_t inl(uint16_t p) { uint32_t v; __asm__ volatile("inl %1,%0" : "=a"(v) : "Nd"(p)); return v; }
-#endif
 
-typedef struct { uint8_t bus, dev, fn; uint16_t vendor, device; uint8_t cls, sub, prog; } pci_dev_t;
 
 uint32_t pci_read32(uint8_t b, uint8_t d, uint8_t f, uint8_t off)
 {
@@ -29,6 +26,7 @@ void pci_scan(void)
 {
     g_npci = 0;
     for (int b = 0; b < 256; b++)
+    {
         for (int d = 0; d < 32; d++) {
             if ((pci_read32(b, d, 0, 0) & 0xFFFF) == 0xFFFF) continue;
             int multi = (pci_read32(b, d, 0, 0x0C) >> 16) & 0x80;
@@ -40,8 +38,20 @@ void pci_scan(void)
                 if (g_npci < 64) g_pci[g_npci++] = p;
                 log_info("PCI", "%x:%x.%x  %x:%x  class %x.%x.%x",
                          b, d, f, p.vendor, p.device, p.cls, p.sub, p.prog);
+
+                if (b == 3)
+                {
+                    log_info("PCI", "Bus 3 device %d function %d ID=%x",
+                            d, f, id);
+                }
             }
         }
+
+
+
+    }
+
+    log_info("PCI", "Scan complete. Devices found: %d", g_npci);
 }
 
 int pci_find(uint16_t vendor, uint16_t device, pci_dev_t *out)

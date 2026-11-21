@@ -12,6 +12,7 @@
 #include "vfs.h"
 #include "drivers/display/bochs.h"
 #include "pmm.h"
+#include "arch/x86_64/pit.h"
 
 #ifndef EFAULT
 #define EFAULT 14
@@ -531,4 +532,16 @@ void drm_init(void)
 
     VFS_RegisterDevice("/dev/dri/card0", &drm_fops, NULL);
     log_info("DRM", "/dev/dri/card0 registered (%ux%u, simple framebuffer)", fb_dev.width, fb_dev.height);
+}
+
+void drm_fb_speed_test(void)
+{
+    if (!g_cur_w) return;
+    size_t bytes = (size_t)g_cur_h * g_pitch;
+    uint8_t *fb = frame_base(0);
+    uint64_t t0 = pit_get_ticks();
+    for (int i = 0; i < 10; i++) memset(fb, i == 9 ? 0 : 0x30, bytes);       /* ends black, like the screen is now */
+    uint64_t ms = (pit_get_ticks() - t0) * 1000 / pit_get_frequency();
+    log_info("DRM", "framebuffer write: 10 x %u KiB in %u ms = %u MB/s", (unsigned)(bytes >> 10), (unsigned)ms,
+             ms ? (unsigned)((bytes * 10 / 1048576) * 1000 / ms) : 9999u);
 }

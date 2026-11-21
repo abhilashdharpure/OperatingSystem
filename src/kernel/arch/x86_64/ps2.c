@@ -159,7 +159,8 @@ static void ps2_keyboard_byte(uint8_t sc)
     uint16_t code     = e0_pending ? e0_to_evdev(make) : (make <= 0x58 ? make : 0);
     e0_pending = false;
 
-    if (code && kp_filter(code, released)) return;
+    // NOTE: This code to us move mouse using Keyboard arrow
+    // if (code && kp_filter(code, released)) return;
 
     if (code) {
         InputEvent ev = {0};

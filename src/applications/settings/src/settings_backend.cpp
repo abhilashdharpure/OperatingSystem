@@ -1,5 +1,5 @@
 #include "settings_backend.h"
-#include "luma_platform.h"                 // g.out_w / g.out_h from wl_output (fallback)
+#include <iostream>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -195,6 +195,118 @@ public:
 
         return true;
     }
+
+
+    bool ParseWifiNetwork(const std::string& line,
+                      WifiNetwork& wifi)
+    {
+        memset(&wifi, 0, sizeof(wifi));
+
+        int b0, b1, b2, b3, b4, b5;
+
+        int parsed = sscanf(
+            line.c_str(),
+            "%63[^,],%x:%x:%x:%x:%x:%x,%d,%d,%d",
+            wifi.ssid,
+            &b0,
+            &b1,
+            &b2,
+            &b3,
+            &b4,
+            &b5,
+            &wifi.rssi,
+            &wifi.channel,
+            &wifi.security);
+
+        if (parsed != 10)
+        {
+            std::cout << "Parse failed: parsed="
+                    << parsed
+                    << " line="
+                    << line
+                    << std::endl;
+            return false;
+        }
+
+        snprintf(
+            wifi.bssid,
+            sizeof(wifi.bssid),
+            "%02X:%02X:%02X:%02X:%02X:%02X",
+            b0, b1, b2, b3, b4, b5);
+
+        return true;
+    }
+
+    bool read_wifi(WifiInfo& info)
+    {
+        info = {};
+
+        int fd = open("/proc/net/wifi", O_RDONLY);
+
+        if (fd < 0)
+        {
+            std::cout<<"read_wifi open FD is invalid"<<std::endl;
+            return false;
+        }
+
+        char buf[4096];
+
+        int n = read(fd, buf, sizeof(buf) - 1);
+
+        close(fd);
+
+        if (n <= 0)
+        {
+            std::cout<<"read_wifi read FD is invalid"<<std::endl;
+
+            return false;
+        }
+
+        buf[n] = '\0';
+        info.networks.clear();
+
+        char* line = buf;
+        std::cout<<"read_wifi read line : "<<line<<std::endl;
+
+        while (*line)
+        {
+            char* end = strchr(line, '\n');
+
+            if (end)
+                *end = '\0';
+
+            if (strncmp(line, "STATUS=", 7) == 0)
+            {
+                info.ready =
+                    strcmp(line + 7, "READY") == 0;
+            }
+            else if (strncmp(line, "COUNT=", 6) == 0)
+            {
+                info.count = atoi(line + 6);
+
+                if (info.count > 32)
+                    info.count = 32;
+            }
+            else if (strncmp(line, "NETWORK=", 8) == 0)
+            {
+                WifiNetwork network;   
+                if (ParseWifiNetwork(
+                        std::string(line + 8),
+                        network))
+                {
+                    info.networks.push_back(network);
+                }
+            }
+
+            if (!end)
+                break;
+
+            line = end + 1;
+        }
+
+        return true;
+    }
+
 
     void apply(const std::string& key, const std::string& value) override
     {

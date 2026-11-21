@@ -1,4 +1,5 @@
 // xhci.c: xHCI controller start, device enumeration, HID boot mouse -> mouse_dev (polled, no interrupts)
+#include "xhci.h"
 #include <stdint.h>
 #include "string.h"
 #include "debug.h"
@@ -8,7 +9,6 @@
 #include "arch/x86_64/io.h"
 #include "arch/x86_64/pit.h"
 
-typedef struct { uint8_t bus, dev, fn; uint16_t vendor, device; uint8_t cls, sub, prog; } pci_dev_t;
 uint32_t pci_read32(uint8_t, uint8_t, uint8_t, uint8_t);
 void     pci_write32(uint8_t, uint8_t, uint8_t, uint8_t, uint32_t);
 int      pci_find_class(uint8_t, uint8_t, uint8_t, pci_dev_t *);
@@ -51,7 +51,35 @@ static int      hid_port;
 static inline uint32_t R32(volatile uint8_t *b, uint32_t o) { return *(volatile uint32_t *)(b + o); }
 static inline void W32(volatile uint8_t *b, uint32_t o, uint32_t v) { *(volatile uint32_t *)(b + o) = v; }
 static inline void W64(volatile uint8_t *b, uint32_t o, uint64_t v) { W32(b, o, (uint32_t)v); W32(b, o + 4, (uint32_t)(v >> 32)); }
-static void udelay(int n) { for (int i = 0; i < n; i++) outb(0x80, 0); }                /* about 1 us each */
+extern uint64_t pit_get_ticks(void);
+extern uint64_t pit_get_frequency(void);
+
+static uint64_t tsc_per_us;
+
+static void tsc_calibrate(void)                    /* needs the timer interrupt: call after sti */
+{
+    uint64_t freq = pit_get_frequency(), guard = 0;
+    uint64_t t0 = pit_get_ticks();
+    while (pit_get_ticks() == t0)                  /* wait for a tick edge */
+        if (++guard > 400000000ULL) { tsc_per_us = 2000; return; }       /* no timer: assume 2 GHz */
+    uint64_t a = __builtin_ia32_rdtsc(), t1 = pit_get_ticks();
+    uint64_t want = freq / 50 ? freq / 50 : 1;     /* about 20 ms of ticks */
+    while (pit_get_ticks() - t1 < want) { }
+    uint64_t b = __builtin_ia32_rdtsc();
+    uint64_t us = want * 1000000ULL / freq;
+    tsc_per_us = (b - a) / (us ? us : 1);
+    if (!tsc_per_us) tsc_per_us = 2000;
+    log_info("XHCI", "TSC about %llu MHz", (unsigned long long)tsc_per_us);
+}
+
+static void udelay(uint32_t us)
+{
+    if (!tsc_per_us) { for (volatile uint32_t i = 0; i < us * 20; i++) __asm__ volatile("pause"); return; }
+    uint64_t end = __builtin_ia32_rdtsc() + (uint64_t)us * tsc_per_us;
+    while (__builtin_ia32_rdtsc() < end) __asm__ volatile("pause");
+}
+static void msleep(uint32_t ms) { udelay(ms * 1000u); }
+
 static int wait_for(volatile uint8_t *b, uint32_t o, uint32_t mask, uint32_t val, int ms)
 {
     for (int i = 0; i < ms * 1000; i++) { if ((R32(b, o) & mask) == val) return 0; udelay(1); }
@@ -369,14 +397,6 @@ static void bios_handoff(uint32_t hcc1)                           /* the firmwar
     }
 }
 
-void msleep(uint32_t ms)
-{
-    uint64_t t0 = pit_get_ticks(), need = (uint64_t)ms * pit_get_frequency() / 1000 + 1;
-    for (uint64_t spin = 0; pit_get_ticks() - t0 < need; spin++) {
-        if (spin > 3000000) { udelay((int)(ms * 1000)); return; }        /* timer not running: busy-wait instead */
-        __asm__ volatile("pause");
-    }
-}
 
 
 void read_protocols(uint32_t hcc1)                        /* the "Supported Protocol" extended capabilities */
@@ -439,6 +459,7 @@ void ack_changes(uint32_t n)
 
 int xhci_init(void)
 {
+    tsc_calibrate();
     pci_dev_t d;
     if (pci_find_class(0x0C, 0x03, 0x30, &d)) { log_info("XHCI", "no xHCI controller"); return -1; }
 
@@ -508,15 +529,17 @@ int xhci_init(void)
 
 
     nports_g = nports;
-    power_ports(nports);
-    int waited = 0, found = 0;
-    for (; waited < 3000; waited += 10) {                 /* real controllers need time to report an attached device */
-        found = connected_usb2(nports);
-        if (found) break;
-        msleep(10);
-    }
-    if (found) msleep(150);                                /* USB debounce */
-    log_info("XHCI", "%d USB2 port(s) connected after %d ms", found, waited);
+
+    // TODO: Uncomment this, it is needed for USB mouse work on actual OS, but in QEMU with that UI is not showing
+    // power_ports(nports);
+    // int waited = 0, found = 0;
+    // for (; waited < 3000; waited += 10) {                 /* real controllers need time to report an attached device */
+    //     found = connected_usb2(nports);
+    //     if (found) break;
+    //     msleep(10);
+    // }
+    // if (found) msleep(150);                                /* USB debounce */
+    // log_info("XHCI", "%d USB2 port(s) connected after %d ms", found, waited);
     dump_ports(nports, "scan");
 
     uint8_t mask = 0;

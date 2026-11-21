@@ -1,4 +1,5 @@
 #pragma once
+
 #include <slint-platform.h>
 #include <wayland-client.h>
 #include "xdg-shell-client-protocol.h"
@@ -30,6 +31,7 @@ inline uint32_t g_last_serial = 0;
 inline const char* g_app_id = "luma_app";
 // ---------- input ----------
 inline float g_px = 0, g_py = 0;
+inline bool full_next_ = true;        // the next draw must cover the whole buffer (new buffer or first frame)
 
 inline uint32_t    g_app_w = 900, g_app_h = 500;
 inline const char* g_app_title = "Luma";
@@ -39,7 +41,7 @@ inline void (*g_global_hook)(wl_registry*, uint32_t name, const char* iface, uin
 class LumaWindow : public slint::platform::WindowAdapter {
 public:
     slint::platform::SoftwareRenderer renderer_{
-        slint::platform::SoftwareRenderer::RepaintBufferType::NewBuffer};
+        slint::platform::SoftwareRenderer::RepaintBufferType::ReusedBuffer};
     slint::PhysicalSize size_{{900, 500}};
     bool dirty_ = true, configured_ = false, frame_pending_ = false, closed_ = false;
     bool maximized_ = false;
@@ -91,6 +93,7 @@ public:
                                          size_.width * 4, WL_SHM_FORMAT_XRGB8888);
         buf_w_ = size_.width; buf_h_ = size_.height;
         scratch_.assign((size_t)buf_w_ * buf_h_, slint::Rgb8Pixel{});
+        full_next_ = true;
     }
 
     void apply_size(uint32_t w, uint32_t h) {   // no buffer work here, so a drag creates nothing per event
@@ -143,21 +146,47 @@ public:
         if (!configured_ || frame_pending_) return;
         ensure_buffer();
         dirty_ = false;
-        int w = size_.width, h = size_.height;
-        renderer_.render(std::span<slint::Rgb8Pixel>(scratch_), w);
-        for (size_t i = 0, n = (size_t)w * h; i < n; i++) {
-            const auto& p = scratch_[i];
-            shm_px_[i] = 0xFF000000u | (p.r << 16) | (p.g << 8) | p.b;
+        const int w = (int)size_.width, h = (int)size_.height;
+
+        auto t0 = std::chrono::steady_clock::now();
+        auto region = renderer_.render(std::span<slint::Rgb8Pixel>(scratch_), w);
+        auto t1 = std::chrono::steady_clock::now();
+
+        auto o = region.bounding_box_origin();
+        auto s = region.bounding_box_size();
+        int x0 = std::clamp<int>(o.x, 0, w),                  y0 = std::clamp<int>(o.y, 0, h);
+        int x1 = std::clamp<int>(o.x + (int)s.width, 0, w),   y1 = std::clamp<int>(o.y + (int)s.height, 0, h);
+        if (full_next_) { x0 = 0; y0 = 0; x1 = w; y1 = h; full_next_ = false; }
+        if (x1 <= x0 || y1 <= y0) return;                      // nothing changed: no convert, no commit
+
+        for (int y = y0; y < y1; y++) {
+            const slint::Rgb8Pixel* src = &scratch_[(size_t)y * w + x0];
+            uint32_t* dst = &shm_px_[(size_t)y * w + x0];
+            for (int x = x0; x < x1; x++, src++, dst++)
+                *dst = 0xFF000000u | ((uint32_t)src->r << 16) | ((uint32_t)src->g << 8) | src->b;
         }
+        auto t2 = std::chrono::steady_clock::now();
+
         static const wl_callback_listener cb_l = { [](void* d, wl_callback* cb, uint32_t) {
             wl_callback_destroy(cb); ((LumaWindow*)d)->frame_pending_ = false; } };
         wl_callback* cb = wl_surface_frame(surf_);
         wl_callback_add_listener(cb, &cb_l, this);
         frame_pending_ = true;
         wl_surface_attach(surf_, buf_, 0, 0);
-        wl_surface_damage(surf_, 0, 0, w, h);
+        wl_surface_damage(surf_, x0, y0, x1 - x0, y1 - y0);
         wl_surface_commit(surf_);
-        if (old_buf_) { wl_buffer_destroy(old_buf_); old_buf_ = nullptr; }   // after the commit
+        if (old_buf_) { wl_buffer_destroy(old_buf_); old_buf_ = nullptr; }
+
+        // timing, once a second: shows where a frame's time goes in this client
+        static long n = 0; static double sr = 0, sc = 0, px = 0; static auto t_rep = t2;
+        n++;
+        sr += std::chrono::duration<double, std::milli>(t1 - t0).count();
+        sc += std::chrono::duration<double, std::milli>(t2 - t1).count();
+        px += (double)(x1 - x0) * (y1 - y0);
+        if (t2 - t_rep > std::chrono::seconds(1)) {
+            printf("[Perf] client %s frames=%ld render=%.1fms convert=%.1fms avg_px=%.0f\n", g_app_id, n, sr / n, sc / n, px / n);
+            n = 0; sr = sc = px = 0; t_rep = t2;
+        }
     }
 
     void begin_move() {

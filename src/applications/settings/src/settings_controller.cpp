@@ -110,9 +110,19 @@ void SettingsController::refresh_network()
         networkList.push_back(InfoRow("Interface Name", info.interface_name));
         networkList.push_back(InfoRow("Gateway", info.gateway));
 
-        for(auto entry: info.wifi_networks)
+        WifiInfo wifiInfo;
+        be_.read_wifi(wifiInfo);
+
+        for(auto entry: wifiInfo.networks)
         {
-            networkList.push_back(InfoRow(entry, info.ip_address));
+            std::cout<<"wifiInfo.networks entry: "<<entry.ssid<<std::endl;
+
+            std::string details = "SSID:";
+            details.append(entry.bssid).append(", RSSI: ").append(std::to_string(entry.rssi));
+            details.append(", channel: ").append(std::to_string(entry.channel));
+            details.append(", security: ").append(std::to_string(entry.security));
+
+            networkList.push_back(InfoRow(entry.ssid, details));
         }
 
         s.set_network_info(to_model(networkList));

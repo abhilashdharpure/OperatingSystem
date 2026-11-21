@@ -15,6 +15,8 @@
 #include <arch/x86_64/io.h>
 #include <arch/x86_64/msr.h>
 #include <hal/klog.h>
+#include <drm/drm.h>
+#include "drivers/wifi/wifi.h"
 
 #include "multiboot2_defines.h"
 #include "arch/x86_64/serial.h"
@@ -37,6 +39,11 @@
 
 #include "boot_paging.h"
 // #include "arch/x86_64/paging_bootstrap.h"
+
+#define MSR_PAT  0x277
+#define PAGE_PWT (1ULL << 3)
+
+static int g_fb_wc;
 
 extern uint8_t _kernel_stack_top;
 extern char _kernel_end;
@@ -294,8 +301,21 @@ void parse_multiboot2_module(multiboot2_info_t* mbi, uint64_t out[2])
     }
 }
 
+void fb_enable_write_combining(void)
+{
+    uint32_t eax = 1, ebx, ecx, edx;
+    __asm__ volatile("cpuid" : "+a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx));
+    if (!(edx & (1u << 16))) { log_info("FB", "no PAT support: framebuffer keeps its default memory type"); return; }
+    uint64_t pat = rdmsr(MSR_PAT);
+    pat = (pat & ~(0xFFULL << 8)) | (0x01ULL << 8);          /* PAT entry 1 (PWT=1, PCD=0, PAT=0) = write-combining */
+    __asm__ volatile("wbinvd" ::: "memory");
+    wrmsr(MSR_PAT, pat);
+    g_fb_wc = 1;
+}
+
 void map_framebuffer(VbeModeInfo* fb)
 {
+    fb_enable_write_combining();
     uint64_t pa    = (uint64_t)fb->framebuffer;        // physical from GRUB
     uint32_t size = bochs_present() ? bochs_vram_bytes() : (uint32_t)(fb->pitch * fb->height);
     g_fb_mapped_bytes = size; 
@@ -306,7 +326,8 @@ void map_framebuffer(VbeModeInfo* fb)
         uint64_t va   = KERNEL_FB_VA + i * 0x1000;
         uint64_t pa_i = pa + i * 0x1000;
 
-        int r = map_page(kernel_pml4_virt, va, pa_i, PAGE_PRESENT | PAGE_RW);
+        // int r = map_page(kernel_pml4_virt, va, pa_i, PAGE_PRESENT | PAGE_RW);
+        int r = map_page(kernel_pml4_virt, va, pa_i, PAGE_PRESENT | PAGE_RW | (g_fb_wc ? PAGE_PWT : 0));
         if (r != 0) {
             log_critical("FB", "map_page failed: va=%llx pa=%llx err=%d", va, pa_i, r);
             break;
@@ -469,7 +490,9 @@ void start(BootParams* bootParams, VbeModeInfo* fb_info)
 
     init_filesystem();
     // log_info("Main", "Kernel After init_filesystem");
-    boot_mark(1, 0x0000FF00);
+    boot_mark(1, 0x0000FF00);   
+
+    pci_debug_root();
     pci_scan();
 
     if (e1000_init() == 0)
@@ -477,10 +500,35 @@ void start(BootParams* bootParams, VbeModeInfo* fb_info)
         e1000_arp_selftest();
     }
 
+    // Initialize virtual Wi-Fi.
+    if (virtual_wifi_init() == 0)
+    {
+        virtual_wifi_scan();
+
+        wifi_network_t networks[WIFI_MAX_NETWORKS];
+
+        int count = virtual_wifi_get_networks(
+            networks,
+            WIFI_MAX_NETWORKS
+        );
+
+        for (int i = 0; i < count; i++)
+        {
+            log_info("WIFI",
+                    "SSID: %s RSSI: %d Channel: %d Security: %d",
+                    networks[i].ssid,
+                    networks[i].signal,
+                    networks[i].channel,
+                    networks[i].security);
+        }
+    }
+
     display_devices_init();
     drm_init();
 
-    xhci_init();
+    rtl8723de_pci_debug();
+    rtl8723de_init();
+    wifi_proc_init();
 
     battery_devices_init();
 
@@ -493,6 +541,9 @@ end:
     // Enable Interrupts
     __asm__ volatile("sti");
     log_info("HAL", "Interrupts enabled");
+    xhci_init();
+
+    drm_fb_speed_test();
 
 
     // // test_mouse_keyboard_read();

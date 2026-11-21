@@ -185,29 +185,31 @@ bool DrmOutput::open_device(const char* path, int expect_w, int expect_h,
     return true;
 }
 
-bool DrmOutput::present(const uint32_t* src, int stride_px)
+bool DrmOutput::begin_frame(const uint32_t* src, int stride_px)
 {
-    if (pending_ && now_ms() - pending_since_ms_ > 200) {     // the event never came: don't stall forever
-        std::printf("[drm] flip event timeout\n");
-        pending_ = false;
-    }
-    if (pending_) return false;
-
-    int back = 1 - front_;
-    Buf& b = buf_[back];
+    if (flip_pending()) return false;
+    Buf& b = buf_[1 - front_];
     for (int y = 0; y < h_; y++)
         std::memcpy(b.map + (size_t)y * b.pitch, src + (size_t)y * stride_px, (size_t)w_ * 4);
+    return true;
+}
 
+bool DrmOutput::commit_frame()
+{
+    int back = 1 - front_;
     drm_mode_crtc_page_flip pf{};
-    pf.crtc_id = crtc_; pf.fb_id = b.fb; pf.flags = DRM_MODE_PAGE_FLIP_EVENT; pf.user_data = 1;
+    pf.crtc_id = crtc_; pf.fb_id = buf_[back].fb; pf.flags = DRM_MODE_PAGE_FLIP_EVENT; pf.user_data = 1;
     if (xioctl(fd_, DRM_IOCTL_MODE_PAGE_FLIP, &pf) != 0) {
         if (errno != EBUSY) std::printf("[drm] page flip failed (errno %d)\n", errno);
         return false;
     }
-    front_ = back;
-    pending_ = true;
-    pending_since_ms_ = now_ms();
+    front_ = back; pending_ = true; pending_since_ms_ = now_ms();
     return true;
+}
+
+bool DrmOutput::present(const uint32_t* src, int stride_px)
+{
+    return begin_frame(src, stride_px) && commit_frame();
 }
 
 void DrmOutput::drain_events()
@@ -248,6 +250,12 @@ std::vector<std::pair<int, int>> DrmOutput::mode_sizes() const
     std::vector<std::pair<int, int>> v;
     for (auto& m : modes_) v.push_back({m.hdisplay, m.vdisplay});
     return v;
+}
+
+bool DrmOutput::flip_pending()
+{
+    if (pending_ && now_ms() - pending_since_ms_ > 200) pending_ = false;     // lost event: don't stall forever
+    return pending_;
 }
 
 bool DrmOutput::set_mode(int w, int h)
